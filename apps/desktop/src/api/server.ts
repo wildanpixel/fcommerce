@@ -127,7 +127,11 @@ export function createApp(): Express {
   });
 
   app.get("/api/health", (_request, response) => {
-    response.json({ ok: true, product: "Marketplace Intelligence OS" });
+    response.json({
+      ok: true,
+      product: "Marketplace Intelligence OS",
+      version: process.env.MIO_APP_VERSION ?? "1.0.0"
+    });
   });
 
   app.get("/api/marketplaces", (_request, response) => {

@@ -657,6 +657,7 @@ function SettingsView() {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: apiClient.settings });
   const platform = useQuery({ queryKey: ["platform"], queryFn: apiClient.platform });
+  const health = useQuery({ queryKey: ["health"], queryFn: apiClient.health });
   const browsers = useQuery({ queryKey: ["browsers"], queryFn: apiClient.browsers });
   type SettingsFormState = SaveSettingsPayload &
     Pick<SettingsPayload, "openAiKeyConfigured" | "geminiKeyConfigured">;
@@ -757,6 +758,14 @@ function SettingsView() {
           <StatusLine label="Marketplace adapters" active />
           <StatusLine label="Local database" active />
           <div className="rounded-md border border-white/8 bg-white/5 p-3">
+            <div className="mb-2 text-xs uppercase tracking-[0.12em] text-ink-500">
+              Application
+            </div>
+            <div className="mb-3 space-y-1 break-all text-xs leading-5 text-ink-300">
+              <div>Product: {health.data?.product ?? "Marketplace Intelligence OS"}</div>
+              <div>Version: {health.data?.version ?? "-"}</div>
+              <div>Packaged: {platform.data?.isPackaged ? "Yes" : "No"}</div>
+            </div>
             <div className="mb-2 text-xs uppercase tracking-[0.12em] text-ink-500">
               {platform.data?.os ?? "Platform"} folders
             </div>

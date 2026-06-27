@@ -70,12 +70,19 @@ Foundation notes:
 - GitHub Actions build workflow exists for Windows and macOS artifacts.
 - Prisma is configured with Windows and macOS binary targets.
 - Start screen, navigation, research wizard, project view, key stores view, reports view, and settings view exist in the renderer.
+- Packaged renderer assets load through relative `./assets/...` paths so the installed app works under Electron `file://` runtime.
+- Packaged runtime version is exposed through `/api/health` and the Settings runtime panel.
 
 Remaining foundation risk:
 
 - macOS artifact generation has not been verified on an actual macOS runner in this local audit.
 - Code signing and notarization are prepared conceptually but not configured with real certificates.
 - Android tooling discovery is not implemented.
+
+Release blocker fixes:
+
+- 2026-06-27: Fixed packaged blank-screen issue caused by absolute Vite `/assets/...` URLs resolving outside `app.asar`.
+- 2026-06-27: Verified packaged Windows UI renders latest app shell and reports version `1.0.0`.
 
 ## M1 Product Experience
 

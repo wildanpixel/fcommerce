@@ -2,6 +2,7 @@ import type {
   BrowserOption,
   CreateJobPayload,
   DashboardSnapshot,
+  HealthPayload,
   NewProjectInput,
   PlatformPayload,
   ReportGenerationPayload,
@@ -24,6 +25,7 @@ export type MarketplaceOption = {
 };
 
 export const apiClient = {
+  health: () => request<HealthPayload>("/health"),
   dashboard: () => request<DashboardSnapshot>("/dashboard"),
   platform: () => request<PlatformPayload>("/platform"),
   browsers: () => request<BrowserOption[]>("/browsers"),

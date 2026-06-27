@@ -16,6 +16,12 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 - Treat PDF-quality evidence as a product requirement, not a decorative output.
 - Update this file and `IMPLEMENTATION_STATUS.md` whenever a feature status changes.
 
+## Release Blockers
+
+| Date | Area | Status | Resolution |
+| --- | --- | --- | --- |
+| 2026-06-27 | Packaged Electron renderer assets | Fixed | Vite now emits relative `./assets/...` paths for packaged `file://` runtime, and packaged UI verification confirms the app shell renders. |
+
 ## Sprint Overview
 
 | Sprint | GitHub Milestone Name | Target Version | Theme | Estimated Time | Status |

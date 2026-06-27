@@ -4,6 +4,8 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 ## 1.0.0 - 2026-06-27
 
+- Fixed packaged Electron renderer asset loading by emitting relative Vite asset URLs for `file://` runtime.
+- Added packaged runtime version reporting through `/api/health` and the Settings runtime panel.
 - Redesigned the desktop experience around a marketplace research operating system: start screen, guided research wizard, project tabs, key-store scoring, and report workflow.
 - Added GitHub Actions build workflow for Windows installer/portable artifacts and macOS app/DMG artifacts.
 - Moved platform-specific browser executable discovery behind `PlatformService`.

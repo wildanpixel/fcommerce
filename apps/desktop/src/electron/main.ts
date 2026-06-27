@@ -28,6 +28,7 @@ async function createWindow(): Promise<void> {
   configureApplicationMenu();
 
   const { startApiServer } = await import("../api/server.js");
+  process.env.MIO_APP_VERSION = app.getVersion();
   apiServer = await startApiServer();
   process.env.MIO_API_BASE_URL = `http://127.0.0.1:${apiServer.port}/api`;
 

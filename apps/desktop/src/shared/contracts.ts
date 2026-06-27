@@ -118,6 +118,12 @@ export type BrowserOption = {
   fallbackReason?: string;
 };
 
+export type HealthPayload = {
+  ok: true;
+  product: "Marketplace Intelligence OS";
+  version: string;
+};
+
 export type CreateJobPayload = {
   projectId: string;
   keyword: string;
