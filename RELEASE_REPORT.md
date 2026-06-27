@@ -42,9 +42,9 @@ The release fix sets Vite `base` to `./`, so packaged HTML references renderer a
 | Verify UI reflects latest implementation | Passed |
 | Verify packaged application version | Passed: `/api/health` returned version `1.0.0` |
 | Update changelog | Passed |
-| Commit | Pending at report creation |
-| Push | Pending at report creation |
-| Verify GitHub Actions | Pending at report creation |
+| Commit | Passed: `7902ac702ba252cdc9205c86352f4c6d15f93aca` |
+| Push | Passed: pushed to `origin/main` |
+| Verify GitHub Actions | Passed: CI and Build Desktop Artifacts completed successfully |
 
 ## Local Validation
 
@@ -61,6 +61,19 @@ The release fix sets Vite `base` to `./`, so packaged HTML references renderer a
 - `apps/desktop/release/Marketplace Intelligence OS Setup 1.0.0.exe`
 - `apps/desktop/release/Marketplace Intelligence OS Portable 1.0.0.exe`
 - `apps/desktop/release/win-unpacked/`
+
+## GitHub Actions Verification
+
+- Commit: `7902ac702ba252cdc9205c86352f4c6d15f93aca`
+- CI: passed, [run 28276978029](https://github.com/wildanpixel/fcommerce/actions/runs/28276978029)
+- Build Desktop Artifacts: passed, [run 28276978026](https://github.com/wildanpixel/fcommerce/actions/runs/28276978026)
+- Windows Desktop job: passed.
+- macOS Desktop job: passed.
+
+Uploaded artifacts:
+
+- `marketplace-intelligence-os-windows`
+- `marketplace-intelligence-os-macos`
 
 ## Packaged App Verification
 
