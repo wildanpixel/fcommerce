@@ -70,6 +70,28 @@ select {
   opacity: 0.45;
 }
 
+.secondary-button {
+  display: inline-flex;
+  height: 40px;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eef3f9;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    opacity 160ms ease;
+}
+
+.secondary-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

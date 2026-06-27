@@ -16,6 +16,8 @@ The current desktop target is Shopee Indonesia. The architecture keeps marketpla
 - Modular HTML report generation with Puppeteer PDF export.
 - Cross-platform browser discovery for Chromium, Google Chrome, Microsoft Edge, and Brave.
 - Platform service for application folders, native dialogs, notifications, shell actions, and shortcuts.
+- Product-led start screen, research wizard, project tabs, key-store scoring, and report workflow matching the reference research report sequence.
+- Android automation adapter boundary for future Shopee Mobile App, TikTok Shop Mobile, emulator, OCR, and vision workflows.
 
 ## Repository Layout
 
@@ -92,6 +94,13 @@ pnpm test:e2e
 pnpm build
 ```
 
+## Continuous Builds
+
+GitHub Actions builds production artifacts from the same repository:
+
+- `.github/workflows/ci.yml` runs source checks.
+- `.github/workflows/build.yml` builds Windows installer/portable artifacts on Windows runners and macOS app/DMG artifacts on macOS runners.
+
 ## Packaging
 
 Windows installer and portable builds:
@@ -131,6 +140,7 @@ Screenshots for documentation can be placed under [docs/screenshots](docs/screen
 - If browser automation cannot find a preferred browser, select bundled Chromium in Settings.
 - If database initialization fails, remove the local development database under `apps/desktop/data/` and run the app again.
 - On macOS, package from macOS so Electron Builder can produce signed or notarized artifacts later.
+- If the desktop window opens without content, run the packaged app with Electron logging and verify the local API starts; the app depends on the packaged Prisma generated client and native engine being present.
 
 ## License
 

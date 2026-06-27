@@ -1,7 +1,6 @@
 import { access } from "node:fs/promises";
-import { delimiter, join } from "node:path";
-import { homedir } from "node:os";
-import { getPlatformService, type OperatingSystem } from "../platform/PlatformService.js";
+import { join } from "node:path";
+import { getPlatformService } from "../platform/PlatformService.js";
 import type { BrowserPreference } from "../../shared/contracts.js";
 
 export type BrowserInstall = {
@@ -18,11 +17,10 @@ export class BrowserDiscoveryService {
   async discover(): Promise<BrowserInstall[]> {
     const platform = getPlatformService();
     const profileRoot = platform.info.directories.browserProfiles;
-    const os = platform.info.os;
     const [chrome, edge, brave] = await Promise.all([
-      findFirstExisting(candidatePaths(os, "chrome")),
-      findFirstExisting(candidatePaths(os, "edge")),
-      findFirstExisting(candidatePaths(os, "brave"))
+      findFirstExisting(platform.browserExecutableCandidates("chrome")),
+      findFirstExisting(platform.browserExecutableCandidates("edge")),
+      findFirstExisting(platform.browserExecutableCandidates("brave"))
     ]);
 
     return [
@@ -75,57 +73,6 @@ export class BrowserDiscoveryService {
         : "Unknown browser preference. Falling back to Chromium."
     };
   }
-}
-
-function candidatePaths(os: OperatingSystem, browser: Exclude<BrowserPreference, "chromium">): string[] {
-  const home = homedir();
-  const pathCandidates = pathExecutables(browser);
-  if (os === "windows") {
-    const roots = [
-      process.env.LOCALAPPDATA,
-      process.env.PROGRAMFILES,
-      process.env["PROGRAMFILES(X86)"]
-    ].filter((value): value is string => Boolean(value));
-    const byBrowser = {
-      chrome: roots.map((root) => join(root, "Google", "Chrome", "Application", "chrome.exe")),
-      edge: roots.map((root) => join(root, "Microsoft", "Edge", "Application", "msedge.exe")),
-      brave: roots.map((root) =>
-        join(root, "BraveSoftware", "Brave-Browser", "Application", "brave.exe")
-      )
-    };
-    return [...byBrowser[browser], ...pathCandidates];
-  }
-
-  if (os === "macos") {
-    const byBrowser = {
-      chrome: [
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        join(home, "Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome")
-      ],
-      edge: [
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-        join(home, "Applications", "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge")
-      ],
-      brave: [
-        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-        join(home, "Applications", "Brave Browser.app", "Contents", "MacOS", "Brave Browser")
-      ]
-    };
-    return [...byBrowser[browser], ...pathCandidates];
-  }
-
-  return pathCandidates;
-}
-
-function pathExecutables(browser: Exclude<BrowserPreference, "chromium">): string[] {
-  const names = {
-    chrome: ["google-chrome", "google-chrome-stable", "chrome", "chrome.exe"],
-    edge: ["microsoft-edge", "microsoft-edge-stable", "msedge", "msedge.exe"],
-    brave: ["brave-browser", "brave", "brave.exe"]
-  }[browser];
-  return (process.env.PATH ?? "")
-    .split(delimiter)
-    .flatMap((directory) => names.map((name) => join(directory, name)));
 }
 
 async function findFirstExisting(paths: string[]): Promise<string | undefined> {

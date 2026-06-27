@@ -35,6 +35,7 @@ The app stores:
 ## Browser Detection
 
 Browser automation uses `BrowserDiscoveryService` and `PlaywrightBrowserLauncher`.
+Platform-specific browser executable locations are exposed through `PlatformService`; collectors do not hardcode operating-system paths.
 
 Supported choices:
 
@@ -96,6 +97,15 @@ Build both on capable CI:
 ```bash
 pnpm package:all
 ```
+
+## GitHub Actions
+
+`.github/workflows/build.yml` packages each operating system on its native runner:
+
+- Windows runner: installs dependencies, generates Prisma Client, runs checks, builds React/Electron code, packages NSIS installer and portable EXE, then uploads `.exe` artifacts.
+- macOS runner: installs dependencies, generates Prisma Client, runs checks, builds React/Electron code, packages `.app` directories and `.dmg` artifacts for x64 and arm64, then uploads macOS artifacts.
+
+Prisma is configured with `native`, `windows`, `darwin`, and `darwin-arm64` binary targets so packaged desktop builds include the correct SQLite query engines.
 
 ## Code Signing And Notarization
 

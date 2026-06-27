@@ -17,4 +17,11 @@ describe("PlatformService", () => {
       expect(service.info.shortcutModifier).toBe("Command");
     }
   });
+
+  it("keeps browser executable discovery behind the platform service", () => {
+    const service = createNodePlatformService();
+    expect(service.browserExecutableCandidates("chrome").length).toBeGreaterThan(0);
+    expect(service.browserExecutableCandidates("edge").length).toBeGreaterThan(0);
+    expect(service.browserExecutableCandidates("brave").length).toBeGreaterThan(0);
+  });
 });

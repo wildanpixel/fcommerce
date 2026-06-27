@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import type { App, NotificationConstructorOptions, Shell } from "electron";
+import type { BrowserPreference } from "../../shared/contracts.js";
 
 export type OperatingSystem = "windows" | "macos" | "linux";
 
@@ -27,6 +28,7 @@ export type PlatformInfo = {
 export interface PlatformService {
   readonly info: PlatformInfo;
   ensureDirectories(): void;
+  browserExecutableCandidates(browser: Exclude<BrowserPreference, "chromium">): string[];
   openPath(targetPath: string): Promise<void>;
   openExternal(url: string): Promise<void>;
   showNotification(title: string, body: string): void;
@@ -111,6 +113,17 @@ class BasicPlatformService implements PlatformService {
     }
   }
 
+  browserExecutableCandidates(browser: Exclude<BrowserPreference, "chromium">): string[] {
+    const pathCandidates = pathExecutables(browser);
+    if (this.info.os === "windows") {
+      return [...windowsBrowserCandidates(browser), ...pathCandidates];
+    }
+    if (this.info.os === "macos") {
+      return [...macBrowserCandidates(browser), ...pathCandidates];
+    }
+    return pathCandidates;
+  }
+
   async openPath(targetPath: string): Promise<void> {
     if (this.native) {
       await this.native.openPath(targetPath);
@@ -175,6 +188,53 @@ function createDirectories(appData: string, cache: string): AppDirectories {
     cache,
     browserProfiles: join(appData, "browser-profiles")
   };
+}
+
+function windowsBrowserCandidates(browser: Exclude<BrowserPreference, "chromium">): string[] {
+  const roots = [
+    process.env.LOCALAPPDATA,
+    process.env.PROGRAMFILES,
+    process.env["PROGRAMFILES(X86)"]
+  ].filter((value): value is string => Boolean(value));
+  const byBrowser = {
+    chrome: roots.map((root) => join(root, "Google", "Chrome", "Application", "chrome.exe")),
+    edge: roots.map((root) => join(root, "Microsoft", "Edge", "Application", "msedge.exe")),
+    brave: roots.map((root) =>
+      join(root, "BraveSoftware", "Brave-Browser", "Application", "brave.exe")
+    )
+  };
+  return byBrowser[browser];
+}
+
+function macBrowserCandidates(browser: Exclude<BrowserPreference, "chromium">): string[] {
+  const home = homedir();
+  const byBrowser = {
+    chrome: [
+      join("/Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
+      join(home, "Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome")
+    ],
+    edge: [
+      join("/Applications", "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge"),
+      join(home, "Applications", "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge")
+    ],
+    brave: [
+      join("/Applications", "Brave Browser.app", "Contents", "MacOS", "Brave Browser"),
+      join(home, "Applications", "Brave Browser.app", "Contents", "MacOS", "Brave Browser")
+    ]
+  };
+  return byBrowser[browser];
+}
+
+function pathExecutables(browser: Exclude<BrowserPreference, "chromium">): string[] {
+  const names = {
+    chrome: ["google-chrome", "google-chrome-stable", "chrome", "chrome.exe"],
+    edge: ["microsoft-edge", "microsoft-edge-stable", "msedge", "msedge.exe"],
+    brave: ["brave-browser", "brave", "brave.exe"]
+  }[browser];
+  return (process.env.PATH ?? "")
+    .split(delimiter)
+    .filter(Boolean)
+    .flatMap((directory) => names.map((name) => join(directory, name)));
 }
 
 function openWithSystem(target: string, os: OperatingSystem): Promise<void> {

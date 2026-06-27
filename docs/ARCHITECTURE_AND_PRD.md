@@ -53,10 +53,12 @@ Runtime database, settings, screenshots, reports, logs, cache, and browser profi
 
 ## UI Flow
 
-1. Dashboard: project metrics, recent jobs, project coverage chart, project cards.
-2. Research: create project, configure keyword job, choose product limit and evidence options.
-3. Reports: toggle modular sections and export HTML/PDF.
-4. Settings: marketplace, theme, browser, export/screenshot folders, language, concurrency, OpenAI and Gemini keys.
+1. Home: branded start screen, `New Research`, recent research, metrics, and workflow progression.
+2. New Research Wizard: marketplace choice, automatic collection mode, evidence scope, keyword, country, language, depth, time/cost/storage estimates, and start action.
+3. Projects: one keyword per project with tabs for Overview, Products, Stores, Reviews, Media, Visual Analysis, Key Stores, Report, and Export.
+4. Key Stores: AI ranking surface for brand identity, visual consistency, voucher strategy, trust, strengths, weaknesses, and recommendations.
+5. Reports: modular report workflow and export actions.
+6. Settings: local runtime configuration, API keys, folders, browser preference, language, and concurrency.
 
 ## Automation Design
 
@@ -65,6 +67,10 @@ Shopee V1 uses Playwright only. It opens browser-visible Shopee pages, searches 
 Browser automation supports bundled Chromium, Google Chrome, Microsoft Edge, and Brave through `BrowserDiscoveryService`. Persistent browser profiles are stored under the platform app data folder. If a selected browser is not installed, automation falls back to bundled Chromium.
 
 No Shopee API is used.
+
+## Android Automation Boundary
+
+`AndroidAutomationAdapter` defines the future mobile automation contract for Android Studio Emulator, Genymotion, and real ADB devices. V1 keeps this disabled through an explicit unsupported implementation while preserving the marketplace-agnostic boundary for Shopee Mobile App and TikTok Shop Mobile support.
 
 ## AI Service Layer
 

@@ -9,6 +9,22 @@ import type {
 } from "../models.js";
 import type { MarketplaceId } from "../../shared/contracts.js";
 
+export type CollectionMethod =
+  | "desktop-web"
+  | "android-emulator"
+  | "browser-automation"
+  | "ocr"
+  | "vision-ai";
+
+export type CollectionPlan = {
+  marketplace: MarketplaceId;
+  keyword: string;
+  country: string;
+  language: string;
+  preferredMethods: CollectionMethod[];
+  automatic: boolean;
+};
+
 export interface MarketplaceAdapter {
   readonly id: MarketplaceId;
   readonly displayName: string;
@@ -18,6 +34,16 @@ export interface MarketplaceAdapter {
   collectProduct(request: ProductCollectionRequest): Promise<ProductCollectionResult>;
   collectStore(request: StoreCollectionRequest): Promise<StoreCollectionResult>;
   normalizeUrl(url: string): string;
+}
+
+export interface AndroidAutomationAdapter {
+  readonly id: "android-studio-emulator" | "genymotion" | "adb-device";
+  readonly displayName: string;
+  isAvailable(): Promise<boolean>;
+  start(): Promise<void>;
+  captureScreenshot(label: string): Promise<string>;
+  extractVisibleText(): Promise<string>;
+  stop(): Promise<void>;
 }
 
 export class MarketplaceFeatureUnavailableError extends Error {

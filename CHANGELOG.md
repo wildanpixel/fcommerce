@@ -4,6 +4,11 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 ## 1.0.0 - 2026-06-27
 
+- Redesigned the desktop experience around a marketplace research operating system: start screen, guided research wizard, project tabs, key-store scoring, and report workflow.
+- Added GitHub Actions build workflow for Windows installer/portable artifacts and macOS app/DMG artifacts.
+- Moved platform-specific browser executable discovery behind `PlatformService`.
+- Added Android automation adapter contract for future emulator, ADB, OCR, and vision workflows.
+- Added explicit Prisma binary targets for Windows, macOS Intel, and macOS Apple Silicon package builds.
 - Added Electron desktop foundation with React, TypeScript, Vite, and TailwindCSS.
 - Added Clean Architecture module boundaries for domain, application, infrastructure, API, Electron, and renderer layers.
 - Added marketplace adapter contract with Shopee Indonesia implementation and future marketplace placeholders.

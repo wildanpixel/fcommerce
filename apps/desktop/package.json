@@ -130,6 +130,7 @@
       "category": "public.app-category.business",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
+      "artifactName": "${productName} ${version}-${arch}.${ext}",
       "target": [
         {
           "target": "dmg",
@@ -148,7 +149,7 @@
       ]
     },
     "dmg": {
-      "artifactName": "${productName} ${version}.${ext}"
+      "artifactName": "${productName} ${version}-${arch}.${ext}"
     },
     "nsis": {
       "artifactName": "${productName} Setup ${version}.${ext}",
