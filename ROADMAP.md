@@ -1,9 +1,9 @@
-# Marketplace Intelligence OS - Roadmap
+﻿# Marketplace Intelligence OS - Roadmap
 
 Official project roadmap.
 
-Last updated: 2026-06-27  
-Current version target: V1.0 Shopee Indonesia desktop intelligence  
+Last updated: 2026-06-27
+Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
 This roadmap converts the implementation audit into delivery sprints. It does not mark future work as complete.
@@ -18,23 +18,25 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 
 ## Sprint Overview
 
-| Sprint | GitHub Milestone Name | Target Version | Theme | Estimated Time |
-| --- | --- | --- | --- | --- |
-| Sprint 1 | M2.1 Complete Shopee Desktop Search | v0.2.0 | Complete Shopee Desktop | 1 week |
-| Sprint 2 | M2.2 Complete Product Detail | v0.3.0 | Complete Product Detail | 1 week |
-| Sprint 3 | M2.3 Complete Store Detail | v0.4.0 | Complete Store Detail | 1 week |
-| Sprint 4 | M3.1 Complete Key Stores AI | v0.5.0 | Key Stores AI | 1 week |
-| Sprint 5 | M3.2 Complete Reports | v0.6.0 | Report completeness | 1 week |
-| Sprint 6 | M4.1 Shopee Mobile Evidence | v0.7.0 | Shopee Mobile | 1 week |
-| Sprint 7 | M4.2 Android Automation | v0.8.0 | Android Automation | 2 weeks |
-| Sprint 8 | M5.1 TikTok Shop Adapter | v0.9.0 | TikTok Shop | 2 weeks |
-| Sprint 9 | M6.1 Commercial Release | v1.0.0 | Commercial Release | 2 weeks |
+| Sprint | GitHub Milestone Name | Target Version | Theme | Estimated Time | Status |
+| --- | --- | --- | --- | --- | --- |
+| Sprint 1 | M2.1 Complete Shopee Desktop Search | v0.2.0 | Complete Shopee Desktop | 1 week | Completed |
+| Sprint 2 | M2.2 Complete Product Detail | v0.3.0 | Complete Product Detail | 1 week | Next |
+| Sprint 3 | M2.3 Complete Store Detail | v0.4.0 | Complete Store Detail | 1 week | Not Started |
+| Sprint 4 | M3.1 Complete Key Stores AI | v0.5.0 | Key Stores AI | 1 week | Not Started |
+| Sprint 5 | M3.2 Complete Reports | v0.6.0 | Report completeness | 1 week | Not Started |
+| Sprint 6 | M4.1 Shopee Mobile Evidence | v0.7.0 | Shopee Mobile | 1 week | Not Started |
+| Sprint 7 | M4.2 Android Automation | v0.8.0 | Android Automation | 2 weeks | Not Started |
+| Sprint 8 | M5.1 TikTok Shop Adapter | v0.9.0 | TikTok Shop | 2 weeks | Not Started |
+| Sprint 9 | M6.1 Commercial Release | v1.0.0 | Commercial Release | 2 weeks | Not Started |
 
 ## Sprint 1 - Complete Shopee Desktop
 
-GitHub Milestone Name: M2.1 Complete Shopee Desktop Search  
-Target Version: v0.2.0  
+GitHub Milestone Name: M2.1 Complete Shopee Desktop Search
+Target Version: v0.2.0
 Estimated Time: 1 week
+Status: Completed
+Completed: 2026-06-27
 
 ### Objectives
 
@@ -46,11 +48,11 @@ Estimated Time: 1 week
 
 | Task | Dependencies | Estimated Time | Acceptance Criteria |
 | --- | --- | ---: | --- |
-| Harden Shopee search navigation | Shopee adapter, Playwright launcher | 1 day | Search result page loads from a keyword and records failure reasons when blocked. |
-| Normalize search result products | Product card parser | 1 day | Product title, URL, price, sold count, rating, store name, and image are consistently stored where visible. |
-| Capture search result screenshots | Screenshot engine, project workspace | 1 day | Search result and top-sales screenshots are saved in project folders with database asset references. |
-| Add top-sales extraction validation | Shopee sorting path | 1 day | Top-sales product list is distinguishable from relevance list. |
-| Add collection error logging | Job queue, logs | 1 day | Failed selectors, blocked pages, and retries appear in job logs. |
+| Harden Shopee search navigation | Shopee adapter, Playwright launcher | 1 day | Completed: navigation retries, interruption dismissal, readiness waits, and blocked-page diagnostics are implemented. |
+| Normalize search result products | Product card parser | 1 day | Completed: browser-readable card title, URL, price, sold count, rating, image, sort source, and visible location/store clues are normalized. |
+| Capture search result screenshots | Screenshot engine, project workspace | 1 day | Completed: search result and top-sales screenshots are saved in project folders with database asset references. |
+| Add top-sales extraction validation | Shopee sorting path | 1 day | Completed: top-sales ordering is compared against relevance ordering and ignored-sort behavior is logged. |
+| Add collection error logging | Job queue, logs | 1 day | Completed: failed selectors, blocked pages, login gates, empty results, navigation retries, and empty extraction failures appear in job logs. |
 
 ### Dependencies
 
@@ -61,16 +63,28 @@ Estimated Time: 1 week
 
 ### Acceptance Criteria
 
-- A Shopee keyword job collects at least one normalized search result when the page is available.
-- Screenshots exist for search results and top sales.
-- Empty or blocked pages are reported as structured job errors.
-- `IMPLEMENTATION_STATUS.md` M2 search-related rows are updated with the final status.
+- Passed: a Shopee keyword job has a hardened path to collect normalized search results when the page is browser-readable.
+- Passed: screenshots exist for search results and top sales when capture is enabled.
+- Passed: empty or blocked pages are reported as structured warning/error log messages.
+- Passed: `IMPLEMENTATION_STATUS.md` M2 search-related rows are updated with the final status.
+
+### Validation
+
+- Build passed.
+- TypeScript passed.
+- ESLint passed.
+- Unit tests passed.
+- Playwright smoke test passed.
+- Windows installer, portable executable, and `win-unpacked` package were generated.
+- Packaged Windows runtime launched and returned OK from `/api/health`.
+- Local macOS packaging was not available on this Windows workstation; macOS packaging remains covered by the GitHub Actions macOS runner.
 
 ## Sprint 2 - Complete Product Detail
 
-GitHub Milestone Name: M2.2 Complete Product Detail  
-Target Version: v0.3.0  
+GitHub Milestone Name: M2.2 Complete Product Detail
+Target Version: v0.3.0
 Estimated Time: 1 week
+Status: Next
 
 ### Objectives
 
@@ -103,9 +117,10 @@ Estimated Time: 1 week
 
 ## Sprint 3 - Complete Store Detail
 
-GitHub Milestone Name: M2.3 Complete Store Detail  
-Target Version: v0.4.0  
+GitHub Milestone Name: M2.3 Complete Store Detail
+Target Version: v0.4.0
 Estimated Time: 1 week
+Status: Not Started
 
 ### Objectives
 
@@ -138,9 +153,10 @@ Estimated Time: 1 week
 
 ## Sprint 4 - Complete Key Stores AI
 
-GitHub Milestone Name: M3.1 Complete Key Stores AI  
-Target Version: v0.5.0  
+GitHub Milestone Name: M3.1 Complete Key Stores AI
+Target Version: v0.5.0
 Estimated Time: 1 week
+Status: Not Started
 
 ### Objectives
 
@@ -173,9 +189,10 @@ Estimated Time: 1 week
 
 ## Sprint 5 - Complete Reports
 
-GitHub Milestone Name: M3.2 Complete Reports  
-Target Version: v0.6.0  
+GitHub Milestone Name: M3.2 Complete Reports
+Target Version: v0.6.0
 Estimated Time: 1 week
+Status: Not Started
 
 ### Objectives
 
@@ -209,9 +226,10 @@ Estimated Time: 1 week
 
 ## Sprint 6 - Shopee Mobile
 
-GitHub Milestone Name: M4.1 Shopee Mobile Evidence  
-Target Version: v0.7.0  
+GitHub Milestone Name: M4.1 Shopee Mobile Evidence
+Target Version: v0.7.0
 Estimated Time: 1 week
+Status: Not Started
 
 ### Objectives
 
@@ -242,9 +260,10 @@ Estimated Time: 1 week
 
 ## Sprint 7 - Android Automation
 
-GitHub Milestone Name: M4.2 Android Automation  
-Target Version: v0.8.0  
+GitHub Milestone Name: M4.2 Android Automation
+Target Version: v0.8.0
 Estimated Time: 2 weeks
+Status: Not Started
 
 ### Objectives
 
@@ -279,9 +298,10 @@ Estimated Time: 2 weeks
 
 ## Sprint 8 - TikTok Shop
 
-GitHub Milestone Name: M5.1 TikTok Shop Adapter  
-Target Version: v0.9.0  
+GitHub Milestone Name: M5.1 TikTok Shop Adapter
+Target Version: v0.9.0
 Estimated Time: 2 weeks
+Status: Not Started
 
 ### Objectives
 
@@ -315,9 +335,10 @@ Estimated Time: 2 weeks
 
 ## Sprint 9 - Commercial Release
 
-GitHub Milestone Name: M6.1 Commercial Release  
-Target Version: v1.0.0  
+GitHub Milestone Name: M6.1 Commercial Release
+Target Version: v1.0.0
 Estimated Time: 2 weeks
+Status: Not Started
 
 ### Objectives
 

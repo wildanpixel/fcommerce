@@ -18,11 +18,16 @@ import type { SettingsRepository } from "../../../domain/repositories.js";
 import { PlaywrightBrowserLauncher } from "../../browser/PlaywrightBrowserLauncher.js";
 import { ScreenshotEngine } from "../../screenshot/ScreenshotEngine.js";
 
-type RawCard = {
+export type ShopeeRawCard = {
   href: string;
   title: string;
   imageUrl?: string;
   text: string;
+  ariaLabel?: string;
+  imageAlt?: string;
+  parentText?: string;
+  sourceSort?: SearchRequest["sort"];
+  storeName?: string;
 };
 
 type RawProductPage = {
@@ -60,8 +65,13 @@ export class ShopeeAdapter implements MarketplaceAdapter {
     return this.withPage(async (page) => {
       const url = this.searchUrl(request.keyword, request.sort);
       const warnings: string[] = [];
-      await this.goto(page, url);
+      warnings.push(...(await this.goto(page, url)));
+      await this.tryDismissInterruptions(page);
+      await this.waitForSearchSignals(page);
       await this.scrollForInventory(page);
+      await this.tryDismissInterruptions(page);
+
+      const pageSnapshot = await this.inspectSearchPage(page);
 
       const screenshots: ScreenshotEvidence[] = [];
       if (request.captureScreenshots) {
@@ -76,10 +86,21 @@ export class ShopeeAdapter implements MarketplaceAdapter {
         );
       }
 
-      const rawCards = await this.extractProductCards(page);
+      const rawCards = await this.extractProductCards(page, request.sort);
+      warnings.push(
+        ...searchWarningsFromSnapshot({
+          ...pageSnapshot,
+          productLinkCount: rawCards.length
+        })
+      );
+      if (request.sort === "TOP_SALES" && !pageSnapshot.url.includes("sortBy=sales")) {
+        warnings.push(
+          "[SHOPEE_TOP_SALES_URL_MISMATCH] Shopee did not keep the expected top-sales sort parameter in the final URL; result order may be marketplace-adjusted."
+        );
+      }
       if (rawCards.length === 0) {
         warnings.push(
-          "Shopee returned no browser-readable product cards. This can happen when the page requires login, captcha, or regional consent."
+          "[SHOPEE_SELECTOR_EMPTY] No Shopee product-card anchors matched the expected product URL pattern after navigation and scrolling."
         );
       }
 
@@ -227,9 +248,33 @@ export class ShopeeAdapter implements MarketplaceAdapter {
     });
   }
 
-  private async goto(page: Page, url: string): Promise<void> {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
-    await page.waitForTimeout(2500);
+  private async goto(page: Page, url: string): Promise<string[]> {
+    const warnings: string[] = [];
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
+        await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+        await page.waitForTimeout(2000);
+        if (attempt > 1) {
+          warnings.push(
+            `[SHOPEE_NAVIGATION_RETRY] Shopee page loaded after retry attempt ${attempt}.`
+          );
+        }
+        return warnings;
+      } catch (error) {
+        lastError = error;
+        warnings.push(
+          `[SHOPEE_NAVIGATION_RETRY] Attempt ${attempt} failed for ${url}: ${errorMessage(error)}`
+        );
+        await page.waitForTimeout(1500);
+      }
+    }
+
+    throw new Error(
+      `[SHOPEE_NAVIGATION_FAILED] Shopee navigation failed after 2 attempts for ${url}: ${errorMessage(lastError)}`
+    );
   }
 
   private async scrollForInventory(page: Page): Promise<void> {
@@ -241,30 +286,119 @@ export class ShopeeAdapter implements MarketplaceAdapter {
     await page.waitForTimeout(800);
   }
 
-  private async extractProductCards(page: Page): Promise<RawCard[]> {
-    const cards = await page.locator("a").evaluateAll((anchors) => {
+  private async waitForSearchSignals(page: Page): Promise<void> {
+    await page
+      .waitForFunction(() => {
+        const bodyText = document.body?.innerText ?? "";
+        const hasProductLinks = [...document.querySelectorAll("a")].some((anchor) =>
+          /-i\.\d+\.\d+/.test((anchor as HTMLAnchorElement).href)
+        );
+        const hasTerminalSignal =
+          /captcha|verify|verifikasi|login|masuk|no results|tidak ditemukan|kosong|akses ditolak|blocked/i.test(
+            bodyText
+          );
+        return hasProductLinks || hasTerminalSignal;
+      }, undefined, { timeout: 15000 })
+      .catch(() => undefined);
+  }
+
+  private async tryDismissInterruptions(page: Page): Promise<void> {
+    const labels = [
+      "Accept All",
+      "Accept",
+      "Terima Semua",
+      "Saya Setuju",
+      "Setuju",
+      "Nanti",
+      "Lewati",
+      "Tutup"
+    ];
+
+    for (const label of labels) {
+      const button = page.getByRole("button", { name: new RegExp(`^\\s*${escapeRegex(label)}\\s*$`, "i") }).first();
+      if (await button.isVisible({ timeout: 300 }).catch(() => false)) {
+        await button.click({ timeout: 1000 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+      }
+    }
+  }
+
+  private async inspectSearchPage(page: Page): Promise<ShopeeSearchPageSnapshot> {
+    return page.evaluate(() => {
+      const bodyText = document.body?.innerText ?? "";
+      return {
+        url: window.location.href,
+        title: document.title,
+        bodyTextSample: bodyText.replace(/\s+/g, " ").trim().slice(0, 3000),
+        productLinkCount: [...document.querySelectorAll("a")].filter((anchor) =>
+          /-i\.\d+\.\d+/.test((anchor as HTMLAnchorElement).href)
+        ).length
+      };
+    });
+  }
+
+  private async extractProductCards(page: Page, sourceSort?: SearchRequest["sort"]): Promise<ShopeeRawCard[]> {
+    const cards = await page.locator("a").evaluateAll((anchors, sort) => {
+      const normalizeText = (value: string | null | undefined) =>
+        (value ?? "").replace(/\s+/g, " ").trim();
+
+      const productTitleFromText = (text: string) =>
+        text
+          .split(/\n| {2,}/)
+          .map((line) => normalizeText(line))
+          .find((line) => line.length >= 8 && !/^(Rp|[\d.,]+\s*(rb|ribu|k|jt|juta)?\+?\s*terjual)/i.test(line)) ??
+        "";
+
+      const cardTextFor = (link: HTMLAnchorElement) => {
+        let node: HTMLElement | null = link;
+        let best = normalizeText(link.innerText || link.textContent);
+
+        for (let depth = 0; node && depth < 5; depth += 1) {
+          const text = normalizeText(node.innerText || node.textContent);
+          if (text.length > best.length && text.length <= 2500) {
+            best = text;
+          }
+          if (/Rp\s?[\d.,]+/i.test(text) && /(terjual|sold|rating|ulasan|Rp)/i.test(text)) {
+            return text;
+          }
+          node = node.parentElement;
+        }
+
+        return best;
+      };
+
       return anchors
         .map((anchor) => {
           const link = anchor as HTMLAnchorElement;
           const image = link.querySelector("img") as HTMLImageElement | null;
+          const parentText = cardTextFor(link);
+          const ariaLabel = normalizeText(link.getAttribute("aria-label"));
+          const imageAlt = normalizeText(image?.alt);
+          const title = imageAlt || ariaLabel || productTitleFromText(parentText) || normalizeText(link.textContent);
+          const storeName =
+            link.getAttribute("data-shop-name") ||
+            link.closest("[data-shop-name]")?.getAttribute("data-shop-name") ||
+            undefined;
+
           return {
             href: link.href,
-            title:
-              image?.alt?.trim() ||
-              link.getAttribute("aria-label")?.trim() ||
-              link.textContent?.trim() ||
-              "",
+            title,
             imageUrl: image?.currentSrc || image?.src || image?.getAttribute("data-src") || undefined,
-            text: link.textContent?.trim() || ""
+            text: normalizeText(link.textContent),
+            ariaLabel,
+            imageAlt,
+            parentText,
+            sourceSort: sort as SearchRequest["sort"] | undefined,
+            storeName: storeName ? normalizeText(storeName) : undefined
           };
         })
         .filter((card) => card.href.includes("shopee.co.id") && /-i\.\d+\.\d+/.test(card.href));
-    });
+    }, sourceSort);
 
-    const unique = new Map<string, RawCard>();
-    for (const card of cards as RawCard[]) {
+    const unique = new Map<string, ShopeeRawCard>();
+    for (const card of cards as ShopeeRawCard[]) {
       const normalized = this.normalizeUrl(card.href).split("?")[0];
-      if (!unique.has(normalized) && (card.title || card.text)) {
+      if (!unique.has(normalized) && (card.title || card.text || card.parentText)) {
         unique.set(normalized, { ...card, href: normalized });
       }
     }
@@ -302,7 +436,7 @@ export class ShopeeAdapter implements MarketplaceAdapter {
     });
   }
 
-  private async extractStorePage(page: Page): Promise<{ name: string; text: string; images: string[]; cards: RawCard[] }> {
+  private async extractStorePage(page: Page): Promise<{ name: string; text: string; images: string[]; cards: ShopeeRawCard[] }> {
     const pageData = await page.evaluate(() => {
       const images = [...document.images]
         .map((image) => image.currentSrc || image.src)
@@ -321,36 +455,87 @@ export class ShopeeAdapter implements MarketplaceAdapter {
     return { ...pageData, cards };
   }
 
-  private toProductCard(raw: RawCard, rank: number): ProductCard {
-    const combinedText = `${raw.title}\n${raw.text}`;
+  private toProductCard(raw: ShopeeRawCard, rank: number): ProductCard {
+    const product = parseShopeeProductCard(raw, rank);
     return {
-      marketplace: this.id,
-      marketplaceProductId: extractProductId(raw.href),
-      rank,
-      title: cleanTitle(raw.title || firstTextLine(raw.text)),
-      url: this.normalizeUrl(raw.href),
-      imageUrl: raw.imageUrl,
-      price: parsePrice(combinedText),
-      rating: parseRating(combinedText),
-      reviewCount: parseCountNear(combinedText, ["rating", "ratings", "ulasan"]),
-      monthlySold: parseMonthlySold(combinedText),
-      totalSold: parseCountNear(combinedText, ["sold", "terjual"]),
-      storeName: undefined,
-      storeUrl: undefined,
-      mallStatus: /mall|ori|official/i.test(combinedText),
-      officialStatus: /official/i.test(combinedText),
-      starSeller: /star/i.test(combinedText),
-      raw: {
-        text: raw.text,
-        imageUrl: raw.imageUrl
-      }
+      ...product,
+      url: this.normalizeUrl(product.url)
     };
   }
 }
 
+export type ShopeeSearchPageSnapshot = {
+  url: string;
+  title: string;
+  bodyTextSample: string;
+  productLinkCount: number;
+};
+
+export function searchWarningsFromSnapshot(snapshot: ShopeeSearchPageSnapshot): string[] {
+  const text = `${snapshot.title}\n${snapshot.bodyTextSample}`;
+  const warnings: string[] = [];
+
+  if (/captcha|robot|unusual traffic|verify|verifikasi|security check|akses ditolak|blocked/i.test(text)) {
+    warnings.push(
+      "[SHOPEE_BLOCKED_PAGE] Shopee showed a verification, captcha, security, or blocked-access signal."
+    );
+  }
+  if (snapshot.productLinkCount === 0 && /login|log in|masuk|daftar|sign in/i.test(text)) {
+    warnings.push(
+      "[SHOPEE_LOGIN_REQUIRED] Shopee showed a login or account gate before product cards became readable."
+    );
+  }
+  if (/no results|tidak ditemukan|hasil tidak ditemukan|produk tidak tersedia|kosong/i.test(text)) {
+    warnings.push(
+      "[SHOPEE_EMPTY_RESULT] Shopee indicated that no results were available for the keyword."
+    );
+  }
+  if (snapshot.productLinkCount === 0) {
+    warnings.push(
+      "[SHOPEE_NO_PRODUCT_LINKS] No browser-readable product links were found on the final search page."
+    );
+  }
+
+  return [...new Set(warnings)];
+}
+
+export function parseShopeeProductCard(raw: ShopeeRawCard, rank: number): ProductCard {
+  const combinedText = [raw.title, raw.ariaLabel, raw.imageAlt, raw.text, raw.parentText]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join("\n");
+  const title = selectProductTitle(raw, combinedText);
+
+  return {
+    marketplace: "SHOPEE_ID",
+    marketplaceProductId: extractProductId(raw.href),
+    rank,
+    title,
+    url: raw.href,
+    imageUrl: raw.imageUrl,
+    price: parsePrice(combinedText),
+    rating: parseRating(combinedText),
+    reviewCount: parseCountNear(combinedText, ["rating", "ratings", "ulasan", "penilaian"]),
+    monthlySold: parseMonthlySold(combinedText),
+    totalSold: parseCountNear(combinedText, ["sold", "terjual"]),
+    storeName: raw.storeName ?? extractStoreName(combinedText),
+    storeUrl: undefined,
+    mallStatus: /shopee mall|mall|ori|official/i.test(combinedText),
+    officialStatus: /official|resmi/i.test(combinedText),
+    starSeller: /star\+?|star seller/i.test(combinedText),
+    raw: {
+      text: raw.text,
+      parentText: raw.parentText,
+      imageUrl: raw.imageUrl,
+      sourceSort: raw.sourceSort,
+      locationText: extractLocationLine(combinedText),
+      extractionVersion: "shopee-search-v2"
+    }
+  };
+}
+
 function parsePrice(text: string) {
-  const values = [...text.matchAll(/Rp\s?([\d.]+)/gi)]
-    .map((match) => Number(match[1].replace(/\./g, "")))
+  const values = [...text.matchAll(/Rp\s?([\d.,]+)\s*(rb|ribu|k|jt|juta)?/gi)]
+    .map((match) => normalizePrice(match[1], match[2]))
     .filter((value) => Number.isFinite(value) && value > 0);
   if (values.length === 0) {
     return { currency: "IDR" as const };
@@ -366,14 +551,43 @@ function parsePrice(text: string) {
   };
 }
 
+function normalizePrice(value: string, suffix?: string): number {
+  const numeric = Number(value.replace(/\./g, "").replace(",", "."));
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  const normalizedSuffix = suffix?.toLowerCase();
+  if (["rb", "ribu", "k"].includes(normalizedSuffix ?? "")) {
+    return Math.round(numeric * 1000);
+  }
+  if (["jt", "juta"].includes(normalizedSuffix ?? "")) {
+    return Math.round(numeric * 1000000);
+  }
+  return Math.round(numeric);
+}
+
 function enrichPrice(existing: MoneyRange, text: string): MoneyRange {
   const parsed = parsePrice(text);
   return parsed.average ? parsed : existing;
 }
 
 function parseRating(text: string): number | undefined {
-  const match = text.match(/\b([1-5](?:[.,]\d)?)\s*(?:\/\s*5|rating|ratings|\*)?/i);
-  return match ? Number(match[1].replace(",", ".")) : undefined;
+  const labeled =
+    text.match(/(?:rating|ratings|penilaian)\s*:?\s*([1-5](?:[.,]\d)?)/i) ??
+    text.match(/([1-5](?:[.,]\d)?)\s*(?:\/\s*5|\*)/i);
+  if (labeled) {
+    return Number(labeled[1].replace(",", "."));
+  }
+
+  if (!/(terjual|sold|ulasan|rating|penilaian)/i.test(text)) {
+    return undefined;
+  }
+
+  const standalone = text
+    .split(/\n| {2,}/)
+    .map((line) => line.trim())
+    .find((line) => /^[1-5](?:[.,]\d)$/.test(line));
+  return standalone ? Number(standalone.replace(",", ".")) : undefined;
 }
 
 function parseMonthlySold(text: string): number | undefined {
@@ -383,12 +597,12 @@ function parseMonthlySold(text: string): number | undefined {
 function parseCountNear(text: string, labels: string[]): number | undefined {
   const compact = text.replace(/\s+/g, " ");
   for (const label of labels) {
-    const regex = new RegExp(`([\\d.,]+)\\s*(rb|ribu|k|jt|m|mio|million|juta)?\\s*${escapeRegex(label)}`, "i");
+    const regex = new RegExp(`([\\d.,]+)\\s*(rb|ribu|k|jt|m|mio|million|juta)?\\+?\\s*${escapeRegex(label)}`, "i");
     const match = compact.match(regex);
     if (match) {
       return normalizeCount(match[1], match[2]);
     }
-    const reversed = new RegExp(`${escapeRegex(label)}\\s*:?\\s*([\\d.,]+)\\s*(rb|ribu|k|jt|m|mio|million|juta)?`, "i");
+    const reversed = new RegExp(`${escapeRegex(label)}\\s*:?\\s*([\\d.,]+)\\s*(rb|ribu|k|jt|m|mio|million|juta)?\\+?`, "i");
     const reversedMatch = compact.match(reversed);
     if (reversedMatch) {
       return normalizeCount(reversedMatch[1], reversedMatch[2]);
@@ -504,6 +718,39 @@ function extractStoreId(url: string): string | undefined {
   return url.match(/\/shop\/(\d+)/)?.[1];
 }
 
+function selectProductTitle(raw: ShopeeRawCard, combinedText: string): string {
+  const candidates = [
+    raw.imageAlt,
+    raw.ariaLabel,
+    raw.title,
+    ...combinedText.split(/\n| {2,}/)
+  ]
+    .map((line) => cleanTitle(line ?? ""))
+    .filter((line) => line.length >= 8 && line.length <= 260 && !isCommerceMetricLine(line));
+
+  return candidates[0] ?? cleanTitle(raw.title || firstTextLine(raw.text || raw.parentText || ""));
+}
+
+function isCommerceMetricLine(line: string): boolean {
+  return /^(Rp|[\d.,]+\s*(rb|ribu|k|jt|juta)?\+?\s*(terjual|sold|ulasan|rating)|gratis ongkir|diskon|cashback)/i.test(line);
+}
+
+function extractStoreName(text: string): string | undefined {
+  const lines = text.split(/\n| {2,}/).map((line) => cleanTitle(line)).filter(Boolean);
+  const explicit = lines.find((line) => /^(toko|store|seller|penjual)\s*[:-]/i.test(line));
+  if (explicit) {
+    return explicit.replace(/^(toko|store|seller|penjual)\s*[:-]\s*/i, "").slice(0, 120);
+  }
+  return undefined;
+}
+
+function extractLocationLine(text: string): string | undefined {
+  return text
+    .split(/\n| {2,}/)
+    .map((line) => cleanTitle(line))
+    .find((line) => /^(kota|kab\.?|kabupaten|dki|jakarta|bandung|surabaya|tangerang|bekasi|depok|bogor|semarang|yogyakarta|bali|medan)/i.test(line));
+}
+
 function firstTextLine(text: string): string {
   return text.split("\n").map((line) => line.trim()).find(Boolean) ?? "Untitled product";
 }
@@ -514,4 +761,8 @@ function cleanTitle(title: string): string {
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

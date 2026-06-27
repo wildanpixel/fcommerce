@@ -8,7 +8,7 @@ import type {
   ProjectRepository
 } from "../../domain/repositories.js";
 import type { CreateJobPayload, ProjectSummary } from "../../shared/contracts.js";
-import type { ProductDetail, ReviewEvidence, StoreProfile } from "../../domain/models.js";
+import type { KeywordCollectionResult, ProductDetail, ReviewEvidence, StoreProfile } from "../../domain/models.js";
 
 export type WorkspaceLocator = {
   projectFolder(project: ProjectSummary): Promise<string>;
@@ -58,6 +58,7 @@ export class IntelligenceWorkflow {
       relevance.screenshots
     );
     await this.logWarnings(payload.projectId, jobId, adapter, relevance.warnings);
+    await this.logSearchSummary(payload.projectId, jobId, "RELEVANCE", relevance);
     await this.jobs.updateStatus(jobId, "RUNNING", 20);
 
     const topSales = payload.includeTopSales
@@ -79,8 +80,31 @@ export class IntelligenceWorkflow {
       );
     }
     await this.logWarnings(payload.projectId, jobId, adapter, topSales.warnings);
+    await this.logSearchSummary(payload.projectId, jobId, "TOP_SALES", topSales);
+    await this.logWarnings(
+      payload.projectId,
+      jobId,
+      adapter,
+      payload.includeTopSales ? this.validateTopSalesExtraction(relevance, topSales) : []
+    );
 
     const selectedProducts = topSales.products.length > 0 ? topSales.products : relevance.products;
+    if (selectedProducts.length === 0) {
+      const message = "Shopee search produced no browser-readable products from relevance or top-sales extraction.";
+      await this.logs.write({
+        projectId: payload.projectId,
+        jobId,
+        level: "ERROR",
+        message,
+        context: {
+          keyword: payload.keyword,
+          marketplace: adapter.id,
+          relevanceWarnings: relevance.warnings,
+          topSalesWarnings: topSales.warnings
+        }
+      });
+      throw new Error(message);
+    }
     const denominator = Math.max(selectedProducts.length, 1);
 
     for (const [index, product] of selectedProducts.entries()) {
@@ -203,5 +227,53 @@ export class IntelligenceWorkflow {
         })
       )
     );
+  }
+
+  private async logSearchSummary(
+    projectId: string,
+    jobId: string,
+    sort: "RELEVANCE" | "TOP_SALES",
+    result: KeywordCollectionResult
+  ): Promise<void> {
+    await this.logs.write({
+      projectId,
+      jobId,
+      level: "INFO",
+      message: `${sort === "TOP_SALES" ? "Top-sales" : "Relevance"} search extraction completed`,
+      context: {
+        sort,
+        productCount: result.products.length,
+        screenshotCount: result.screenshots.length,
+        warningCount: result.warnings.length,
+        firstProductUrl: result.products[0]?.url,
+        sourceSorts: [...new Set(result.products.map((product) => product.raw.sourceSort).filter(Boolean))]
+      }
+    });
+  }
+
+  private validateTopSalesExtraction(
+    relevance: KeywordCollectionResult,
+    topSales: KeywordCollectionResult
+  ): string[] {
+    if (topSales.products.length === 0) {
+      return [
+        "[SHOPEE_TOP_SALES_EMPTY] Top-sales extraction returned no browser-readable products; relevance results were used as fallback."
+      ];
+    }
+
+    const relevanceUrls = relevance.products.map((product) => product.url);
+    const topSalesUrls = topSales.products.map((product) => product.url);
+    const comparableLength = Math.min(relevanceUrls.length, topSalesUrls.length);
+    const sameOrder =
+      comparableLength > 1 &&
+      relevanceUrls.slice(0, comparableLength).every((url, index) => url === topSalesUrls[index]);
+
+    if (sameOrder) {
+      return [
+        "[SHOPEE_TOP_SALES_UNCHANGED] Top-sales results matched relevance ordering; Shopee may have ignored the sort parameter or served a personalized result set."
+      ];
+    }
+
+    return [];
   }
 }

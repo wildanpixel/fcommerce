@@ -11,9 +11,9 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-██████████░░░░░░░░░░ 48%
+[##########----------] 50%
 
-The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence/reporting depth, mobile automation, future marketplaces, and commercial release work.
+The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
 ## Status Legend
 
@@ -29,17 +29,17 @@ The overall percentage is a weighted product estimate based on foundation readin
 
 | Milestone | Area | Progress | Status |
 | --- | --- | ---: | --- |
-| M0 | Foundation | ███████████████████░ 95% | Partial |
-| M1 | Product Experience | █████████████░░░░░░░ 65% | Partial |
-| M2 | Shopee Desktop | ████████████░░░░░░░░ 60% | Partial |
-| M3 | Intelligence | ███████░░░░░░░░░░░░░ 35% | Partial |
-| M4 | Android | ██░░░░░░░░░░░░░░░░░░ 10% | Stubbed |
-| M5 | TikTok Shop | █░░░░░░░░░░░░░░░░░░░ 5% | Stubbed |
-| M6 | Commercial | ░░░░░░░░░░░░░░░░░░░░ 0% | Not Started |
+| M0 | Foundation | [###################-] 95% | Partial |
+| M1 | Product Experience | [#############-------] 65% | Partial |
+| M2 | Shopee Desktop | [##############------] 68% | Partial |
+| M3 | Intelligence | [#######-------------] 35% | Partial |
+| M4 | Android | [##------------------] 10% | Stubbed |
+| M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
+| M6 | Commercial | [--------------------] 0% | Not Started |
 
 ## M0 Foundation
 
-███████████████████░ 95%
+[###################-] 95%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -79,7 +79,7 @@ Remaining foundation risk:
 
 ## M1 Product Experience
 
-█████████████░░░░░░░ 65%
+[#############-------] 65%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -117,15 +117,15 @@ Incomplete:
 
 ## M2 Shopee Desktop
 
-████████████░░░░░░░░ 60%
+[##############------] 68%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
 | Shopee adapter registration | Completed | Marketplace Automation | Marketplace registry | Done | P0 |
 | Keyword search URL generation | Completed | Marketplace Automation | Shopee web URLs | Done | P0 |
-| Search result capture | Partial | Marketplace Automation | Playwright, screenshot engine | 2 days | P0 |
-| Top sales search path | Partial | Marketplace Automation | Playwright sorting, result parsing | 3 days | P0 |
-| Product card extraction | Partial | Marketplace Automation | Playwright DOM parsing | 4 days | P0 |
+| Search result capture | Completed | Marketplace Automation | Playwright, screenshot engine | Done | P0 |
+| Top sales search path | Completed | Marketplace Automation | Playwright sorting, result parsing | Done | P0 |
+| Product card extraction | Completed | Marketplace Automation | Playwright DOM parsing | Done | P0 |
 | Product detail collection | Partial | Marketplace Automation | Product page parser | 5 days | P0 |
 | Product images and slides | Partial | Marketplace Automation | Product media parser, screenshots | 4 days | P0 |
 | Product description | Partial | Marketplace Automation | Product page parser | 3 days | P0 |
@@ -144,8 +144,11 @@ Implemented:
 
 - Shopee adapter class exists.
 - Keyword search URL generation exists.
-- Relevance and top-sales search paths exist.
-- Product card extraction exists through Playwright page DOM anchors.
+- Relevance and top-sales search paths exist with retry diagnostics.
+- Product card extraction exists through Playwright page DOM anchors and parent-card text normalization.
+- Search result and top-sales screenshots are saved as project assets when screenshot capture is enabled.
+- Empty, blocked, login-gated, captcha, selector-empty, and navigation retry states are emitted as structured warning/error log messages.
+- Top-sales result ordering is validated against relevance ordering so ignored sort behavior is visible in job logs.
 - Product page collection exists.
 - Store page collection exists.
 - Screenshot capture is wired.
@@ -154,16 +157,27 @@ Implemented:
 
 Incomplete:
 
-- No guaranteed handling for login, captcha, consent screens, or anti-bot blocking.
+- No guaranteed bypass for login, captcha, consent screens, or anti-bot blocking.
 - Review extraction is heuristic, not complete structured review collection.
 - Store decoration, banner sections, voucher strategy, product matrix, and user media extraction are not fully structured.
 - Shopee mobile app evidence is not implemented.
 - Product slide capture is not complete as a distinct evidence workflow.
 - Report-quality evidence completeness is not guaranteed.
 
+Sprint 1 completion evidence:
+
+- Build passed.
+- TypeScript passed.
+- ESLint passed.
+- Unit tests passed, including Shopee search parser diagnostics.
+- Playwright smoke test passed.
+- Windows installer, portable executable, and `win-unpacked` package were generated.
+- Packaged Windows runtime launched and returned OK from `/api/health`.
+- Local macOS packaging was not available on this Windows workstation; macOS packaging is delegated to the GitHub Actions macOS runner.
+
 ## M3 Intelligence
 
-███████░░░░░░░░░░░░░ 35%
+[#######-------------] 35%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -201,7 +215,7 @@ Incomplete:
 
 ## M4 Android
 
-██░░░░░░░░░░░░░░░░░░ 10%
+[##------------------] 10%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -235,7 +249,7 @@ Stubbed behavior:
 
 ## M5 TikTok Shop
 
-█░░░░░░░░░░░░░░░░░░░ 5%
+[#-------------------] 5%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -261,7 +275,7 @@ Stubbed behavior:
 
 ## M6 Commercial
 
-░░░░░░░░░░░░░░░░░░░░ 0%
+[--------------------] 0%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -287,10 +301,12 @@ Stubbed behavior:
 - GitHub Actions build workflow exists for Windows and macOS artifacts.
 - Prisma is configured with Windows and macOS binary targets.
 - Start screen, navigation, research wizard, project view, key stores view, reports view, and settings view exist in the renderer.
+- Shopee desktop search, top-sales search, product-card normalization, screenshot asset saving, and structured search diagnostics are completed for Sprint 1.
 
 ### Partially Completed
 
-- Shopee desktop web collection.
+- Shopee desktop product detail collection.
+- Shopee desktop store detail collection.
 - Product-led UI shell.
 - Cross-platform packaging.
 - AI analysis workflow.
@@ -352,6 +368,14 @@ Stubbed behavior:
 
 Modified in the latest implementation commit:
 
+- `IMPLEMENTATION_STATUS.md`
+- `ROADMAP.md`
+- `apps/desktop/src/application/services/IntelligenceWorkflow.ts`
+- `apps/desktop/src/infrastructure/marketplaces/shopee/ShopeeAdapter.ts`
+- `apps/desktop/src/infrastructure/marketplaces/shopee/ShopeeAdapter.test.ts`
+
+Existing implementation files inspected:
+
 - `.github/workflows/build.yml`
 - `CHANGELOG.md`
 - `README.md`
@@ -368,13 +392,8 @@ Modified in the latest implementation commit:
 - `apps/desktop/src/renderer/styles.css`
 - `docs/ARCHITECTURE_AND_PRD.md`
 - `docs/CROSS_PLATFORM.md`
-
-Existing implementation files inspected:
-
-- `apps/desktop/src/infrastructure/marketplaces/shopee/ShopeeAdapter.ts`
 - `apps/desktop/src/infrastructure/marketplaces/MarketplaceRegistry.ts`
 - `apps/desktop/src/infrastructure/marketplaces/UnsupportedMarketplaceAdapter.ts`
-- `apps/desktop/src/application/services/IntelligenceWorkflow.ts`
 - `apps/desktop/src/api/server.ts`
 - `apps/desktop/src/shared/contracts.ts`
 - `apps/desktop/src/shared/reportSections.ts`
