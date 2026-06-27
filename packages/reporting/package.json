@@ -1,0 +1,7 @@
+{
+  "name": "@marketplace-intelligence-os/reporting",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Reporting package boundary for Marketplace Intelligence OS."
+}

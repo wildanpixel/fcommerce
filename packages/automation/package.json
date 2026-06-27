@@ -1,0 +1,7 @@
+{
+  "name": "@marketplace-intelligence-os/automation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser automation package boundary for Marketplace Intelligence OS."
+}

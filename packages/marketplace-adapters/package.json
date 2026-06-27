@@ -1,0 +1,7 @@
+{
+  "name": "@marketplace-intelligence-os/marketplace-adapters",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Marketplace adapter package boundary for Marketplace Intelligence OS."
+}

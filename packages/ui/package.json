@@ -1,0 +1,7 @@
+{
+  "name": "@marketplace-intelligence-os/ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared UI package boundary for Marketplace Intelligence OS."
+}

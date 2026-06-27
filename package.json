@@ -1,0 +1,22 @@
+{
+  "name": "marketplace-intelligence-os",
+  "version": "1.0.0",
+  "description": "Workspace for Marketplace Intelligence OS desktop application and reusable marketplace intelligence packages.",
+  "author": "Wildan Ega",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "dev": "pnpm --filter @marketplace-intelligence-os/desktop dev",
+    "build": "pnpm --filter @marketplace-intelligence-os/desktop build",
+    "typecheck": "pnpm --filter @marketplace-intelligence-os/desktop typecheck",
+    "lint": "pnpm --filter @marketplace-intelligence-os/desktop lint",
+    "test": "pnpm --filter @marketplace-intelligence-os/desktop test",
+    "test:e2e": "pnpm --filter @marketplace-intelligence-os/desktop test:e2e",
+    "prisma:generate": "pnpm --filter @marketplace-intelligence-os/desktop prisma:generate",
+    "package:win": "pnpm --filter @marketplace-intelligence-os/desktop package:win",
+    "package:mac": "pnpm --filter @marketplace-intelligence-os/desktop package:mac",
+    "package:all": "pnpm --filter @marketplace-intelligence-os/desktop package:all",
+    "clean": "node scripts/clean.mjs"
+  }
+}

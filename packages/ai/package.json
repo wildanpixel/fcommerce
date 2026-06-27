@@ -1,0 +1,7 @@
+{
+  "name": "@marketplace-intelligence-os/ai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI provider package boundary for Marketplace Intelligence OS."
+}
