@@ -1,0 +1,283 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Marketplace {
+  SHOPEE_ID
+  TIKTOK_SHOP
+  TOKOPEDIA
+  LAZADA
+  AMAZON
+  ALIBABA
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  RETRY
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ReviewSentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+enum AssetKind {
+  SEARCH_RESULT
+  TOP_SALES
+  PRODUCT_PAGE
+  PRODUCT_IMAGE
+  PRODUCT_VIDEO
+  PRODUCT_DESCRIPTION
+  REVIEW_SECTION
+  REVIEW_IMAGE
+  STORE_HOME
+  STORE_VOUCHER
+  STORE_BANNER
+  STORE_FEATURED_PRODUCTS
+  STORE_BEST_SELLER
+  STORE_PROMOTION
+  SOCIAL_ACCOUNT
+  REPORT
+}
+
+enum AnalysisSubjectType {
+  PROJECT
+  PRODUCT
+  STORE
+  REVIEW_SET
+  CREATIVE_SET
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+enum ReportStatus {
+  DRAFT
+  GENERATED
+  FAILED
+}
+
+model Project {
+  id               String        @id @default(uuid())
+  name             String
+  keyword          String
+  marketplace      Marketplace
+  status           ProjectStatus @default(DRAFT)
+  language         String        @default("id-ID")
+  exportFolder     String?
+  screenshotFolder String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  jobs             ResearchJob[]
+  products         Product[]
+  stores           Store[]
+  assets           Asset[]
+  analyses         Analysis[]
+  reports          Report[]
+  logs             LogEntry[]
+
+  @@index([marketplace, keyword])
+  @@index([status, updatedAt])
+}
+
+model ResearchJob {
+  id           String    @id @default(uuid())
+  projectId    String
+  keyword      String
+  marketplace  Marketplace
+  status       JobStatus @default(PENDING)
+  progress     Int       @default(0)
+  etaSeconds   Int?
+  configJson   String
+  errorMessage String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  logs         LogEntry[]
+
+  @@index([projectId, status])
+  @@index([marketplace, keyword])
+}
+
+model Product {
+  id                   String   @id @default(uuid())
+  projectId            String
+  storeId              String?
+  marketplace          Marketplace
+  marketplaceProductId String?
+  rank                 Int?
+  source               String?
+  selectionReason      String?
+  productType          String?
+  title                String
+  priceMin             Float?
+  priceMax             Float?
+  priceAverage         Float?
+  originalPrice        Float?
+  discount             String?
+  rating               Float?
+  reviewCount          Int?
+  monthlySold          Int?
+  totalSold            Int?
+  stock                Int?
+  storeName            String?
+  storeUrl             String?
+  productUrl           String
+  mallStatus           Boolean  @default(false)
+  officialStatus       Boolean  @default(false)
+  starSeller           Boolean  @default(false)
+  voucherText          String?
+  shippingText         String?
+  variantsJson         String
+  specificationsJson   String
+  description          String?
+  rawJson              String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  store                Store?   @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  reviews              Review[]
+
+  @@index([projectId, rank])
+  @@index([storeId])
+  @@index([marketplace, marketplaceProductId])
+}
+
+model Store {
+  id                 String    @id @default(uuid())
+  projectId          String
+  marketplace        Marketplace
+  marketplaceStoreId String?
+  name               String
+  url                String
+  followers          Int?
+  following          Int?
+  productsCount      Int?
+  rating             Float?
+  ratingCount        Int?
+  chatResponse       String?
+  joinedDate         String?
+  categoriesJson     String
+  voucherCount       Int?
+  voucherTypesJson   String
+  visualThemeJson    String
+  rawJson            String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  products           Product[]
+
+  @@index([projectId, name])
+  @@index([marketplace, marketplaceStoreId])
+}
+
+model Review {
+  id                String          @id @default(uuid())
+  productId         String
+  sentiment         ReviewSentiment
+  rating            Int?
+  comment           String
+  variation         String?
+  reviewDate        String?
+  mediaAssetIdsJson String
+  rawJson           String
+  createdAt         DateTime        @default(now())
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, sentiment])
+}
+
+model Asset {
+  id           String    @id @default(uuid())
+  projectId    String
+  ownerType    String
+  ownerId      String?
+  kind         AssetKind
+  label        String
+  path         String
+  sourceUrl    String?
+  mimeType     String
+  width        Int?
+  height       Int?
+  metadataJson String
+  createdAt    DateTime  @default(now())
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, kind])
+  @@index([ownerType, ownerId])
+}
+
+model Analysis {
+  id             String              @id @default(uuid())
+  projectId      String
+  subjectType    AnalysisSubjectType
+  subjectId      String?
+  provider       String
+  schemaVersion  String
+  resultJson     String
+  createdAt      DateTime            @default(now())
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, subjectType])
+}
+
+model Report {
+  id           String       @id @default(uuid())
+  projectId    String
+  templateId   String
+  htmlPath     String?
+  pdfPath      String?
+  status       ReportStatus @default(DRAFT)
+  sectionsJson String
+  generatedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+}
+
+model LogEntry {
+  id          String    @id @default(uuid())
+  projectId   String
+  jobId       String?
+  level       LogLevel
+  message     String
+  contextJson String
+  createdAt   DateTime  @default(now())
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  job         ResearchJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@index([jobId, createdAt])
+}
+
+model AppSetting {
+  key       String   @id
+  valueJson String
+  updatedAt DateTime @updatedAt
+}

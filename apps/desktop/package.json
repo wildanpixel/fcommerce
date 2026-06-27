@@ -1,0 +1,159 @@
+{
+  "name": "@marketplace-intelligence-os/desktop",
+  "version": "1.0.0",
+  "description": "Marketplace Intelligence OS desktop application for marketplace research, automation, AI analysis, and consulting report generation.",
+  "author": "Wildan Ega",
+  "private": true,
+  "type": "module",
+  "main": "dist-node/electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"pnpm dev:web\" \"pnpm dev:electron\"",
+    "dev:web": "vite --host 127.0.0.1 --port 5173",
+    "dev:electron": "cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 tsx src/electron/main.ts",
+    "dev:api": "tsx src/api/server.dev.ts",
+    "build": "pnpm run prisma:generate && tsc -p tsconfig.node.json && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "lint": "eslint .",
+    "test": "vitest run --config vitest.config.ts",
+    "dev:test": "concurrently -k \"pnpm dev:api\" \"pnpm dev:web\"",
+    "test:e2e": "playwright test",
+    "format": "prettier --write .",
+    "prisma:generate": "prisma generate && node scripts/preparePrismaClient.mjs",
+    "prisma:push": "tsx scripts/bootstrapDatabase.ts",
+    "package:win": "pnpm run build && electron-builder --win --x64",
+    "package:mac": "pnpm run build && electron-builder --mac",
+    "package:all": "pnpm run build && electron-builder --win --mac"
+  },
+  "dependencies": {
+    "@google/generative-ai": "0.24.1",
+    "@prisma/client": "6.19.3",
+    "@tanstack/react-query": "5.101.1",
+    "clsx": "2.1.1",
+    "electron-is-dev": "3.0.1",
+    "express": "5.2.1",
+    "framer-motion": "12.42.0",
+    "lucide-react": "0.468.0",
+    "openai": "5.23.2",
+    "playwright": "1.61.1",
+    "puppeteer": "24.43.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.15.3",
+    "sharp": "0.34.5",
+    "tesseract.js": "6.0.1",
+    "uuid": "10.0.0",
+    "zod": "3.25.76",
+    "zustand": "4.5.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.4",
+    "@playwright/test": "1.61.1",
+    "@types/express": "5.0.6",
+    "@types/node": "24.13.2",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "autoprefixer": "10.5.2",
+    "concurrently": "9.2.3",
+    "cross-env": "7.0.3",
+    "electron": "35.7.5",
+    "electron-builder": "26.15.3",
+    "eslint": "9.39.4",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "eslint-plugin-react-refresh": "0.4.26",
+    "globals": "15.15.0",
+    "postcss": "8.5.15",
+    "prettier": "3.8.4",
+    "prisma": "6.19.3",
+    "tailwindcss": "3.4.19",
+    "tsx": "4.22.4",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.62.0",
+    "vite": "6.4.3",
+    "vitest": "2.1.9"
+  },
+  "build": {
+    "appId": "com.wildanega.marketplace-intelligence-os",
+    "productName": "Marketplace Intelligence OS",
+    "directories": {
+      "buildResources": "buildResources",
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-node/**",
+      "prisma/**",
+      {
+        "from": "node_modules/.prisma",
+        "to": "node_modules/.prisma",
+        "filter": [
+          "**/*"
+        ]
+      },
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/.prisma/client/*query_engine*.node",
+      "node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/*query_engine*.node",
+      "node_modules/sharp/**",
+      "node_modules/@img/**",
+      "node_modules/.pnpm/sharp*/node_modules/sharp/**",
+      "node_modules/.pnpm/@img+*/node_modules/@img/**"
+    ],
+    "extraResources": [
+      {
+        "from": "prisma",
+        "to": "prisma"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "${productName} Portable ${version}.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "dir",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "artifactName": "${productName} ${version}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "${productName} Setup ${version}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

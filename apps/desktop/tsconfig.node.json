@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "outDir": "dist-node",
+    "rootDir": "src",
+    "types": ["node"]
+  },
+  "include": [
+    "src/api/**/*.ts",
+    "src/application/**/*.ts",
+    "src/domain/**/*.ts",
+    "src/electron/**/*.ts",
+    "src/infrastructure/**/*.ts",
+    "src/shared/**/*.ts"
+  ],
+  "exclude": ["src/**/*.test.ts", "src/renderer/**"]
+}
