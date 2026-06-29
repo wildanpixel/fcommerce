@@ -126,7 +126,8 @@ export class ShopeeAdapter implements MarketplaceAdapter {
             group: "products",
             kind: "PRODUCT_PAGE",
             label: `product ${request.product.rank} first page`,
-            sourceUrl: request.product.url
+            sourceUrl: request.product.url,
+            fullPage: false
           })
         );
       }
@@ -150,6 +151,14 @@ export class ShopeeAdapter implements MarketplaceAdapter {
         videos: raw.videos,
         raw: {
           ...request.product.raw,
+          evidencePlan: {
+            firstPageScreenshot: true,
+            productImages: raw.images.slice(0, 9),
+            productVideos: raw.videos,
+            reviewMediaCandidates: raw.images.slice(0, 9)
+          },
+          selectionReason: request.product.selectionReason,
+          source: request.product.source,
           pageTextSample: raw.text.slice(0, 5000)
         }
       };
@@ -158,6 +167,33 @@ export class ShopeeAdapter implements MarketplaceAdapter {
       if (request.collectReviews && reviews.length === 0) {
         warnings.push(
           "Review content was not available as browser-readable structured text. The report will keep screenshots and mark review extraction confidence as limited."
+        );
+      }
+
+      if (request.captureScreenshots) {
+        await page.mouse.wheel(0, 1600).catch(() => undefined);
+        await page.waitForTimeout(700).catch(() => undefined);
+        screenshots.push(
+          await this.screenshots.capture(page, {
+            projectFolder: request.projectFolder,
+            group: "products",
+            kind: "PRODUCT_DESCRIPTION",
+            label: `product ${request.product.rank} description`,
+            sourceUrl: request.product.url,
+            fullPage: false
+          })
+        );
+        await page.mouse.wheel(0, 2200).catch(() => undefined);
+        await page.waitForTimeout(700).catch(() => undefined);
+        screenshots.push(
+          await this.screenshots.capture(page, {
+            projectFolder: request.projectFolder,
+            group: "products",
+            kind: "REVIEW_SECTION",
+            label: `product ${request.product.rank} reviews`,
+            sourceUrl: request.product.url,
+            fullPage: false
+          })
         );
       }
 
@@ -170,6 +206,7 @@ export class ShopeeAdapter implements MarketplaceAdapter {
       const warnings: string[] = [];
       await this.goto(page, request.storeUrl);
       await this.scrollForInventory(page);
+      const raw = await this.extractStorePage(page);
 
       const screenshots: ScreenshotEvidence[] = [];
       if (request.captureScreenshots) {
@@ -179,12 +216,50 @@ export class ShopeeAdapter implements MarketplaceAdapter {
             group: "stores",
             kind: "STORE_HOME",
             label: "store homepage",
-            sourceUrl: request.storeUrl
+            sourceUrl: request.storeUrl,
+            fullPage: true
+          })
+        );
+        screenshots.push(
+          await this.screenshots.capture(page, {
+            projectFolder: request.projectFolder,
+            group: "stores",
+            kind: "STORE_BANNER",
+            label: "store banner and visual style",
+            sourceUrl: request.storeUrl,
+            fullPage: false
+          })
+        );
+        const popularUrl = storeUrlWithParams(request.storeUrl, "pop");
+        await this.goto(page, popularUrl).catch((error) => {
+          warnings.push(`[SHOPEE_STORE_PRODUCTS_CAPTURE_LIMITED] Could not open store products tab: ${errorMessage(error)}`);
+        });
+        screenshots.push(
+          await this.screenshots.capture(page, {
+            projectFolder: request.projectFolder,
+            group: "stores",
+            kind: "STORE_FEATURED_PRODUCTS",
+            label: "store products popular",
+            sourceUrl: popularUrl,
+            fullPage: true
+          })
+        );
+        const bestSellerUrl = storeUrlWithParams(request.storeUrl, "sales");
+        await this.goto(page, bestSellerUrl).catch((error) => {
+          warnings.push(`[SHOPEE_STORE_BEST_SELLER_CAPTURE_LIMITED] Could not open store best-seller tab: ${errorMessage(error)}`);
+        });
+        screenshots.push(
+          await this.screenshots.capture(page, {
+            projectFolder: request.projectFolder,
+            group: "stores",
+            kind: "STORE_BEST_SELLER",
+            label: "store best seller",
+            sourceUrl: bestSellerUrl,
+            fullPage: true
           })
         );
       }
 
-      const raw = await this.extractStorePage(page);
       const products = raw.cards.slice(0, 24).map((card, index) => this.toProductCard(card, index + 1));
       if (products.length === 0) {
         warnings.push(
@@ -212,7 +287,12 @@ export class ShopeeAdapter implements MarketplaceAdapter {
         visualTheme: inferVisualTheme(raw.text, raw.images),
         raw: {
           textSample: raw.text.slice(0, 5000),
-          imageCount: raw.images.length
+          imageCount: raw.images.length,
+          bannerCandidates: raw.images.slice(0, 12),
+          tiktokDiscovery: {
+            status: "not_automated",
+            reason: "TikTok Shop search requires the future Android/TikTok adapter and is tracked under M4/M5."
+          }
         }
       };
 
@@ -230,8 +310,11 @@ export class ShopeeAdapter implements MarketplaceAdapter {
   private searchUrl(keyword: string, sort: SearchRequest["sort"]): string {
     const url = new URL("/search", this.baseUrl);
     url.searchParams.set("keyword", keyword);
+    url.searchParams.set("page", "0");
     if (sort === "TOP_SALES") {
       url.searchParams.set("sortBy", "sales");
+    } else {
+      url.searchParams.set("sortBy", "relevancy");
     }
     return url.toString();
   }
@@ -505,12 +588,13 @@ export function parseShopeeProductCard(raw: ShopeeRawCard, rank: number): Produc
     .join("\n");
   const title = selectProductTitle(raw, combinedText);
 
-  return {
-    marketplace: "SHOPEE_ID",
-    marketplaceProductId: extractProductId(raw.href),
-    rank,
-    title,
-    url: raw.href,
+    return {
+      marketplace: "SHOPEE_ID",
+      marketplaceProductId: extractProductId(raw.href),
+      rank,
+      source: raw.sourceSort === "TOP_SALES" ? `Top Sales #${rank}` : `Relevance #${rank}`,
+      title,
+      url: raw.href,
     imageUrl: raw.imageUrl,
     price: parsePrice(combinedText),
     rating: parseRating(combinedText),
@@ -522,14 +606,15 @@ export function parseShopeeProductCard(raw: ShopeeRawCard, rank: number): Produc
     mallStatus: /shopee mall|mall|ori|official/i.test(combinedText),
     officialStatus: /official|resmi/i.test(combinedText),
     starSeller: /star\+?|star seller/i.test(combinedText),
-    raw: {
-      text: raw.text,
-      parentText: raw.parentText,
-      imageUrl: raw.imageUrl,
-      sourceSort: raw.sourceSort,
-      locationText: extractLocationLine(combinedText),
-      extractionVersion: "shopee-search-v2"
-    }
+      raw: {
+        text: raw.text,
+        parentText: raw.parentText,
+        imageUrl: raw.imageUrl,
+        sourceSort: raw.sourceSort,
+        sourcePlacement: raw.sourceSort === "TOP_SALES" ? `Top Sales #${rank}` : `Relevance #${rank}`,
+        locationText: extractLocationLine(combinedText),
+        extractionVersion: "shopee-search-v2"
+      }
   };
 }
 
@@ -667,17 +752,32 @@ function inferReviews(text: string, mediaUrls: string[]): ReviewEvidence[] {
   const reviewSignals = lines.filter((line) =>
     /bagus|cepat|lembut|nyaman|mantap|kecewa|buruk|rusak|tidak sesuai|suka|recommended|kualitas/i.test(line)
   );
-  return reviewSignals.slice(0, 12).map((comment) => ({
-    sentiment: /kecewa|buruk|rusak|tidak sesuai|keras|gagal/i.test(comment)
-      ? "NEGATIVE"
-      : /biasa|cukup/i.test(comment)
-        ? "NEUTRAL"
-        : "POSITIVE",
-    rating: /kecewa|buruk|rusak|tidak sesuai|keras|gagal/i.test(comment) ? 1 : 5,
-    comment,
-    mediaUrls: mediaUrls.slice(0, 3),
-    raw: { source: "browser-text-heuristic" }
-  }));
+  const mapped = reviewSignals.map((comment) => {
+    const negative = /kecewa|buruk|rusak|tidak sesuai|keras|gagal|jelek|kurang/i.test(comment);
+    return {
+      sentiment: negative ? "NEGATIVE" : "POSITIVE",
+      rating: negative ? 1 : 5,
+      comment,
+      reviewDate: extractReviewDate(comment),
+      mediaUrls: mediaUrls.slice(0, 3),
+      raw: { source: "browser-text-heuristic", requestedFormat: "3 positive 5-star and 2 negative 1-star reviews" }
+    } satisfies ReviewEvidence;
+  });
+  const positive = mapped.filter((review) => review.sentiment === "POSITIVE").slice(0, 3);
+  const negative = mapped.filter((review) => review.sentiment === "NEGATIVE").slice(0, 2);
+  return [...positive, ...negative];
+}
+
+function storeUrlWithParams(storeUrl: string, sortBy: "pop" | "sales"): string {
+  const url = new URL(storeUrl);
+  url.searchParams.set("page", "0");
+  url.searchParams.set("sortBy", sortBy);
+  url.searchParams.set("tab", "0");
+  return url.toString();
+}
+
+function extractReviewDate(text: string): string | undefined {
+  return text.match(/\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b/)?.[0] ?? text.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0];
 }
 
 function extractCategoryLines(text: string): string[] {

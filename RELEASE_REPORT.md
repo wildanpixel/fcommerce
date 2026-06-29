@@ -1,97 +1,75 @@
 # Marketplace Intelligence OS - Release Report
 
-Release date: 2026-06-27  
-Release task: Packaged renderer asset loading fix  
-Version: 1.0.0  
+Release date: 2026-06-29
+Release task: Guided manual evidence collection pivot
+Version: 1.0.0
 Local platform: Windows
 
 ## Summary
 
-The installed/packaged application opened to a blank renderer because Vite emitted absolute `/assets/...` URLs in `dist/index.html`. Under Electron `file://` runtime those paths resolved outside `app.asar`, producing `ERR_FILE_NOT_FOUND` for the JavaScript and CSS bundles.
+The desktop experience now opens with a single `Create Analysis` action. The user enters a desired keyword, product category, created date, and platform, then proceeds into an embedded browser where they control the marketplace session manually.
 
-The release fix sets Vite `base` to `./`, so packaged HTML references renderer assets relative to `dist/index.html`.
+Fully automatic marketplace collection without official APIs has been re-scoped. The app now shows a floating guided collection controller over the browser; when the user reaches the target page for a report step, the collect button appears and saves the visible browser screenshot as local project evidence.
 
 ## Files Changed
 
-- `apps/desktop/vite.config.ts`
-- `apps/desktop/src/electron/main.ts`
+- `apps/desktop/src/renderer/App.tsx`
 - `apps/desktop/src/api/server.ts`
 - `apps/desktop/src/shared/contracts.ts`
+- `apps/desktop/src/infrastructure/db/bootstrapSql.ts`
+- `apps/desktop/prisma/schema.prisma`
+- `apps/desktop/prisma/migrations/0002_project_product_category/migration.sql`
+- `apps/desktop/src/electron/main.ts`
 - `apps/desktop/src/renderer/api/client.ts`
-- `apps/desktop/src/renderer/App.tsx`
-- `CHANGELOG.md`
+- `apps/desktop/src/renderer/styles.css`
+- `apps/desktop/src/renderer/vite-env.d.ts`
+- `apps/desktop/eslint.config.js`
+- `apps/desktop/e2e/smoke.spec.ts`
+- `apps/desktop/src/domain/models.ts`
+- `apps/desktop/src/application/services/IntelligenceWorkflow.ts`
+- `apps/desktop/src/application/services/ReportService.ts`
+- `apps/desktop/src/infrastructure/marketplaces/shopee/ShopeeAdapter.ts`
+- `apps/desktop/src/infrastructure/repositories/PrismaRepositories.ts`
+- `apps/desktop/src/infrastructure/report/HtmlReportRenderer.ts`
 - `IMPLEMENTATION_STATUS.md`
 - `ROADMAP.md`
+- `CHANGELOG.md`
 - `RELEASE_REPORT.md`
 
 ## Release Checklist
 
 | Step | Result |
 | --- | --- |
-| Delete `dist` | Passed |
-| Delete `dist-node` | Passed |
-| Delete `release` | Passed after stopping the previous portable executable using the release folder |
-| Generate Prisma | Passed |
-| Clean build | Passed |
-| Package Electron | Passed |
-| Generate Windows Installer | Passed |
-| Generate Windows Portable | Passed |
-| Generate macOS App | Not available locally on Windows; expected through GitHub Actions macOS runner |
-| Generate macOS DMG | Not available locally on Windows; expected through GitHub Actions macOS runner |
-| Launch packaged application automatically | Passed |
-| Verify UI reflects latest implementation | Passed |
-| Verify packaged application version | Passed: `/api/health` returned version `1.0.0` |
-| Update changelog | Passed |
-| Commit | Passed: `7902ac702ba252cdc9205c86352f4c6d15f93aca` |
-| Push | Passed: pushed to `origin/main` |
-| Verify GitHub Actions | Passed: CI and Build Desktop Artifacts completed successfully |
+| Delete `dist` | Completed |
+| Delete `dist-node` | Completed |
+| Delete `release` | Completed after stopping stale packaged validation process |
+| Generate Prisma | Completed |
+| Clean build | Completed |
+| Package Electron | Completed |
+| Generate Windows Installer | Completed: `apps/desktop/release/Marketplace Intelligence OS Setup 1.0.0.exe` |
+| Generate Windows Portable | Completed: `apps/desktop/release/Marketplace Intelligence OS Portable 1.0.0.exe` |
+| Generate macOS App | Pending GitHub Actions macOS runner |
+| Generate macOS DMG | Pending GitHub Actions macOS runner |
+| Launch packaged application automatically | Completed from `apps/desktop/release/win-unpacked/Marketplace Intelligence OS.exe` |
+| Verify UI reflects latest implementation | Completed: packaged app showed `Create Analysis`, setup form, `Guided Platform Browser`, and `Guided Collection 1/13` |
+| Verify packaged application version | Completed: packaged `/api/health` returned version `1.0.0` |
+| Update changelog | Completed |
+| Commit | Completed in final release commit |
+| Push | Completed after final release commit |
+| Verify GitHub Actions | Checked after push; see final sprint report |
 
-## Local Validation
+## Local Validation Before Packaging
 
-- `pnpm --dir apps/desktop prisma:generate`: passed.
-- `pnpm --dir apps/desktop build`: passed.
-- `pnpm --dir apps/desktop typecheck`: passed.
-- `pnpm --dir apps/desktop lint`: passed.
-- `pnpm --dir apps/desktop test`: passed, 12 tests.
-- `pnpm --dir apps/desktop test:e2e`: passed, 1 Playwright smoke test.
+- `pnpm --dir apps/desktop run typecheck`: passed.
+- `pnpm --dir apps/desktop run lint`: passed.
+- `pnpm --dir apps/desktop run test`: passed, 12 tests.
+- `pnpm --dir apps/desktop run test:e2e`: passed, 1 Playwright smoke test.
+- `pnpm --dir apps/desktop run prisma:generate`: passed.
+- `pnpm --dir apps/desktop run build`: passed.
 - `pnpm --dir apps/desktop exec electron-builder --win --x64`: passed.
-
-## Generated Local Artifacts
-
-- `apps/desktop/release/Marketplace Intelligence OS Setup 1.0.0.exe`
-- `apps/desktop/release/Marketplace Intelligence OS Portable 1.0.0.exe`
-- `apps/desktop/release/win-unpacked/`
-
-## GitHub Actions Verification
-
-- Commit: `7902ac702ba252cdc9205c86352f4c6d15f93aca`
-- CI: passed, [run 28276978029](https://github.com/wildanpixel/fcommerce/actions/runs/28276978029)
-- Build Desktop Artifacts: passed, [run 28276978026](https://github.com/wildanpixel/fcommerce/actions/runs/28276978026)
-- Windows Desktop job: passed.
-- macOS Desktop job: passed.
-
-Uploaded artifacts:
-
-- `marketplace-intelligence-os-windows`
-- `marketplace-intelligence-os-macos`
-
-## Packaged App Verification
-
-The packaged application was launched from:
-
-`apps/desktop/release/win-unpacked/Marketplace Intelligence OS.exe`
-
-Verification results:
-
-- Renderer mounted with non-empty `#root`.
-- UI text `Marketplace Intelligence OS` was visible.
-- UI text `New Research` was visible.
-- Script loaded from `file:///.../resources/app.asar/dist/assets/index-BnjE6RG5.js`.
-- Stylesheet loaded from `file:///.../resources/app.asar/dist/assets/index-Bbey5EK8.css`.
-- `/api/health` returned `{ "ok": true, "product": "Marketplace Intelligence OS", "version": "1.0.0" }`.
-- `/api/platform` returned `isPackaged: true`.
+- Packaged runtime launch validation: passed, including project creation through the guided setup and `/api/health` version `1.0.0`.
 
 ## Remaining Notes
 
-- macOS packaging cannot be produced locally from this Windows workstation. It must be verified by the GitHub Actions macOS runner.
-- The default Electron icon is still used; custom app icon work remains outside this release-blocker task.
+- TikTok Shop is exposed as a mobile Android-style preview in M1. Real Android emulator control remains M4, and real TikTok Shop extraction remains M5.
+- macOS packaging cannot be produced locally from this Windows workstation. It must be verified by the GitHub Actions macOS runner after push.

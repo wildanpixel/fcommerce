@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-06-27
+Last updated: 2026-06-29
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -14,6 +14,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 - Keep marketplace-specific logic behind marketplace adapters.
 - Keep operating-system-specific logic behind platform services.
 - Treat PDF-quality evidence as a product requirement, not a decorative output.
+- Use guided user-controlled collection for protected marketplace pages; automation is optional support, not the source of truth when login, captcha, traffic verification, or app-only screens block collection.
 - Update this file and `IMPLEMENTATION_STATUS.md` whenever a feature status changes.
 
 ## Release Blockers
@@ -21,11 +22,15 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | Date | Area | Status | Resolution |
 | --- | --- | --- | --- |
 | 2026-06-27 | Packaged Electron renderer assets | Fixed | Vite now emits relative `./assets/...` paths for packaged `file://` runtime, and packaged UI verification confirms the app shell renders. |
+| 2026-06-29 | M0/M1 home flow mismatch | Fixed | Home now opens with one Create Analysis action, then a setup form, then the guided in-app browser. |
+| 2026-06-29 | Shopee guest-view navigation aborts | Accepted | Electron webview `ERR_ABORTED` navigations are treated as non-fatal; users can complete Shopee login or traffic verification manually in the visible browser. |
+| 2026-06-29 | Fully automatic collection without APIs | Re-scoped | Primary V1 collection is now guided/manual: the user controls the platform browser and the app captures each report step on demand. |
 
 ## Sprint Overview
 
 | Sprint | GitHub Milestone Name | Target Version | Theme | Estimated Time | Status |
 | --- | --- | --- | --- | --- | --- |
+| Foundation and Experience | M0/M1 Complete Desktop Product Experience | v0.1.1 | Guided manual evidence collector | 1 week | Completed |
 | Sprint 1 | M2.1 Complete Shopee Desktop Search | v0.2.0 | Complete Shopee Desktop | 1 week | Completed |
 | Sprint 2 | M2.2 Complete Product Detail | v0.3.0 | Complete Product Detail | 1 week | Next |
 | Sprint 3 | M2.3 Complete Store Detail | v0.4.0 | Complete Store Detail | 1 week | Not Started |
@@ -35,6 +40,59 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | Sprint 7 | M4.2 Android Automation | v0.8.0 | Android Automation | 2 weeks | Not Started |
 | Sprint 8 | M5.1 TikTok Shop Adapter | v0.9.0 | TikTok Shop | 2 weeks | Not Started |
 | Sprint 9 | M6.1 Commercial Release | v1.0.0 | Commercial Release | 2 weeks | Not Started |
+
+## Foundation and Experience - Complete Desktop Product Experience
+
+GitHub Milestone Name: M0/M1 Complete Desktop Product Experience
+Target Version: v0.1.1
+Estimated Time: 1 week
+Status: Completed
+Completed: 2026-06-29
+
+### Objectives
+
+- Make the app open directly into one `Create Analysis` action.
+- Capture keyword, created date, product category, and selected platform before opening the browser.
+- Show the marketplace surface inside the app and guide the user through PDF-defined evidence steps.
+- Store user-triggered screenshots as local project evidence.
+
+### Tasks
+
+| Task | Dependencies | Estimated Time | Acceptance Criteria |
+| --- | --- | ---: | --- |
+| Redesign home entry | React renderer | Done | Completed: Home starts with a single Create Analysis action. |
+| Add analysis setup form | Project API | Done | Completed: keyword, product category, created date, and platform are captured before browser launch. |
+| Add Shopee desktop/mobile visible view | Electron webview | Done | Completed: Shopee can be opened in desktop or mobile view. |
+| Add browser fullscreen mode | Electron webview | Done | Completed: visible platform browser can expand fullscreen while the floating collector remains visible. |
+| Add shell personalization | React renderer | Done | Completed: sidebar can collapse and user can switch dark/light mode. |
+| Add TikTok mobile visible view | Electron webview | Done | Completed: TikTok Shop opens in a mobile-style visible browser. |
+| Add manual evidence API | Project workspace, Prisma assets | Done | Completed: captured browser screenshots are saved to project folders and registered as assets. |
+| Add floating step controller | Evidence step map | Done | Completed: the active collection point floats over the browser and reveals the collect button only on matching target pages. |
+| Add progress visibility | Manual evidence state | Done | Completed: collected steps and activity log are visible beside the browser. |
+
+### Acceptance Criteria
+
+- Passed: Home exposes a single Create Analysis action.
+- Passed: setup captures keyword, created date, product category, and marketplace.
+- Passed: Proceed opens the in-app browser and creates a local project without requiring an automatic backend crawler job.
+- Passed: Shopee and TikTok Shop can be controlled manually inside the visible browser surface.
+- Passed: guided report steps are visible in a floating top-left browser controller.
+- Passed: user can interact directly with the embedded platform view.
+
+### Scope Boundary
+
+- Real Android emulator control remains in Sprint 7.
+- Real TikTok Shop extraction remains in Sprint 8.
+- Automated product/store/review parsing remains secondary and incomplete; report-grade evidence is collected through the guided manual workflow.
+
+### 2026-06-29 Update
+
+- Relevance and top-sales URLs now follow the requested `page=0&sortBy=relevancy` and `page=0&sortBy=sales` format.
+- The product was re-scoped from full autonomous collection to guided manual capture. The user controls the marketplace browser, and the app saves each PDF-defined evidence point on demand.
+- Key-product selection now merges relevance and top-sales results and stores source placement plus reason for selection.
+- Product details now retain image URLs, first-page screenshots, description screenshots, review-section screenshots, product descriptions, variants, specifications, and heuristic positive/negative reviews.
+- Store collection now captures homepage, banner, popular-products, and best-seller screenshots where Shopee allows access.
+- Full M3-M6 completion remains blocked by the dependencies listed in their sprint sections.
 
 ## Sprint 1 - Complete Shopee Desktop
 

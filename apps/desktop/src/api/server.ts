@@ -1,10 +1,13 @@
 import http from "node:http";
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
 import { DEFAULT_REPORT_SECTIONS } from "../shared/reportSections.js";
 import type {
   BrowserOption,
   CreateJobPayload,
+  ManualEvidencePayload,
   NewProjectInput,
   PlatformPayload,
   ReportGenerationPayload,
@@ -32,7 +35,7 @@ import {
   PrismaReportDataAdapter
 } from "../infrastructure/report/HtmlReportRenderer.js";
 import { PuppeteerPdfExporter } from "../infrastructure/report/PdfReportExporter.js";
-import { ProjectWorkspace } from "../infrastructure/files/ProjectWorkspace.js";
+import { ProjectWorkspace, slug } from "../infrastructure/files/ProjectWorkspace.js";
 import { BrowserDiscoveryService } from "../infrastructure/browser/BrowserDiscovery.js";
 import { getPlatformService } from "../infrastructure/platform/PlatformService.js";
 import { NoopUpdateService } from "../application/services/UpdateService.js";
@@ -51,6 +54,7 @@ const projectSchema = z.object({
   keyword: z.string().min(2),
   marketplace: marketplaceSchema,
   language: z.string().min(2),
+  productCategory: z.string().optional(),
   exportFolder: z.string().optional(),
   screenshotFolder: z.string().optional()
 });
@@ -103,6 +107,37 @@ const reportSchema = z.object({
   )
 });
 
+const manualEvidenceKindSchema = z.enum([
+  "SEARCH_RESULT",
+  "TOP_SALES",
+  "PRODUCT_PAGE",
+  "PRODUCT_IMAGE",
+  "PRODUCT_VIDEO",
+  "PRODUCT_DESCRIPTION",
+  "REVIEW_SECTION",
+  "REVIEW_IMAGE",
+  "STORE_HOME",
+  "STORE_VOUCHER",
+  "STORE_BANNER",
+  "STORE_FEATURED_PRODUCTS",
+  "STORE_BEST_SELLER",
+  "STORE_PROMOTION",
+  "SOCIAL_ACCOUNT"
+]);
+
+const manualEvidenceSchema = z.object({
+  projectId: z.string().uuid(),
+  stepId: z.string().min(2),
+  label: z.string().min(2),
+  kind: manualEvidenceKindSchema,
+  sourceUrl: z.string().optional(),
+  imageDataUrl: z.string().min(20),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  note: z.string().optional(),
+  metadata: z.record(z.unknown()).optional()
+});
+
 export type ApiServer = {
   app: Express;
   server: http.Server;
@@ -114,7 +149,7 @@ export function createApp(): Express {
   const dependencies = createDependencies();
   const app = express();
 
-  app.use(express.json({ limit: "20mb" }));
+  app.use(express.json({ limit: "80mb" }));
   app.use((request, response, next) => {
     response.header("Access-Control-Allow-Origin", request.headers.origin ?? "*");
     response.header("Access-Control-Allow-Headers", "Content-Type");
@@ -180,6 +215,54 @@ export function createApp(): Express {
   app.post("/api/projects", asyncRoute(async (request, response) => {
     const input = projectSchema.parse(request.body) satisfies NewProjectInput;
     response.status(201).json(await dependencies.projects.createProject(input));
+  }));
+
+  app.post("/api/manual-evidence", asyncRoute(async (request, response) => {
+    const input = manualEvidenceSchema.parse(request.body) satisfies ManualEvidencePayload;
+    const project = await dependencies.projectRepository.get(input.projectId);
+    if (!project) {
+      response.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const image = decodeDataUrl(input.imageDataUrl);
+    const projectFolder = await dependencies.workspace.projectFolder(project);
+    const evidenceFolder = resolve(projectFolder, "manual-evidence");
+    await mkdir(evidenceFolder, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const assetPath = resolve(evidenceFolder, `${timestamp}-${slug(input.stepId)}.png`);
+    await writeFile(assetPath, image.buffer);
+
+    await dependencies.intelligenceRepository.saveScreenshots(project.id, "MANUAL_STEP", input.stepId, [
+      {
+        kind: input.kind,
+        label: input.label,
+        path: assetPath,
+        sourceUrl: input.sourceUrl,
+        width: input.width,
+        height: input.height,
+        metadata: {
+          source: "guided-manual-collector",
+          stepId: input.stepId,
+          note: input.note,
+          mimeType: image.mimeType,
+          ...(input.metadata ?? {})
+        }
+      }
+    ]);
+
+    await dependencies.logRepository.write({
+      projectId: project.id,
+      level: "INFO",
+      message: `Manual evidence captured: ${input.label}`,
+      context: {
+        stepId: input.stepId,
+        sourceUrl: input.sourceUrl,
+        assetPath
+      }
+    });
+
+    response.status(201).json({ ok: true, stepId: input.stepId, assetPath });
   }));
 
   app.post("/api/jobs", asyncRoute(async (request, response) => {
@@ -275,6 +358,10 @@ function createDependencies() {
     platform,
     browsers,
     marketplaces,
+    projectRepository,
+    intelligenceRepository,
+    logRepository,
+    workspace,
     settings: settingsRepository,
     updates: new NoopUpdateService("1.0.0"),
     projects: new ProjectService(projectRepository, jobRepository, settingsRepository),
@@ -286,6 +373,17 @@ function createDependencies() {
       new PuppeteerPdfExporter(),
       workspace
     )
+  };
+}
+
+function decodeDataUrl(dataUrl: string): { mimeType: string; buffer: Buffer } {
+  const match = /^data:(?<mimeType>[-\w.+/]+);base64,(?<payload>.+)$/u.exec(dataUrl);
+  if (!match?.groups) {
+    throw new Error("Manual evidence image must be a base64 data URL.");
+  }
+  return {
+    mimeType: match.groups.mimeType,
+    buffer: Buffer.from(match.groups.payload, "base64")
   };
 }
 

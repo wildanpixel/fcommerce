@@ -103,18 +103,23 @@ function cover(data: ReportData): string {
 }
 
 function keywordRelevance(data: ReportData): string {
+  const keywordUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=relevancy`;
   return `<section class="page">
     <p class="kicker">Keyword General Relevance</p>
-    <h2>Search Result Evidence</h2>
-    <p class="section-note">This section mirrors the first PDF workflow: capture the keyword result grid before narrowing into ranked competitors.</p>
+    <h2>${escapeHtml(data.project.keyword)}</h2>
+    <p class="section-note">Relevance screenshot of the first Shopee search result page for the desired keyword.</p>
+    <p><a href="${escapeAttribute(keywordUrl)}">${escapeHtml(keywordUrl)}</a></p>
     ${assetGrid(data.assets.filter((asset) => asset.kind === "SEARCH_RESULT"))}
   </section>`;
 }
 
 function topSales(data: ReportData): string {
+  const topSalesUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=sales`;
   return `<section class="page">
     <p class="kicker">Top Sales</p>
-    <h2>Sales-Sorted Marketplace View</h2>
+    <h2>${escapeHtml(data.project.keyword)}</h2>
+    <p class="section-note">Top-sales screenshot of the first Shopee result page for the same keyword.</p>
+    <p><a href="${escapeAttribute(topSalesUrl)}">${escapeHtml(topSalesUrl)}</a></p>
     ${assetGrid(data.assets.filter((asset) => asset.kind === "TOP_SALES"))}
   </section>`;
 }
@@ -128,12 +133,15 @@ function keyProductTable(data: ReportData): string {
         <tr>
           <th style="width:6%">No</th>
           <th style="width:12%">Source</th>
+          <th style="width:15%">Reason for selection</th>
           <th style="width:20%">Product title</th>
-          <th style="width:12%">Price</th>
-          <th style="width:12%">Monthly sold</th>
-          <th style="width:12%">Rating</th>
-          <th style="width:16%">Store</th>
-          <th style="width:10%">Badges</th>
+          <th style="width:9%">Monthly sold</th>
+          <th style="width:12%">Store name</th>
+          <th style="width:8%">Store type</th>
+          <th style="width:9%">Price</th>
+          <th style="width:7%">Rating</th>
+          <th style="width:7%">Reviews</th>
+          <th style="width:7%">Total sold</th>
         </tr>
       </thead>
       <tbody>
@@ -141,13 +149,16 @@ function keyProductTable(data: ReportData): string {
           .map(
             (product, index) => `<tr>
               <td>${index + 1}</td>
-              <td>Top ${product.rank ?? index + 1}</td>
+              <td>${escapeHtml(product.source ?? `Key Product #${product.rank ?? index + 1}`)}</td>
+              <td>${escapeHtml(product.selectionReason ?? "platform recommended")}</td>
               <td>${escapeHtml(product.title)}</td>
-              <td>${formatCurrency(product.priceAverage)}</td>
               <td>${formatNumber(product.monthlySold)}</td>
-              <td>${formatRating(product.rating, product.reviewCount)}</td>
               <td>${escapeHtml(product.storeName ?? "Unknown")}</td>
-              <td><span class="badge">Captured</span></td>
+              <td>${escapeHtml(storeType(product))}</td>
+              <td>${formatCurrency(product.priceAverage)}</td>
+              <td>${product.rating ? product.rating.toFixed(1) : "-"}</td>
+              <td>${formatNumber(product.reviewCount)}</td>
+              <td>${formatNumber(product.totalSold)}</td>
             </tr>`
           )
           .join("")}
@@ -164,14 +175,19 @@ function productDossiers(data: ReportData): string {
       );
       const variants = safeJson<string[]>(product.variantsJson, []);
       const specs = safeJson<Record<string, string>>(product.specificationsJson, {});
+      const raw = safeJson<{ evidencePlan?: { productImages?: string[]; productVideos?: string[] } }>(product.rawJson, {});
+      const productImages = raw.evidencePlan?.productImages ?? [];
       return `<section class="page">
         <p class="kicker">Product ${index + 1}</p>
         <h2>${escapeHtml(product.title)}</h2>
+        <p><a href="${escapeAttribute(product.productUrl)}">${escapeHtml(product.productUrl)}</a></p>
         <div class="grid two">
           <div class="metric">Price<b>${formatCurrency(product.priceAverage)}</b></div>
           <div class="metric">Total sold<b>${formatNumber(product.totalSold)}</b></div>
         </div>
         ${assetGrid(productAssets)}
+        <h3>Product Images</h3>
+        ${remoteImageGrid(productImages.slice(0, 9))}
         <h3>Description</h3>
         <p>${escapeHtml(product.description ?? "No browser-readable description captured. Screenshot evidence is retained.")}</p>
         <h3>Variants</h3>
@@ -218,11 +234,13 @@ function storeOverview(data: ReportData): string {
       <li>Stores appearing across relevance and top-sales discovery.</li>
     </ul>
     <table>
-      <thead><tr><th>Store</th><th>Followers</th><th>Products</th><th>Rating</th><th>Voucher Count</th></tr></thead>
+      <thead><tr><th>Store</th><th>Link</th><th>Overall</th><th>Followers</th><th>Products</th><th>Rating</th><th>Voucher Count</th></tr></thead>
       <tbody>${data.stores
         .map(
           (store) => `<tr>
             <td>${escapeHtml(store.name)}</td>
+            <td><a href="${escapeAttribute(store.url)}">${escapeHtml(store.url)}</a></td>
+            <td>${escapeHtml(storeOverall(store, data))}</td>
             <td>${formatNumber(store.followers)}</td>
             <td>${formatNumber(store.productsCount)}</td>
             <td>${store.rating ?? "-"}</td>
@@ -265,6 +283,46 @@ function visualStyle(data: ReportData): string {
       )
     )}
   </section>`;
+}
+
+function remoteImageGrid(urls: string[]): string {
+  if (urls.length === 0) {
+    return '<p class="muted">No product image URLs captured as browser-readable media.</p>';
+  }
+  return `<div class="asset-grid">${urls
+    .map(
+      (url, index) => `<figure class="asset">
+        <img src="${escapeAttribute(url)}" alt="Product image ${index + 1}" />
+        <span>Product image ${index + 1}</span>
+      </figure>`
+    )
+    .join("")}</div>`;
+}
+
+function storeType(product: { mallStatus: boolean; officialStatus: boolean; starSeller: boolean }): string {
+  if (product.officialStatus) {
+    return "Official";
+  }
+  if (product.mallStatus) {
+    return "Mall";
+  }
+  if (product.starSeller) {
+    return "Star Seller";
+  }
+  return "Marketplace";
+}
+
+function storeOverall(store: { rating?: number | null; followers?: number | null; voucherCount?: number | null }, data: ReportData): string {
+  const analysis = data.analyses[0]?.resultJson ? safeJson<AiAnalysisJson | null>(data.analyses[0].resultJson, null) : null;
+  if (analysis?.competitivePosition.observations[0]) {
+    return analysis.competitivePosition.observations[0];
+  }
+  const cues = [
+    store.rating ? `rating ${store.rating}` : undefined,
+    store.followers ? `${formatNumber(store.followers)} followers` : undefined,
+    store.voucherCount ? `${formatNumber(store.voucherCount)} voucher signals` : undefined
+  ].filter(Boolean);
+  return cues.length > 0 ? `AI-ready store candidate with ${cues.join(", ")}.` : "AI-ready store candidate; screenshot evidence required for final scoring.";
 }
 
 function crossPlatformEvidence(data: ReportData): string {
@@ -351,13 +409,6 @@ function formatNumber(value?: number | null): string {
     return "-";
   }
   return new Intl.NumberFormat("id-ID").format(value);
-}
-
-function formatRating(rating?: number | null, count?: number | null): string {
-  if (!rating) {
-    return "-";
-  }
-  return `${rating.toFixed(1)} (${formatNumber(count)})`;
 }
 
 function escapeHtml(value: string): string {

@@ -8,12 +8,16 @@
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
   min-width: 1120px;
   background: #090b10;
+  transition:
+    background 280ms ease,
+    color 280ms ease;
 }
 
 button,
@@ -22,15 +26,39 @@ select {
   font: inherit;
 }
 
+button,
+.mio-panel,
+.mio-sidebar,
+.mio-main,
+.input {
+  transition:
+    background 220ms ease,
+    border-color 220ms ease,
+    color 220ms ease,
+    box-shadow 220ms ease,
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+webview {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  height: 100%;
+  width: 100%;
+  background: #ffffff;
+}
+
 .input {
   height: 40px;
   width: 100%;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
   padding: 0 12px;
   color: #eef3f9;
   outline: none;
+  backdrop-filter: blur(22px) saturate(1.25);
 }
 
 .input:focus {
@@ -50,19 +78,24 @@ select {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 6px;
+  border-radius: 10px;
   border: 1px solid rgba(98, 168, 255, 0.4);
-  background: rgba(98, 168, 255, 0.18);
+  background:
+    linear-gradient(135deg, rgba(98, 168, 255, 0.35), rgba(106, 92, 255, 0.22)),
+    rgba(255, 255, 255, 0.08);
   color: #ffffff;
+  box-shadow: 0 14px 34px rgba(52, 94, 210, 0.16);
   transition:
     background 160ms ease,
     border-color 160ms ease,
+    transform 160ms ease,
     opacity 160ms ease;
 }
 
 .primary-button:hover {
   background: rgba(98, 168, 255, 0.26);
   border-color: rgba(98, 168, 255, 0.66);
+  transform: translateY(-1px);
 }
 
 .primary-button:disabled {
@@ -77,10 +110,11 @@ select {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
   color: #eef3f9;
+  backdrop-filter: blur(20px) saturate(1.2);
   transition:
     background 160ms ease,
     border-color 160ms ease,
@@ -90,6 +124,169 @@ select {
 .secondary-button:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+.mio-app {
+  min-height: 100vh;
+}
+
+.mio-dark {
+  color-scheme: dark;
+}
+
+.mio-light {
+  color-scheme: light;
+  color: #172033;
+}
+
+.mio-main {
+  position: relative;
+  overflow: hidden;
+}
+
+.mio-main::before {
+  pointer-events: none;
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(86, 160, 255, 0.18), transparent 26%),
+    radial-gradient(circle at 88% 4%, rgba(255, 255, 255, 0.08), transparent 22%),
+    linear-gradient(180deg, rgba(16, 20, 29, 0.72), rgba(9, 11, 16, 0.98));
+}
+
+.mio-light .mio-main {
+  background: linear-gradient(180deg, #f4f8ff, #e8eef8 52%, #f8fbff);
+}
+
+.mio-light .mio-main::before {
+  background:
+    radial-gradient(circle at 18% 8%, rgba(64, 130, 255, 0.16), transparent 25%),
+    radial-gradient(circle at 86% 5%, rgba(255, 255, 255, 0.9), transparent 24%),
+    linear-gradient(180deg, rgba(244, 248, 255, 0.82), rgba(232, 238, 248, 0.95));
+}
+
+.mio-panel,
+.mio-glass {
+  position: relative;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.035)),
+    rgba(10, 14, 22, 0.62);
+  border-color: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(28px) saturate(1.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 20px 60px rgba(0, 0, 0, 0.28);
+}
+
+.mio-panel:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.mio-create-button:hover {
+  border-color: rgba(98, 168, 255, 0.44);
+  background:
+    linear-gradient(145deg, rgba(98, 168, 255, 0.17), rgba(255, 255, 255, 0.075)),
+    rgba(255, 255, 255, 0.08);
+}
+
+.mio-floating-collector {
+  z-index: 20;
+}
+
+.mio-sidebar {
+  background:
+    linear-gradient(180deg, rgba(18, 24, 35, 0.78), rgba(8, 10, 15, 0.84)),
+    rgba(9, 13, 20, 0.72);
+  backdrop-filter: blur(30px) saturate(1.2);
+}
+
+.mio-light .mio-sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(231, 238, 248, 0.96)),
+    rgba(255, 255, 255, 0.92);
+  border-right: 1px solid rgba(83, 102, 138, 0.2);
+}
+
+.mio-light .mio-panel,
+.mio-light .mio-glass {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.52)),
+    rgba(255, 255, 255, 0.55);
+  border-color: rgba(74, 94, 130, 0.18);
+  color: #172033;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 20px 60px rgba(88, 107, 145, 0.18);
+}
+
+.mio-light .text-white {
+  color: #142033;
+}
+
+.mio-light .text-ink-100,
+.mio-light .text-ink-300,
+.mio-light .text-ink-400 {
+  color: #25344c;
+}
+
+.mio-light .text-ink-500 {
+  color: #66728a;
+}
+
+.mio-light .mio-sidebar .text-ink-500 {
+  color: #53627a;
+}
+
+.mio-light .mio-sidebar .text-ink-300,
+.mio-light .mio-sidebar .text-white {
+  color: #172033;
+}
+
+.mio-light .bg-ink-900,
+.mio-light .bg-ink-900\/72,
+.mio-light .bg-white\/5,
+.mio-light .bg-white\/6,
+.mio-light .bg-white\/8,
+.mio-light .bg-white\/9,
+.mio-light .bg-white\/10,
+.mio-light .bg-white\/\[0\.04\],
+.mio-light .bg-white\/\[0\.03\] {
+  background-color: rgba(255, 255, 255, 0.56);
+}
+
+.mio-light .border-white\/8,
+.mio-light .border-white\/12,
+.mio-light .border-white\/16 {
+  border-color: rgba(83, 102, 138, 0.18);
+}
+
+.mio-light .input {
+  border-color: rgba(83, 102, 138, 0.22);
+  background: rgba(255, 255, 255, 0.74);
+  color: #142033;
+}
+
+.mio-light .secondary-button {
+  border-color: rgba(83, 102, 138, 0.2);
+  background: rgba(255, 255, 255, 0.64);
+  color: #142033;
+}
+
+.mio-light .primary-button {
+  color: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
 }
 
 ::-webkit-scrollbar {

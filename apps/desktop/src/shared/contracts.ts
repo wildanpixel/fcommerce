@@ -28,6 +28,7 @@ export type NewProjectInput = {
   keyword: string;
   marketplace: MarketplaceId;
   language: string;
+  productCategory?: string;
   exportFolder?: string;
   screenshotFolder?: string;
 };
@@ -39,6 +40,7 @@ export type ProjectSummary = {
   marketplace: MarketplaceId;
   status: ProjectStatus;
   language: string;
+  productCategory?: string | null;
   exportFolder?: string | null;
   screenshotFolder?: string | null;
   createdAt: string;
@@ -145,4 +147,40 @@ export type ReportGenerationResult = {
   reportId: string;
   htmlPath: string;
   pdfPath: string;
+};
+
+export type ManualEvidenceKind =
+  | "SEARCH_RESULT"
+  | "TOP_SALES"
+  | "PRODUCT_PAGE"
+  | "PRODUCT_IMAGE"
+  | "PRODUCT_VIDEO"
+  | "PRODUCT_DESCRIPTION"
+  | "REVIEW_SECTION"
+  | "REVIEW_IMAGE"
+  | "STORE_HOME"
+  | "STORE_VOUCHER"
+  | "STORE_BANNER"
+  | "STORE_FEATURED_PRODUCTS"
+  | "STORE_BEST_SELLER"
+  | "STORE_PROMOTION"
+  | "SOCIAL_ACCOUNT";
+
+export type ManualEvidencePayload = {
+  projectId: string;
+  stepId: string;
+  label: string;
+  kind: ManualEvidenceKind;
+  sourceUrl?: string;
+  imageDataUrl: string;
+  width?: number;
+  height?: number;
+  note?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ManualEvidenceResult = {
+  ok: true;
+  stepId: string;
+  assetPath: string;
 };

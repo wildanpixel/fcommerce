@@ -27,6 +27,8 @@ export type ReportData = {
   products: Array<{
     id: string;
     rank?: number | null;
+    source?: string | null;
+    selectionReason?: string | null;
     title: string;
     priceAverage?: number | null;
     rating?: number | null;
@@ -34,10 +36,16 @@ export type ReportData = {
     monthlySold?: number | null;
     totalSold?: number | null;
     storeName?: string | null;
+    storeUrl?: string | null;
+    productType?: string | null;
     productUrl: string;
+    mallStatus: boolean;
+    officialStatus: boolean;
+    starSeller: boolean;
     description?: string | null;
     variantsJson: string;
     specificationsJson: string;
+    rawJson: string;
   }>;
   stores: Array<{
     id: string;

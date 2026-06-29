@@ -3,6 +3,8 @@ import type {
   CreateJobPayload,
   DashboardSnapshot,
   HealthPayload,
+  ManualEvidencePayload,
+  ManualEvidenceResult,
   NewProjectInput,
   PlatformPayload,
   ReportGenerationPayload,
@@ -46,6 +48,11 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  saveManualEvidence: (payload: ManualEvidencePayload) =>
+    request<ManualEvidenceResult>("/manual-evidence", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   reportSections: () => request<ReportSectionConfig[]>("/report-sections"),
   generateReport: (payload: ReportGenerationPayload) =>
     request<ReportGenerationResult>("/reports", {
@@ -56,6 +63,11 @@ export const apiClient = {
     request<{ ok: true }>("/platform/open-path", {
       method: "POST",
       body: JSON.stringify({ path })
+    }),
+  openUrl: (url: string) =>
+    request<{ ok: true }>("/platform/open-url", {
+      method: "POST",
+      body: JSON.stringify({ url })
     })
 };
 

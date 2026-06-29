@@ -8,7 +8,13 @@ import type {
   ProjectRepository
 } from "../../domain/repositories.js";
 import type { CreateJobPayload, ProjectSummary } from "../../shared/contracts.js";
-import type { KeywordCollectionResult, ProductDetail, ReviewEvidence, StoreProfile } from "../../domain/models.js";
+import type {
+  KeywordCollectionResult,
+  ProductCard,
+  ProductDetail,
+  ReviewEvidence,
+  StoreProfile
+} from "../../domain/models.js";
 
 export type WorkspaceLocator = {
   projectFolder(project: ProjectSummary): Promise<string>;
@@ -88,7 +94,7 @@ export class IntelligenceWorkflow {
       payload.includeTopSales ? this.validateTopSalesExtraction(relevance, topSales) : []
     );
 
-    const selectedProducts = topSales.products.length > 0 ? topSales.products : relevance.products;
+    const selectedProducts = selectKeyProducts(relevance, topSales, payload.limit);
     if (selectedProducts.length === 0) {
       const message = "Shopee search produced no browser-readable products from relevance or top-sales extraction.";
       await this.logs.write({
@@ -276,4 +282,86 @@ export class IntelligenceWorkflow {
 
     return [];
   }
+}
+
+function selectKeyProducts(
+  relevance: KeywordCollectionResult,
+  topSales: KeywordCollectionResult,
+  limit: number
+): ProductCard[] {
+  const keyed = new Map<string, ProductCard & { relevanceRank?: number; salesRank?: number }>();
+  for (const product of relevance.products) {
+    keyed.set(product.url, {
+      ...product,
+      relevanceRank: product.rank,
+      source: `Relevance #${product.rank}`
+    });
+  }
+  for (const product of topSales.products) {
+    const existing = keyed.get(product.url);
+    if (existing) {
+      keyed.set(product.url, {
+        ...existing,
+        monthlySold: product.monthlySold ?? existing.monthlySold,
+        totalSold: product.totalSold ?? existing.totalSold,
+        rating: product.rating ?? existing.rating,
+        reviewCount: product.reviewCount ?? existing.reviewCount,
+        salesRank: product.rank,
+        source: `Relevance #${existing.relevanceRank ?? existing.rank} / Top Sales #${product.rank}`
+      });
+      continue;
+    }
+    keyed.set(product.url, {
+      ...product,
+      salesRank: product.rank,
+      source: `Top Sales #${product.rank}`
+    });
+  }
+
+  return [...keyed.values()]
+    .sort((left, right) => productPriority(left) - productPriority(right))
+    .slice(0, Math.min(Math.max(limit, 1), 12))
+    .map((product, index, all) => ({
+      ...product,
+      rank: index + 1,
+      selectionReason: selectionReason(product, all)
+    }));
+}
+
+function productPriority(product: ProductCard & { relevanceRank?: number; salesRank?: number }): number {
+  const relevanceScore = product.relevanceRank ? product.relevanceRank * 1.1 : 999;
+  const salesScore = product.salesRank ? product.salesRank : 999;
+  const trustBonus = product.mallStatus || product.officialStatus || product.starSeller ? -2 : 0;
+  return Math.min(relevanceScore, salesScore) + trustBonus;
+}
+
+function selectionReason(
+  product: ProductCard & { relevanceRank?: number; salesRank?: number },
+  cohort: ProductCard[]
+): string {
+  const reasons: string[] = [];
+  if (product.relevanceRank) {
+    reasons.push("platform recommended");
+  }
+  if (product.salesRank || product.monthlySold || product.totalSold) {
+    reasons.push(product.salesRank && product.salesRank <= 5 ? "best selling" : "sales");
+  }
+  const prices = cohort.map((item) => item.price.average).filter((value): value is number => Boolean(value));
+  if (product.price.average && prices.length > 1) {
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const span = Math.max(max - min, 1);
+    const position = (product.price.average - min) / span;
+    if (position <= 0.33) {
+      reasons.push("cheap");
+    } else if (position >= 0.72) {
+      reasons.push("high price");
+    } else {
+      reasons.push("mid price");
+    }
+  }
+  if (product.imageUrl) {
+    reasons.push("strong visual");
+  }
+  return [...new Set(reasons)].join(" / ") || "platform recommended";
 }

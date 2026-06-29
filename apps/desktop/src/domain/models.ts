@@ -23,6 +23,8 @@ export type ProductCard = {
   marketplace: MarketplaceId;
   marketplaceProductId?: string;
   rank: number;
+  source?: string;
+  selectionReason?: string;
   title: string;
   url: string;
   imageUrl?: string;
@@ -91,8 +93,10 @@ export type ScreenshotEvidence = {
     | "TOP_SALES"
     | "PRODUCT_PAGE"
     | "PRODUCT_IMAGE"
+    | "PRODUCT_VIDEO"
     | "PRODUCT_DESCRIPTION"
     | "REVIEW_SECTION"
+    | "REVIEW_IMAGE"
     | "STORE_HOME"
     | "STORE_VOUCHER"
     | "STORE_BANNER"
@@ -105,6 +109,7 @@ export type ScreenshotEvidence = {
   sourceUrl?: string;
   width?: number;
   height?: number;
+  metadata?: Record<string, unknown>;
 };
 
 export type SearchRequest = {

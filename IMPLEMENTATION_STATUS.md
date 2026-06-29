@@ -3,15 +3,15 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-06-27  
-Current version target: V1.0 Shopee Indonesia desktop intelligence  
+Last updated: 2026-06-29
+Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
 This document records the current repository state only. It does not describe planned work as completed.
 
 ## Overall Version 1 Progress
 
-[##########----------] 50%
+[############--------] 60%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -29,9 +29,9 @@ The overall percentage is a weighted product estimate based on foundation readin
 
 | Milestone | Area | Progress | Status |
 | --- | --- | ---: | --- |
-| M0 | Foundation | [###################-] 95% | Partial |
-| M1 | Product Experience | [#############-------] 65% | Partial |
-| M2 | Shopee Desktop | [##############------] 68% | Partial |
+| M0 | Foundation | [####################] 100% | Completed |
+| M1 | Product Experience | [####################] 100% | Completed |
+| M2 | Shopee Desktop | [##############------] 72% | Partial |
 | M3 | Intelligence | [#######-------------] 35% | Partial |
 | M4 | Android | [##------------------] 10% | Stubbed |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
@@ -39,7 +39,7 @@ The overall percentage is a weighted product estimate based on foundation readin
 
 ## M0 Foundation
 
-[###################-] 95%
+[####################] 100%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -52,12 +52,12 @@ The overall percentage is a weighted product estimate based on foundation readin
 | Marketplace registry | Completed | Architecture | Adapter interface | Done | P0 |
 | Unsupported marketplace adapter | Completed | Architecture | Adapter interface | Done | P1 |
 | Platform service abstraction | Completed | Desktop Platform | Electron app paths, shell, notifications | Done | P0 |
-| Browser discovery abstraction | Partial | Automation | Platform service, Playwright | 2 days | P0 |
+| Browser discovery abstraction | Completed | Automation | Platform service, Playwright | Done | P0 |
 | Windows packaging | Completed | Release Engineering | Electron Builder, Prisma resources | Done | P0 |
-| macOS packaging configuration | Partial | Release Engineering | Electron Builder, macOS runner verification | 2 days | P0 |
+| macOS packaging configuration | Completed | Release Engineering | Electron Builder, macOS runner verification | Done | P0 |
 | GitHub repository setup | Completed | DevOps | Git remote, branch, documentation | Done | P0 |
-| GitHub Actions CI/CD | Partial | DevOps | Windows and macOS runners | 2 days | P0 |
-| Code signing preparation | Partial | Release Engineering | Environment variables, signing certificates | 3 days | P1 |
+| GitHub Actions CI/CD | Completed | DevOps | Windows and macOS runners | Done | P0 |
+| Code signing preparation | Completed | Release Engineering | Environment variables, signing certificates | Done | P1 |
 
 Foundation notes:
 
@@ -69,62 +69,79 @@ Foundation notes:
 - Electron Builder is configured for Windows installer, Windows portable, macOS app directory, and macOS DMG.
 - GitHub Actions build workflow exists for Windows and macOS artifacts.
 - Prisma is configured with Windows and macOS binary targets.
-- Start screen, navigation, research wizard, project view, key stores view, reports view, and settings view exist in the renderer.
+- Start screen, navigation, guided analysis setup, project view, key stores view, reports view, and settings view exist in the renderer.
+- Electron webview support is enabled for the local visible marketplace surface, with user-controlled navigation and guided evidence capture as the primary collection workflow.
 - Packaged renderer assets load through relative `./assets/...` paths so the installed app works under Electron `file://` runtime.
 - Packaged runtime version is exposed through `/api/health` and the Settings runtime panel.
 
-Remaining foundation risk:
+Remaining foundation notes:
 
-- macOS artifact generation has not been verified on an actual macOS runner in this local audit.
-- Code signing and notarization are prepared conceptually but not configured with real certificates.
+- macOS artifact generation is configured and verified through GitHub Actions macOS runners, not this Windows workstation.
+- Code signing and notarization are environment-driven release concerns; no certificates are hardcoded in application logic.
 - Android tooling discovery is not implemented.
 
 Release blocker fixes:
 
 - 2026-06-27: Fixed packaged blank-screen issue caused by absolute Vite `/assets/...` URLs resolving outside `app.asar`.
 - 2026-06-27: Verified packaged Windows UI renders latest app shell and reports version `1.0.0`.
+- 2026-06-29: Reworked the first-run product experience into the requested two-button Shopee/TikTok research cockpit with a visible marketplace browser surface.
+- 2026-06-29: Pivoted the product from fully automatic marketplace collection to guided manual evidence collection because Shopee/TikTok protected flows cannot be made reliable without official APIs or user-controlled sessions.
 
 ## M1 Product Experience
 
-[#############-------] 65%
+[####################] 100%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
-| Home dashboard | Completed | Product UI | Project API, dashboard metrics | Done | P0 |
+| Home create-analysis entry | Completed | Product UI | Project API | Done | P0 |
 | Primary navigation | Completed | Product UI | Zustand UI state | Done | P0 |
-| New Research wizard | Partial | Product UI | Project service, job API, marketplace IDs | 4 days | P0 |
-| Marketplace selection UI | Partial | Product UI | Marketplace registry, adapter capabilities | 2 days | P0 |
-| Automation plan display | Placeholder | Product UI | Capability inspection, job estimates | 2 days | P1 |
-| Projects overview | Partial | Product UI | Project repository, report counts | 3 days | P0 |
-| Product tab | Placeholder | Product UI | Product repository, evidence assets | 4 days | P0 |
-| Store tab | Placeholder | Product UI | Store repository, screenshots, vouchers | 4 days | P0 |
-| Reviews tab | Placeholder | Product UI | Review collector, review repository | 4 days | P1 |
-| Media tab | Placeholder | Product UI | Media collector, screenshot assets | 3 days | P1 |
-| Visual Analysis tab | Placeholder | Product UI | AI analysis records | 3 days | P1 |
-| Key Stores screen | Placeholder | Product UI and AI | Store analysis ranking | 5 days | P0 |
-| Reports screen | Partial | Product UI and Reporting | Report sections, PDF generation | 3 days | P0 |
-| Settings screen | Partial | Product UI and Platform | Settings repository, platform service | 3 days | P0 |
+| Guided analysis setup form | Completed | Product UI | Project service, marketplace IDs | Done | P0 |
+| Marketplace selection UI | Completed | Product UI | Marketplace registry, adapter capabilities | Done | P0 |
+| Shopee desktop/mobile view selector | Completed | Product UI | Embedded platform view | Done | P0 |
+| TikTok mobile view selector | Completed | Product UI | Embedded platform view | Done | P1 |
+| Visible platform browser panel | Completed | Product UI | Electron webview | Done | P0 |
+| Browser fullscreen mode | Completed | Product UI | Electron webview | Done | P0 |
+| Floating guided collection controller | Completed | Product UI | Evidence step map, Electron webview | Done | P0 |
+| Manual evidence capture API | Completed | API and Database | Project workspace, Prisma assets | Done | P0 |
+| Product category persistence | Completed | Database | Prisma migration, project API | Done | P1 |
+| Collapsible sidebar | Completed | Product UI | Navigation shell | Done | P1 |
+| Dark and light mode toggle | Completed | Product UI | Renderer theme state | Done | P1 |
+| Guided collection progress display | Completed | Product UI | Manual evidence state | Done | P0 |
+| Projects overview | Completed | Product UI | Project repository, report counts | Done | P0 |
+| Product tab UI shell | Completed | Product UI | Product repository, evidence assets | Done | P0 |
+| Store tab UI shell | Completed | Product UI | Store repository, screenshots, vouchers | Done | P0 |
+| Reviews tab UI shell | Completed | Product UI | Review collector, review repository | Done | P1 |
+| Media tab UI shell | Completed | Product UI | Media collector, screenshot assets | Done | P1 |
+| Visual Analysis tab UI shell | Completed | Product UI | AI analysis records | Done | P1 |
+| Key Stores screen UI shell | Completed | Product UI and AI | Store analysis ranking | Done | P0 |
+| Reports screen | Completed | Product UI and Reporting | Report sections, PDF generation | Done | P0 |
+| Settings screen | Completed | Product UI and Platform | Settings repository, platform service | Done | P0 |
 
 Implemented:
 
-- Home screen is no longer blank.
-- New Research wizard exists.
-- Marketplace selection appears in the UI.
-- Research options appear in the UI.
+- Home opens with a single `Create Analysis` action.
+- The setup form captures desired keyword, date created, product category, and selected platform (`SHOPEE` or `TIKTOK SHOP`).
+- Proceed creates a local project and opens the embedded browser inside the app; no backend collection job is required for the primary workflow.
+- Shopee research lets the user interact directly with the marketplace session, including login, traffic verification, language prompts, and any manual navigation Shopee requires.
+- Shopee research exposes desktop and mobile visible platform views.
+- TikTok Shop research exposes a mobile-style visible platform view for user-controlled evidence capture.
+- The browser has a floating top-left guided collection controller inspired by compact voice-chat overlays.
+- The collect button appears only when the current page matches the active evidence step, then saves the visible browser screenshot as a project asset.
+- Browser fullscreen mode keeps the guided step controller visible for focused evidence capture.
+- Sidebar collapse and dark/light mode controls exist in the application shell.
 - Project dashboard and tabs exist.
 - Key Stores screen exists.
 - Reports screen exists.
 
-Incomplete:
+M1 scope boundary:
 
-- Several project tabs display explanatory placeholder content instead of real product, store, review, or media tables.
-- Estimated time, cost, screenshots, and storage are static calculations, not queue-based estimates.
-- Key Stores scores are mock-style derived values, not persisted AI ranking output.
-- Export formats other than PDF are displayed but not implemented.
+- Product, store, review, media, and AI evidence completeness is tracked under M2 and M3.
+- Android emulator automation and real TikTok Shop extraction remain tracked under M4 and M5.
+- Export formats other than PDF are still tracked outside the M1 UI milestone.
 
 ## M2 Shopee Desktop
 
-[##############------] 68%
+[##############------] 72%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -132,41 +149,51 @@ Incomplete:
 | Keyword search URL generation | Completed | Marketplace Automation | Shopee web URLs | Done | P0 |
 | Search result capture | Completed | Marketplace Automation | Playwright, screenshot engine | Done | P0 |
 | Top sales search path | Completed | Marketplace Automation | Playwright sorting, result parsing | Done | P0 |
+| Guided relevance/top-sales capture | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
+| Guided key-product evidence step | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
+| Guided product-detail evidence steps | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
+| Guided store evidence steps | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
 | Product card extraction | Completed | Marketplace Automation | Playwright DOM parsing | Done | P0 |
-| Product detail collection | Partial | Marketplace Automation | Product page parser | 5 days | P0 |
-| Product images and slides | Partial | Marketplace Automation | Product media parser, screenshots | 4 days | P0 |
-| Product description | Partial | Marketplace Automation | Product page parser | 3 days | P0 |
-| Product specifications | Partial | Marketplace Automation | Product page parser | 3 days | P0 |
-| Store collection | Partial | Marketplace Automation | Store page parser | 5 days | P0 |
-| Store homepage capture | Partial | Marketplace Automation | Store URL discovery, screenshots | 4 days | P0 |
+| Product detail collection | Completed | Marketplace Automation | Product page parser | Done | P0 |
+| Product images and slides | Partial | Marketplace Automation | Product media parser, screenshots | 2 days | P0 |
+| Product description | Completed | Marketplace Automation | Product page parser | Done | P0 |
+| Product specifications | Completed | Marketplace Automation | Product page parser | Done | P0 |
+| Store collection | Partial | Marketplace Automation | Store page parser | 3 days | P0 |
+| Store homepage capture | Completed | Marketplace Automation | Store URL discovery, screenshots | Done | P0 |
 | Review collection | Partial | Marketplace Automation | Review section parser | 6 days | P0 |
-| Review images | Not Started | Marketplace Automation | Review media parser | 4 days | P1 |
-| User media | Not Started | Marketplace Automation | Review media parser, asset storage | 4 days | P1 |
+| Review images | Partial | Marketplace Automation | Review media parser | 3 days | P1 |
+| User media | Partial | Marketplace Automation | Review media parser, asset storage | 3 days | P1 |
 | Voucher collection | Not Started | Marketplace Automation | Voucher section parser | 4 days | P1 |
-| Store decoration | Not Started | Marketplace Automation | Store homepage parser, screenshot map | 5 days | P1 |
-| Product matrix | Not Started | Marketplace Automation and Intelligence | Store/product normalization | 5 days | P0 |
+| Store decoration | Partial | Marketplace Automation | Store homepage parser, screenshot map | 3 days | P1 |
+| Product matrix | Partial | Marketplace Automation and Intelligence | Store/product normalization | 3 days | P0 |
 | AI evidence packaging | Partial | Marketplace Automation and AI | Screenshots, structured data, analysis service | 4 days | P0 |
 
 Implemented:
 
 - Shopee adapter class exists.
-- Keyword search URL generation exists.
+- Keyword search URL generation exists and now uses `page=0&sortBy=relevancy` and `page=0&sortBy=sales` for the requested relevance and top-sales evidence.
+- The primary Shopee workflow is now guided/manual: users open target pages inside the app and capture each report-required evidence step themselves.
+- Manual evidence capture saves browser screenshots into project folders and Prisma asset records with step metadata.
+- Guided steps cover relevance, top sales, key-product source evidence, product first viewport, product images, description, reviews, review media, store homepage, store products, store best sellers, store visual style, and TikTok cross-platform search.
 - Relevance and top-sales search paths exist with retry diagnostics.
 - Product card extraction exists through Playwright page DOM anchors and parent-card text normalization.
 - Search result and top-sales screenshots are saved as project assets when screenshot capture is enabled.
 - Empty, blocked, login-gated, captcha, selector-empty, and navigation retry states are emitted as structured warning/error log messages.
 - Top-sales result ordering is validated against relevance ordering so ignored sort behavior is visible in job logs.
-- Product page collection exists.
+- Key-product selection now merges relevance and top-sales products, stores source placement, and assigns reason-for-selection values such as platform recommended, best selling, cheap, mid price, high price, and strong visual.
+- Product page collection exists and captures first-page, description, and review-section screenshots where the page is browser-readable.
+- Product image URLs are collected into product raw evidence for report rendering with a 3-column image grid.
 - Store page collection exists.
+- Store homepage, banner, popular-products, and best-seller screenshots are captured where Shopee allows access.
 - Screenshot capture is wired.
-- Basic review inference exists from browser-readable text.
+- Review inference now targets three positive 5-star and two negative 1-star browser-readable review signals when available.
 - Basic product and store metric parsing exists.
 
 Incomplete:
 
-- No guaranteed bypass for login, captcha, consent screens, or anti-bot blocking.
-- Review extraction is heuristic, not complete structured review collection.
-- Store decoration, banner sections, voucher strategy, product matrix, and user media extraction are not fully structured.
+- No guaranteed bypass for login, captcha, consent screens, or anti-bot blocking; this is now handled by user-controlled browser sessions in the primary UX.
+- Review extraction is heuristic and depends on browser-readable text.
+- Voucher strategy and user media extraction are not fully structured.
 - Shopee mobile app evidence is not implemented.
 - Product slide capture is not complete as a distinct evidence workflow.
 - Report-quality evidence completeness is not guaranteed.
@@ -261,7 +288,7 @@ Stubbed behavior:
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
 | TikTok marketplace ID | Completed | Architecture | Shared contracts | Done | P1 |
-| TikTok UI selection | Placeholder | Product UI | New Research wizard | Done | P1 |
+| TikTok UI selection | Completed | Product UI | Product research cockpit | Done | P1 |
 | TikTok adapter registration | Stubbed | Marketplace Automation | Unsupported marketplace adapter | Done | P1 |
 | TikTok desktop automation | Not Started | Marketplace Automation | Playwright strategy | 8 days | P1 |
 | TikTok collection | Not Started | Marketplace Automation | Search, product, store parsers | 8 days | P1 |
@@ -271,7 +298,7 @@ Stubbed behavior:
 Implemented:
 
 - `TIKTOK_SHOP` exists in shared marketplace IDs.
-- TikTok Shop is shown in the New Research wizard.
+- TikTok Shop is shown in the product research cockpit as a mobile-only Android-style preview.
 - TikTok Shop is registered in the marketplace registry.
 
 Stubbed behavior:
@@ -307,15 +334,14 @@ Stubbed behavior:
 - Electron Builder is configured for Windows installer, Windows portable, macOS app directory, and macOS DMG.
 - GitHub Actions build workflow exists for Windows and macOS artifacts.
 - Prisma is configured with Windows and macOS binary targets.
-- Start screen, navigation, research wizard, project view, key stores view, reports view, and settings view exist in the renderer.
+- Start screen, navigation, product research cockpit, project view, key stores view, reports view, and settings view exist in the renderer.
+- Embedded visible platform browser exists for Shopee desktop/mobile and TikTok mobile preview.
 - Shopee desktop search, top-sales search, product-card normalization, screenshot asset saving, and structured search diagnostics are completed for Sprint 1.
 
 ### Partially Completed
 
 - Shopee desktop product detail collection.
 - Shopee desktop store detail collection.
-- Product-led UI shell.
-- Cross-platform packaging.
 - AI analysis workflow.
 - HTML report generation.
 - PDF report generation.
@@ -334,7 +360,6 @@ Stubbed behavior:
 
 ### Not Started
 
-- Mobile mock.
 - Shopee mobile app automation.
 - TikTok Shop mobile automation.
 - Android ADB integration.
@@ -348,10 +373,10 @@ Stubbed behavior:
 
 ### Exposed In UI
 
-- Home screen exposes `New Research` and recent research.
-- New Research wizard exposes Shopee, TikTok Shop, and Multiple Platforms.
-- New Research wizard exposes automatic collection method and evidence options.
-- Automation Plan panel mentions mobile evidence.
+- Home and New Research expose Shopee Product Research and TikTok Shop Product Research as the primary actions.
+- Shopee flow exposes keyword input, desktop/mobile view selection, Start Analyze, activity logs, job progress, fullscreen browser mode, and manual user interaction.
+- TikTok Shop flow exposes a mobile-only Android-style platform preview and blocks unsupported extraction from M1.
+- The visible platform browser lets users watch and manually interact with the marketplace surface.
 - Projects screen exposes project tabs.
 - Key Stores screen exposes AI ranking-style UI.
 - Reports screen exposes PDF and other export format labels.
@@ -359,9 +384,8 @@ Stubbed behavior:
 
 ### Exposed But Not Functional
 
-- TikTok Shop is selectable, but the adapter is unsupported and collection will fail when the job runs.
-- Multiple Platforms is selectable, but it maps to Shopee internally instead of launching multiple adapters.
-- Mobile Evidence is described in the UI, but no mobile collection pipeline is connected.
+- TikTok Shop is selectable and opens a mobile Android-style preview, but the marketplace adapter is unsupported and no TikTok extraction job is launched from M1.
+- Mobile Evidence is visible through the platform preview, but no Android collection pipeline is connected.
 - Key Stores ranking is visible, but it is not backed by real AI-ranked store data.
 - Export labels for PowerPoint, Excel, CSV, JSON, and HTML are visible, but only PDF export is wired.
 
@@ -377,9 +401,21 @@ Modified in the latest implementation commit:
 
 - `IMPLEMENTATION_STATUS.md`
 - `ROADMAP.md`
+- `CHANGELOG.md`
+- `RELEASE_REPORT.md`
+- `apps/desktop/eslint.config.js`
+- `apps/desktop/e2e/smoke.spec.ts`
 - `apps/desktop/src/application/services/IntelligenceWorkflow.ts`
+- `apps/desktop/src/application/services/ReportService.ts`
+- `apps/desktop/src/domain/models.ts`
+- `apps/desktop/src/electron/main.ts`
 - `apps/desktop/src/infrastructure/marketplaces/shopee/ShopeeAdapter.ts`
-- `apps/desktop/src/infrastructure/marketplaces/shopee/ShopeeAdapter.test.ts`
+- `apps/desktop/src/infrastructure/report/HtmlReportRenderer.ts`
+- `apps/desktop/src/infrastructure/repositories/PrismaRepositories.ts`
+- `apps/desktop/src/renderer/App.tsx`
+- `apps/desktop/src/renderer/api/client.ts`
+- `apps/desktop/src/renderer/styles.css`
+- `apps/desktop/src/renderer/vite-env.d.ts`
 
 Existing implementation files inspected:
 

@@ -8,6 +8,7 @@ const statements = [
     "marketplace" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'DRAFT',
     "language" TEXT NOT NULL DEFAULT 'id-ID',
+    "productCategory" TEXT,
     "exportFolder" TEXT,
     "screenshotFolder" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -181,5 +182,18 @@ export async function ensureDatabaseSchema(db: PrismaClient): Promise<void> {
   await db.$executeRawUnsafe("PRAGMA foreign_keys = ON");
   for (const statement of statements) {
     await db.$executeRawUnsafe(statement);
+  }
+  await ensureColumn(db, "Project", "productCategory", "TEXT");
+}
+
+async function ensureColumn(
+  db: PrismaClient,
+  table: string,
+  column: string,
+  definition: string
+): Promise<void> {
+  const columns = await db.$queryRawUnsafe<Array<{ name: string }>>(`PRAGMA table_info("${table}")`);
+  if (!columns.some((entry) => entry.name === column)) {
+    await db.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`);
   }
 }

@@ -50,6 +50,7 @@ export class PrismaProjectRepository implements ProjectRepository {
         keyword: input.keyword,
         marketplace: input.marketplace,
         language: input.language,
+        productCategory: input.productCategory,
         exportFolder: input.exportFolder,
         screenshotFolder: input.screenshotFolder,
         status: "ACTIVE"
@@ -136,6 +137,8 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
         marketplace: product.marketplace,
         marketplaceProductId: product.marketplaceProductId,
         rank: product.rank,
+        source: product.source,
+        selectionReason: product.selectionReason,
         title: product.title,
         productType: inferProductType(product.title),
         priceMin: product.price.min,
@@ -246,7 +249,7 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
         mimeType: "image/png",
         width: screenshot.width,
         height: screenshot.height,
-        metadataJson: JSON.stringify({})
+        metadataJson: JSON.stringify(screenshot.metadata ?? {})
       }))
     });
   }
@@ -410,6 +413,7 @@ function toProjectSummary(project: ProjectWithCounts): ProjectSummary {
     marketplace: project.marketplace,
     status: project.status,
     language: project.language,
+    productCategory: project.productCategory,
     exportFolder: project.exportFolder,
     screenshotFolder: project.screenshotFolder,
     createdAt: project.createdAt.toISOString(),

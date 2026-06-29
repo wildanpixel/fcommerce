@@ -87,6 +87,7 @@ model Project {
   marketplace      Marketplace
   status           ProjectStatus @default(DRAFT)
   language         String        @default("id-ID")
+  productCategory  String?
   exportFolder     String?
   screenshotFolder String?
   createdAt        DateTime      @default(now())
