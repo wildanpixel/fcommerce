@@ -1,5 +1,11 @@
 import type {
   BrowserOption,
+  AndroidApkCandidate,
+  AndroidEvidencePayload,
+  AndroidInstallPayload,
+  AndroidStartPayload,
+  AndroidToolStatus,
+  AndroidVisibleTextResult,
   CreateJobPayload,
   DashboardSnapshot,
   HealthPayload,
@@ -31,6 +37,34 @@ export const apiClient = {
   dashboard: () => request<DashboardSnapshot>("/dashboard"),
   platform: () => request<PlatformPayload>("/platform"),
   browsers: () => request<BrowserOption[]>("/browsers"),
+  androidStatus: () => request<AndroidToolStatus>("/android/status"),
+  androidApkCandidates: () => request<AndroidApkCandidate[]>("/android/apk-candidates"),
+  startAndroidEmulator: (payload: AndroidStartPayload) =>
+    request<{ ok: true }>("/android/start", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  installAndroidApk: (payload: AndroidInstallPayload) =>
+    request<{ ok: true }>("/android/install", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  openTikTokAndroid: () =>
+    request<{ ok: true }>("/android/open-tiktok", {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
+  recoverTikTokAndroid: () =>
+    request<{ ok: true }>("/android/recover-tiktok", {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
+  androidVisibleText: () => request<AndroidVisibleTextResult>("/android/visible-text"),
+  captureAndroidEvidence: (payload: AndroidEvidencePayload) =>
+    request<ManualEvidenceResult>("/android/capture-evidence", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   marketplaces: () => request<MarketplaceOption[]>("/marketplaces"),
   settings: () => request<SettingsPayload>("/settings"),
   saveSettings: (payload: SaveSettingsPayload) =>

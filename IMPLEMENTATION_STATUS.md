@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[############--------] 60%
+[##############------] 71%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -33,7 +33,7 @@ The overall percentage is a weighted product estimate based on foundation readin
 | M1 | Product Experience | [####################] 100% | Completed |
 | M2 | Shopee Desktop | [##############------] 72% | Partial |
 | M3 | Intelligence | [#######-------------] 35% | Partial |
-| M4 | Android | [##------------------] 10% | Stubbed |
+| M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
 
@@ -78,7 +78,7 @@ Remaining foundation notes:
 
 - macOS artifact generation is configured and verified through GitHub Actions macOS runners, not this Windows workstation.
 - Code signing and notarization are environment-driven release concerns; no certificates are hardcoded in application logic.
-- Android tooling discovery is not implemented.
+- Android tooling discovery is implemented for ADB, emulator, SDK manager, AVD manager, Java, local AVDs, connected devices, boot health, and TikTok package presence.
 
 Release blocker fixes:
 
@@ -129,6 +129,9 @@ Implemented:
 - The collect button appears only when the current page matches the active evidence step, then saves the visible browser screenshot as a project asset.
 - Browser fullscreen mode keeps the guided step controller visible for focused evidence capture.
 - Sidebar collapse and dark/light mode controls exist in the application shell.
+- Sidebar can now be fully hidden with a single control and restored from a floating show button.
+- Shopee browser collection uses a compact expandable/collapsible floating controller instead of a large blocking panel.
+- TikTok Shop no longer opens as a browser preview; it routes into a dedicated Android Emulator Workspace.
 - Project dashboard and tabs exist.
 - Key Stores screen exists.
 - Reports screen exists.
@@ -249,16 +252,26 @@ Incomplete:
 
 ## M4 Android
 
-[##------------------] 10%
+[################----] 80%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
 | Android automation interface | Completed | Mobile Automation | Domain marketplace contracts | Done | P1 |
-| Unsupported Android adapter | Stubbed | Mobile Automation | Android automation interface | Done | P1 |
-| ADB detection | Not Started | Mobile Automation | Android SDK or platform-tools | 3 days | P1 |
-| Android Emulator discovery | Not Started | Mobile Automation | Android Studio, emulator CLI | 4 days | P1 |
-| Device start and health check | Not Started | Mobile Automation | ADB, emulator boot state | 4 days | P1 |
-| Android screenshot capture | Stubbed | Mobile Automation | ADB screencap | 3 days | P1 |
+| Unsupported Android adapter fallback | Completed | Mobile Automation | Android automation interface | Done | P1 |
+| ADB detection | Completed | Mobile Automation | Android SDK Platform Tools | Done | P1 |
+| Android Emulator discovery | Completed | Mobile Automation | Android SDK Emulator CLI | Done | P1 |
+| SDK manager and AVD manager discovery | Completed | Mobile Automation | Android command-line tools, Java | Done | P1 |
+| Local AVD profile discovery | Completed | Mobile Automation | Android emulator CLI | Done | P1 |
+| Local AVD profile creation | Completed | Mobile Automation | Android 35 Google Play x86_64 image | Done | P1 |
+| Google Play Android system image | Completed | Mobile Automation | Android 35 Google Play x86_64 system image | Done | P1 |
+| Device start and health check | Completed | Mobile Automation | ADB, emulator boot state | Done | P1 |
+| Persistent emulator restart | Completed | Mobile Automation | AVD data partition, emulator snapshots | Done | P1 |
+| TikTok APK discovery | Completed | Mobile Automation | User Downloads folder | Done | P1 |
+| TikTok APK install support | Completed | Mobile Automation | Booted Android device, user-provided APK | Done | P1 |
+| TikTok app launch support | Completed | Mobile Automation | Booted Android device, installed TikTok package | Done | P1 |
+| TikTok ANR detection and recovery | Completed | Mobile Automation | ADB dumpsys, TikTok package state | Done | P1 |
+| Android screenshot capture | Completed | Mobile Automation | ADB screencap, booted Android device | Done | P1 |
+| UIAutomator visible text extraction | Completed | Mobile Automation | ADB, booted Android device | Done | P1 |
 | OCR extraction | Not Started | Mobile Automation and AI | Tesseract, image preprocessing | 4 days | P1 |
 | Vision analysis from mobile screenshots | Not Started | AI Vision | Screenshot capture, AI providers | 4 days | P1 |
 | Shopee Mobile workflow | Not Started | Marketplace Automation | Android automation, Shopee app state | 8 days | P0 |
@@ -268,18 +281,29 @@ Implemented:
 - `AndroidAutomationAdapter` interface exists.
 - `UnsupportedAndroidAutomationAdapter` exists.
 - Adapter methods are shaped for availability, start, screenshot capture, visible text extraction, and stop.
+- `AdbAndroidAutomationAdapter` exists and delegates to the Android tooling service.
+- `AndroidToolingService` detects ADB, Android Emulator, SDK manager, AVD manager, Java, SDK root, local AVD profiles, connected devices, Android boot completion, and TikTok package IDs.
+- Local workstation setup now prefers `MIO_TikTok_Stable`, an Android 35 Google Play x86_64 AVD profile tuned for lower memory pressure than the earlier Pixel profile.
+- `MIO_TikTok_Stable` uses a Google Play system image so users can install apps through Play Store after logging in.
+- Emulator launch is persistent: the app does not pass `-wipe-data`, does not clear TikTok data, and does not reset Google login when the emulator is closed and reopened.
+- The local API exposes Android status, emulator launch, APK install, TikTok launch, visible-text extraction, and Android evidence capture endpoints.
+- The local API detects TikTok APK candidates in the user's Downloads/Desktop folders.
+- TikTok Shop analysis now opens a dedicated Android Emulator Workspace instead of an embedded web browser.
+- Android evidence capture saves ADB screenshots into project folders and persists Prisma asset records with Android step metadata.
+- Android screenshot metadata includes UIAutomator visible text when extraction succeeds.
+- Android status now reports TikTok runtime state, active ANR state, focused activity, package ABI, device ABI, and ARM-on-x86 compatibility warnings.
+- TikTok runtime diagnostics and Recover TikTok controls are exposed in the Android Emulator Workspace.
+- The TikTok Android workspace keeps the collection steps outside the emulator/browser surface so fullscreen browser mode does not cover them.
+- Local validation installed `C:\Users\F-Commerce ID\Downloads\TikTok+-+Videos,+Shop+&+LIVE_45.8.2_APKPure.apk` into the emulator as `com.zhiliaoapp.musically`.
+- Local validation launched TikTok through ADB and confirmed Android status `ready: true`.
+- Local validation reproduced a TikTok app ANR on the login/authorization activity, traced it to the ARM64 TikTok APK running on the x86_64 emulator, and added a Recover TikTok action that force-stops/reopens TikTok without clearing app data.
+- Local validation captured an Android screenshot and extracted UIAutomator visible text.
 
-Stubbed behavior:
+Partial behavior and blockers:
 
-- `isAvailable()` always returns `false`.
-- `start()`, `captureScreenshot()`, and `extractVisibleText()` throw unsupported errors.
-- No Android Studio Emulator integration exists.
-- No Genymotion integration exists.
-- No ADB integration exists.
-- No UIAutomator integration exists.
-- No Accessibility integration exists.
-- No OCR pipeline is connected to Android screenshots.
-- No Vision AI mobile extraction pipeline is connected.
+- TikTok Shop navigation remains user-controlled inside TikTok; the app does not automate TikTok Shop taps, login, Gmail, or account state.
+- OCR and Vision AI analysis are still not connected to Android screenshots.
+- Shopee Mobile app workflow is still not implemented.
 
 ## M5 TikTok Shop
 
@@ -298,14 +322,14 @@ Stubbed behavior:
 Implemented:
 
 - `TIKTOK_SHOP` exists in shared marketplace IDs.
-- TikTok Shop is shown in the product research cockpit as a mobile-only Android-style preview.
+- TikTok Shop is selectable from the product research setup and opens the Android Emulator Workspace.
 - TikTok Shop is registered in the marketplace registry.
 
 Stubbed behavior:
 
 - TikTok Shop uses `UnsupportedMarketplaceAdapter`.
 - All collection methods throw `MarketplaceFeatureUnavailableError`.
-- No TikTok desktop, mobile, Android, OCR, or Vision AI extraction exists.
+- No TikTok desktop marketplace adapter, normalized TikTok product/store collection, OCR, or Vision AI extraction exists. Android screenshot evidence support is tracked under M4.
 
 ## M6 Commercial
 
@@ -336,6 +360,9 @@ Stubbed behavior:
 - Prisma is configured with Windows and macOS binary targets.
 - Start screen, navigation, product research cockpit, project view, key stores view, reports view, and settings view exist in the renderer.
 - Embedded visible platform browser exists for Shopee desktop/mobile and TikTok mobile preview.
+- TikTok Shop now routes to a dedicated Android Emulator Workspace instead of a webview preview.
+- Android ADB/emulator/tooling discovery and evidence capture APIs exist.
+- TikTok APK discovery, install, app launch, Android screenshot capture, and UIAutomator text extraction are validated locally.
 - Shopee desktop search, top-sales search, product-card normalization, screenshot asset saving, and structured search diagnostics are completed for Sprint 1.
 
 ### Partially Completed
@@ -345,24 +372,23 @@ Stubbed behavior:
 - AI analysis workflow.
 - HTML report generation.
 - PDF report generation.
+- TikTok Shop in-app navigation and account login remain manual.
 
 ### Stubbed
 
 - TikTok Shop adapter.
-- Android Emulator automation adapter.
 
 ### Placeholder
 
 - Key Stores ranking.
 - Project detail tabs.
-- Mobile evidence UI/report section.
+- Mobile evidence report section.
 - Export format labels beyond PDF.
 
 ### Not Started
 
 - Shopee mobile app automation.
 - TikTok Shop mobile automation.
-- Android ADB integration.
 - OCR pipeline.
 - Licensing.
 - Auto updates.
@@ -375,7 +401,7 @@ Stubbed behavior:
 
 - Home and New Research expose Shopee Product Research and TikTok Shop Product Research as the primary actions.
 - Shopee flow exposes keyword input, desktop/mobile view selection, Start Analyze, activity logs, job progress, fullscreen browser mode, and manual user interaction.
-- TikTok Shop flow exposes a mobile-only Android-style platform preview and blocks unsupported extraction from M1.
+- TikTok Shop flow exposes the Android Emulator Workspace and blocks capture until Android tooling, a booted device, and TikTok are ready.
 - The visible platform browser lets users watch and manually interact with the marketplace surface.
 - Projects screen exposes project tabs.
 - Key Stores screen exposes AI ranking-style UI.
@@ -384,16 +410,15 @@ Stubbed behavior:
 
 ### Exposed But Not Functional
 
-- TikTok Shop is selectable and opens a mobile Android-style preview, but the marketplace adapter is unsupported and no TikTok extraction job is launched from M1.
-- Mobile Evidence is visible through the platform preview, but no Android collection pipeline is connected.
+- TikTok Shop is selectable and opens the Android Emulator Workspace, but the marketplace adapter is unsupported and no normalized TikTok extraction job is launched from M1.
+- Android Mobile Evidence is visible in the TikTok Android Emulator Workspace, but capture remains disabled until a booted device and TikTok install are available.
 - Key Stores ranking is visible, but it is not backed by real AI-ranked store data.
 - Export labels for PowerPoint, Excel, CSV, JSON, and HTML are visible, but only PDF export is wired.
 
 ### Existing But Inaccessible From UI
 
-- `AndroidAutomationAdapter` exists but is not registered in dependency injection.
-- `UnsupportedAndroidAutomationAdapter` exists but is not used by the workflow or exposed through Settings.
-- There is no UI to configure Android Studio Emulator, Genymotion, ADB path, device selection, OCR, or mobile screenshot capture.
+- `UnsupportedAndroidAutomationAdapter` remains as a fallback class, but the API now uses `AdbAndroidAutomationAdapter`.
+- There is no UI to create new AVD profiles, configure Genymotion, choose between multiple running devices, or run OCR/Vision analysis on mobile screenshots.
 
 ## Source Files Relevant To This Audit
 
@@ -438,6 +463,8 @@ Existing implementation files inspected:
 - `apps/desktop/src/infrastructure/marketplaces/MarketplaceRegistry.ts`
 - `apps/desktop/src/infrastructure/marketplaces/UnsupportedMarketplaceAdapter.ts`
 - `apps/desktop/src/api/server.ts`
+- `apps/desktop/src/infrastructure/android/AdbAndroidAutomationAdapter.ts`
+- `apps/desktop/src/infrastructure/android/AndroidToolingService.ts`
 - `apps/desktop/src/shared/contracts.ts`
 - `apps/desktop/src/shared/reportSections.ts`
 - `apps/desktop/src/infrastructure/report/HtmlReportRenderer.ts`

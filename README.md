@@ -17,7 +17,7 @@ The current desktop target is Shopee Indonesia. The architecture keeps marketpla
 - Cross-platform browser discovery for Chromium, Google Chrome, Microsoft Edge, and Brave.
 - Platform service for application folders, native dialogs, notifications, shell actions, and shortcuts.
 - Product-led start screen, research wizard, project tabs, key-store scoring, and report workflow matching the reference research report sequence.
-- Android automation adapter boundary for future Shopee Mobile App, TikTok Shop Mobile, emulator, OCR, and vision workflows.
+- Android Emulator Workspace for TikTok mobile evidence, with ADB tooling detection, emulator launch, user-selected APK install, TikTok app launch, screenshot capture, and UIAutomator visible-text extraction.
 
 ## Repository Layout
 
@@ -128,6 +128,30 @@ API keys are stored locally and must never be committed. Supported environment v
 - `CLAUDE_API_KEY`
 
 The app can fall back to deterministic local analysis when no provider key is configured.
+
+## Android Emulator And TikTok
+
+TikTok Shop collection uses an Android Emulator Workspace, not an embedded browser. The app detects Android SDK tools from platform-standard locations and environment variables:
+
+- `ANDROID_HOME`
+- `ANDROID_SDK_ROOT`
+- Windows: `%LOCALAPPDATA%/Android/Sdk`
+- macOS: `~/Library/Android/sdk`
+
+Supported Android actions in the desktop UI:
+
+- Detect ADB, Android Emulator, SDK manager, AVD manager, Java, AVD profiles, connected devices, boot state, and TikTok package presence.
+- Launch an existing Android Virtual Device.
+- Detect TikTok APK candidates from local Downloads/Desktop folders.
+- Install a user-selected TikTok APK through ADB.
+- Open TikTok on the booted Android device.
+- Recover TikTok if Android reports the app is not responding.
+- Capture the active Android screen as project evidence.
+- Extract visible text from the active Android screen with UIAutomator.
+
+The app does not bundle or download TikTok APKs. Provide a trusted APK locally or install TikTok through the emulator's Play Store flow after logging into Google Play. The V1 TikTok flow is manual: after TikTok opens, the user enters TikTok Shop and navigates the app while Marketplace Intelligence OS captures the active Android screen on demand.
+
+Emulator state is persistent. Marketplace Intelligence OS does not launch the emulator with `-wipe-data`, does not clear TikTok data, and does not reset Google login when the emulator is closed and reopened. If TikTok freezes, use Recover TikTok from the Android workspace; it force-stops and reopens TikTok only. If freezes continue, prefer installing TikTok from Play Store or using a universal/x86-compatible APK because ARM-only APKs can be slow on x86_64 emulators.
 
 ## Screenshots
 

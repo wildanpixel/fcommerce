@@ -48,6 +48,41 @@ Chrome, Edge, and Brave are detected with platform-specific locations and the sy
 
 Browser sessions use persistent profiles stored under the platform app folder, one profile per browser.
 
+## Android Tooling
+
+Android support is implemented behind the Android automation adapter boundary and does not change marketplace adapter contracts.
+
+Tool discovery checks:
+
+- `ANDROID_HOME`
+- `ANDROID_SDK_ROOT`
+- Windows `%LOCALAPPDATA%/Android/Sdk`
+- macOS `~/Library/Android/sdk`
+- Linux `~/Android/Sdk`
+- System `PATH`
+
+Detected tools and runtime state:
+
+- ADB
+- Android Emulator CLI
+- SDK manager
+- AVD manager
+- Java runtime
+- Android Virtual Devices
+- Connected Android devices
+- Device boot completion
+- TikTok package IDs: `com.zhiliaoapp.musically` and `com.ss.android.ugc.trill`
+- TikTok runtime state, active ANR state, focused activity, package ABI, and device ABI
+- Local TikTok APK candidates from Downloads/Desktop folders
+
+The TikTok workflow launches a native Android emulator window and keeps collection controls in the Electron app. TikTok APKs are not bundled; users can select a local APK for ADB install or use the emulator's Play Store flow.
+
+Android screenshots are captured with `adb exec-out screencap -p`. Visible text is extracted with UIAutomator XML dumps when a booted device is available.
+
+The local Windows validation profile is `MIO_TikTok_Stable`, created from the Android 35 Google Play x86_64 system image. This lets a user sign in with Gmail and install TikTok from Play Store, or install a trusted local TikTok APK through the app.
+
+Emulator launch preserves state. The app does not pass `-wipe-data`, clear TikTok app data, uninstall TikTok, or reset Google login when the emulator is closed and reopened. If Android reports TikTok is not responding, the Recover TikTok action force-stops and reopens the app without clearing user data. ARM-only TikTok APKs can still hang on x86_64 emulators because they run through translation; Play Store install or a universal/x86-compatible APK is preferred when available.
+
 ## Native Features
 
 Electron native capabilities are centralized in the platform layer:

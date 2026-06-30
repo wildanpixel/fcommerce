@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -25,6 +25,10 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-06-29 | M0/M1 home flow mismatch | Fixed | Home now opens with one Create Analysis action, then a setup form, then the guided in-app browser. |
 | 2026-06-29 | Shopee guest-view navigation aborts | Accepted | Electron webview `ERR_ABORTED` navigations are treated as non-fatal; users can complete Shopee login or traffic verification manually in the visible browser. |
 | 2026-06-29 | Fully automatic collection without APIs | Re-scoped | Primary V1 collection is now guided/manual: the user controls the platform browser and the app captures each report step on demand. |
+| 2026-06-30 | Android emulator boot validation | Fixed | `MIO_TikTok_Stable` boots with Android 35 Google Play x86_64 image and reports `sys.boot_completed=1` through ADB. |
+| 2026-06-30 | TikTok APK availability | Fixed | The app detects TikTok APK candidates in Downloads, and the provided TikTok APK installed as `com.zhiliaoapp.musically`. |
+| 2026-06-30 | Emulator reopens like a new phone | Fixed | Emulator launch preserves the AVD data partition and snapshots; the app does not wipe data, clear TikTok data, or reset Google login on restart. |
+| 2026-06-30 | TikTok app not responding | Mitigated | Android status detects active TikTok ANR state and exposes Recover TikTok, which force-stops/reopens TikTok without clearing app data. The provided APK is ARM64 on an x86_64 emulator, so Play Store or universal APK install is recommended if freezes persist. |
 
 ## Sprint Overview
 
@@ -37,7 +41,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | Sprint 4 | M3.1 Complete Key Stores AI | v0.5.0 | Key Stores AI | 1 week | Not Started |
 | Sprint 5 | M3.2 Complete Reports | v0.6.0 | Report completeness | 1 week | Not Started |
 | Sprint 6 | M4.1 Shopee Mobile Evidence | v0.7.0 | Shopee Mobile | 1 week | Not Started |
-| Sprint 7 | M4.2 Android Automation | v0.8.0 | Android Automation | 2 weeks | Not Started |
+| Sprint 7 | M4.2 Android Manual Evidence | v0.8.0 | Android Emulator evidence workspace | 2 weeks | Completed for manual evidence scope |
 | Sprint 8 | M5.1 TikTok Shop Adapter | v0.9.0 | TikTok Shop | 2 weeks | Not Started |
 | Sprint 9 | M6.1 Commercial Release | v1.0.0 | Commercial Release | 2 weeks | Not Started |
 
@@ -322,28 +326,32 @@ Status: Not Started
 - Imported evidence appears in reports and AI analysis.
 - M4 Shopee Mobile rows in `IMPLEMENTATION_STATUS.md` are updated.
 
-## Sprint 7 - Android Automation
+## Sprint 7 - Android Manual Evidence
 
-GitHub Milestone Name: M4.2 Android Automation
+GitHub Milestone Name: M4.2 Android Manual Evidence
 Target Version: v0.8.0
 Estimated Time: 2 weeks
-Status: Not Started
+Status: Completed for manual evidence scope
 
 ### Objectives
 
-- Replace the unsupported Android adapter with real emulator and ADB-based automation.
-- Capture app screenshots and visible text for Shopee mobile evidence.
+- Replace the unsupported Android-only placeholder with a real emulator and ADB-backed manual evidence workspace.
+- Let the user control TikTok/TikTok Shop manually inside Android while the app handles install, launch, status, screenshots, and visible text.
 
 ### Tasks
 
 | Task | Dependencies | Estimated Time | Acceptance Criteria |
 | --- | --- | ---: | --- |
-| Detect ADB and emulator tools | Platform service | 2 days | Settings can show Android tooling availability. |
-| Discover connected devices | ADB | 2 days | Available devices are listed with status. |
-| Start emulator profile | Android Emulator CLI | 2 days | Configured emulator can be launched and health-checked. |
-| Capture screenshots | ADB screencap | 2 days | Screenshots are saved to project asset folders. |
-| Extract visible text | OCR and/or UIAutomator | 3 days | Visible text is extracted into structured evidence. |
-| Wire Android adapter into workflow | Dependency injection, job queue | 3 days | Mobile collection jobs can call the Android adapter. |
+| Detect ADB and emulator tools | Platform service | Done | Completed: Android service detects ADB, emulator, SDK manager, AVD manager, Java, and SDK root. |
+| Discover connected devices | ADB | Done | Completed: Android status lists connected devices and reports no-device diagnostics when none are running. |
+| Create local emulator profile | Android SDK command-line tools | Done | Completed locally: `MIO_TikTok_Stable` AVD was created from Android 35 Google Play x86_64 Google Play image. |
+| Start emulator profile | Android Emulator CLI | Done | Completed: `MIO_TikTok_Stable` boots and reports ADB boot completion without wiping existing emulator data. |
+| Capture screenshots | ADB screencap | Done | Completed: screenshot capture writes PNG output from the booted emulator. |
+| Extract visible text | UIAutomator | Done | Completed: visible text extraction returns UIAutomator text from the active Android screen. |
+| Wire Android adapter into workflow | Dependency injection, manual workspace | Done | Completed: API and TikTok Android workspace use the ADB-backed Android tooling path. |
+| Detect local TikTok APKs | Downloads/Desktop scan | Done | Completed: the provided TikTok APK in Downloads is detected and prefilled in the UI. |
+| Install and launch TikTok app | ADB, user-provided APK | Done | Completed: provided TikTok APK installed as `com.zhiliaoapp.musically` and launched through ADB. |
+| Detect and recover TikTok ANR | ADB dumpsys, TikTok package state | Done | Completed: Android status reports TikTok runtime/ANR state and Recover TikTok reopens the app without clearing data. |
 
 ### Dependencies
 
@@ -355,10 +363,25 @@ Status: Not Started
 
 ### Acceptance Criteria
 
-- Android adapter no longer reports unsupported when tools are available.
-- Screenshot capture and visible text extraction work for an emulator or connected device.
-- Android errors are logged with actionable diagnostics.
+- Passed: Android adapter no longer reports unsupported when tools are available.
+- Passed: screenshot capture and visible text extraction work for the local emulator.
+- Passed: TikTok APK discovery, install, and launch work with the user-provided APK.
+- Passed: emulator restart preserves installed apps, Android setup state, and TikTok/login data.
+- Passed: TikTok ANR recovery is available from the Android workspace.
+- Passed: Android errors are logged with actionable diagnostics.
+- Manual scope: TikTok Shop entry, Gmail login, and in-app navigation remain user-controlled by design.
 - M4 Android rows in `IMPLEMENTATION_STATUS.md` are updated.
+
+### 2026-06-30 Update
+
+- Added `AndroidToolingService` and `AdbAndroidAutomationAdapter`.
+- Added Android status, emulator launch, APK install, TikTok launch, visible-text extraction, and Android evidence capture API routes.
+- Added TikTok Android Emulator Workspace in the UI, keeping TikTok collection controls outside the browser surface.
+- Added fully hidden sidebar behavior and a more compact expandable Shopee floating collector as supporting UX changes.
+- Installed local Android command-line tooling dependencies and created `MIO_TikTok_Stable` AVD.
+- Installed the provided TikTok APK from Downloads and launched it on the booted emulator.
+- Added runtime diagnostics for TikTok ANR, package ABI, device ABI, and a Recover TikTok action for ARM-on-x86 hangs.
+- Current scope boundary: TikTok Shop navigation is manual; normalized TikTok marketplace collection remains Sprint 8.
 
 ## Sprint 8 - TikTok Shop
 

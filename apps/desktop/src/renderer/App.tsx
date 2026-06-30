@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Archive,
+  AlertTriangle,
   BadgeCheck,
   Brain,
   CheckCircle2,
@@ -36,6 +37,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type {
+  AndroidAppRuntimeStatus,
+  AndroidToolStatus,
   DashboardSnapshot,
   ManualEvidenceKind,
   MarketplaceId,
@@ -102,14 +105,24 @@ type WebviewNavigationEvent = Event & {
 
 export default function App() {
   const activeView = useUiStore((state) => state.activeView);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
   const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
 
   return (
     <div className={`mio-app ${themeMode === "light" ? "mio-light" : "mio-dark"} min-h-screen bg-ink-950 text-ink-100`}>
-      <div className={["grid min-h-screen transition-[grid-template-columns] duration-300 ease-out", sidebarCollapsed ? "grid-cols-[84px_minmax(0,1fr)]" : "grid-cols-[264px_minmax(0,1fr)]"].join(" ")}>
-        <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} />
+      <div className={["grid min-h-screen transition-[grid-template-columns] duration-300 ease-out", sidebarVisible ? "grid-cols-[264px_minmax(0,1fr)]" : "grid-cols-[0_minmax(0,1fr)]"].join(" ")}>
+        <AnimatePresence>{sidebarVisible && <Sidebar onHide={() => setSidebarVisible(false)} />}</AnimatePresence>
         <main className="mio-main min-w-0 border-l border-white/8 bg-[linear-gradient(180deg,#10141d,#090b10_48%)]">
+          {!sidebarVisible && (
+            <button
+              type="button"
+              className="mio-sidebar-show secondary-button fixed left-4 top-4 z-[60] h-10 w-10 px-0"
+              aria-label="Show sidebar"
+              onClick={() => setSidebarVisible(true)}
+            >
+              <PanelLeftOpen size={17} />
+            </button>
+          )}
           <TopBar themeMode={themeMode} onThemeToggle={() => setThemeMode((value) => (value === "dark" ? "light" : "dark"))} />
           <div className="relative px-8 pb-10">
             <AnimatePresence mode="wait">
@@ -134,17 +147,23 @@ export default function App() {
   );
 }
 
-function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+function Sidebar({ onHide }: { onHide: () => void }) {
   const activeView = useUiStore((state) => state.activeView);
   const setActiveView = useUiStore((state) => state.setActiveView);
 
   return (
-    <aside className="mio-sidebar flex min-h-screen flex-col bg-ink-900 px-4 py-5 transition-all duration-300 ease-out">
-      <div className={["mb-8 flex items-center gap-3 px-2", collapsed ? "justify-center px-0" : ""].join(" ")}>
+    <motion.aside
+      className="mio-sidebar flex min-h-screen flex-col bg-ink-900 px-4 py-5 transition-all duration-300 ease-out"
+      initial={{ x: -24, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: -24, opacity: 0 }}
+      transition={{ duration: 0.18 }}
+    >
+      <div className="mb-8 flex items-center gap-3 px-2">
         <div className="flex h-9 w-9 items-center justify-center rounded-md bg-signal-blue/15 text-signal-blue">
           <Brain size={20} />
         </div>
-        <div className={collapsed ? "hidden" : ""}>
+        <div>
           <div className="text-sm font-semibold">Marketplace Intelligence OS</div>
           <div className="text-xs text-ink-500">Guided Marketplace Evidence</div>
         </div>
@@ -153,11 +172,11 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       <button
         type="button"
         className="secondary-button mb-4 h-9"
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        onClick={onToggle}
+        aria-label="Hide sidebar"
+        onClick={onHide}
       >
-        {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-        {!collapsed && "Collapse"}
+        <PanelLeftClose size={16} />
+        Hide Sidebar
       </button>
 
       <nav className="space-y-1">
@@ -170,19 +189,18 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               type="button"
               className={[
                 "flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition",
-                collapsed ? "justify-center px-0" : "",
                 active ? "bg-white/9 text-white shadow-glow" : "text-ink-300 hover:bg-white/6 hover:text-white"
               ].join(" ")}
               onClick={() => setActiveView(item.id)}
             >
               <Icon size={17} />
-              {!collapsed && item.label}
+              {item.label}
             </button>
           );
         })}
       </nav>
 
-      <div className={["mt-auto rounded-md border border-white/8 bg-white/5 p-3 transition-opacity duration-300", collapsed ? "hidden" : ""].join(" ")}>
+      <div className="mt-auto rounded-md border border-white/8 bg-white/5 p-3 transition-opacity duration-300">
         <div className="mb-2 flex items-center gap-2 text-xs font-medium text-ink-300">
           <ShieldCheck size={14} />
           Local Evidence Vault
@@ -191,7 +209,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           Projects, screenshots, reports, browser sessions, and keys stay on this machine.
         </div>
       </div>
-    </aside>
+    </motion.aside>
   );
 }
 
@@ -268,23 +286,29 @@ function ManualResearchExperience() {
     return <CreateAnalysisHome onCreate={() => setMode("setup")} />;
   }
 
+  const resetAnalysis = () => {
+    setActiveProject(null);
+    setForm({
+      keyword: "",
+      productCategory: "",
+      marketplace: "SHOPEE_ID",
+      createdAt: new Date().toISOString()
+    });
+    setBrowserUrl(SHOPEE_HOME_URL);
+    setMode("setup");
+  };
+
+  if (activeProject.marketplace === "TIKTOK_SHOP") {
+    return <AndroidTikTokCollector project={activeProject} productCategory={form.productCategory} onNewAnalysis={resetAnalysis} />;
+  }
+
   return (
     <GuidedBrowserCollector
       project={activeProject}
       productCategory={form.productCategory}
       browserUrl={browserUrl}
       onBrowserUrlChange={setBrowserUrl}
-      onNewAnalysis={() => {
-        setActiveProject(null);
-        setForm({
-          keyword: "",
-          productCategory: "",
-          marketplace: "SHOPEE_ID",
-          createdAt: new Date().toISOString()
-        });
-        setBrowserUrl(SHOPEE_HOME_URL);
-        setMode("setup");
-      }}
+      onNewAnalysis={resetAnalysis}
     />
   );
 }
@@ -392,6 +416,328 @@ function AnalysisSetupForm({
           )}
         </form>
       </Panel>
+    </section>
+  );
+}
+
+function AndroidTikTokCollector({
+  project,
+  productCategory,
+  onNewAnalysis
+}: {
+  project: ProjectSummary;
+  productCategory: string;
+  onNewAnalysis: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const androidStatus = useQuery({
+    queryKey: ["android-status"],
+    queryFn: apiClient.androidStatus,
+    refetchInterval: 5000
+  });
+  const apkCandidates = useQuery({
+    queryKey: ["android-apk-candidates"],
+    queryFn: apiClient.androidApkCandidates
+  });
+  const status = androidStatus.data;
+  const [selectedAvd, setSelectedAvd] = useState("");
+  const [apkPath, setApkPath] = useState("");
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const [collectedSteps, setCollectedSteps] = useState<Record<string, string>>({});
+  const [visibleText, setVisibleText] = useState("");
+  const [activityLog, setActivityLog] = useState<string[]>([
+    "TikTok Shop uses the Android Emulator workspace. Launch an AVD, install TikTok, then capture each mobile step."
+  ]);
+  const runtime = status?.tiktokRuntime;
+  const steps = useMemo(() => buildAndroidTikTokSteps(project, status), [project, status]);
+  const activeStep = steps[activeStepIndex] ?? steps[0];
+  const collectedCount = steps.filter((step) => collectedSteps[step.id]).length;
+  const bootedDevice = Boolean(status?.devices.some((device) => device.bootCompleted));
+
+  useEffect(() => {
+    if (!selectedAvd && status?.avds[0]) {
+      setSelectedAvd(status.avds[0].name);
+    }
+  }, [selectedAvd, status?.avds]);
+
+  useEffect(() => {
+    const candidate = apkCandidates.data?.[0];
+    if (!apkPath && candidate) {
+      setApkPath(candidate.path);
+    }
+  }, [apkCandidates.data, apkPath]);
+
+  const startEmulator = useMutation({
+    mutationFn: () => apiClient.startAndroidEmulator({ avdName: selectedAvd || undefined }),
+    onSuccess: async () => {
+      appendLog(setActivityLog, `Android emulator launch requested${selectedAvd ? ` for ${selectedAvd}` : ""}.`);
+      await androidStatus.refetch();
+    },
+    onError: (error) => appendLog(setActivityLog, error instanceof Error ? error.message : "Could not start Android emulator.")
+  });
+  const installApk = useMutation({
+    mutationFn: () => apiClient.installAndroidApk({ apkPath }),
+    onSuccess: async () => {
+      appendLog(setActivityLog, "TikTok APK install completed.");
+      await androidStatus.refetch();
+    },
+    onError: (error) => appendLog(setActivityLog, error instanceof Error ? error.message : "Could not install TikTok APK.")
+  });
+  const openTikTok = useMutation({
+    mutationFn: apiClient.openTikTokAndroid,
+    onSuccess: async () => {
+      appendLog(setActivityLog, "TikTok opened on the Android device.");
+      await androidStatus.refetch();
+    },
+    onError: (error) => appendLog(setActivityLog, error instanceof Error ? error.message : "Could not open TikTok.")
+  });
+  const recoverTikTok = useMutation({
+    mutationFn: apiClient.recoverTikTokAndroid,
+    onSuccess: async () => {
+      appendLog(setActivityLog, "TikTok was force-stopped and reopened. App data, install state, and login data were preserved.");
+      await androidStatus.refetch();
+    },
+    onError: (error) => appendLog(setActivityLog, error instanceof Error ? error.message : "Could not recover TikTok.")
+  });
+  const extractVisibleText = useMutation({
+    mutationFn: apiClient.androidVisibleText,
+    onSuccess: (result) => {
+      setVisibleText(result.text);
+      appendLog(setActivityLog, result.text ? "Android visible text extracted from the active screen." : "Android visible text extraction returned no readable text.");
+    },
+    onError: (error) => appendLog(setActivityLog, error instanceof Error ? error.message : "Could not extract Android visible text.")
+  });
+  const captureEvidence = useMutation({
+    mutationFn: (step: CollectionStep) =>
+      apiClient.captureAndroidEvidence({
+        projectId: project.id,
+        stepId: step.id,
+        label: step.label,
+        kind: step.kind,
+        note: step.instruction,
+        metadata: {
+          source: "android-emulator",
+          keyword: project.keyword,
+          productCategory,
+          marketplace: project.marketplace,
+          capturedAt: new Date().toISOString()
+        }
+      }),
+    onSuccess: async (result, step) => {
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      setCollectedSteps((current) => ({ ...current, [step.id]: result.assetPath }));
+      appendLog(setActivityLog, `Captured Android evidence: ${step.label}.`);
+      setActiveStepIndex((current) => Math.min(current + 1, steps.length - 1));
+    },
+    onError: (error) => appendLog(setActivityLog, error instanceof Error ? error.message : "Could not capture Android evidence.")
+  });
+
+  async function pickApk() {
+    const picked = await window.marketplaceOS?.platform?.pickFile?.();
+    if (picked) {
+      setApkPath(picked);
+    }
+  }
+
+  function selectDetectedApk(path: string) {
+    setApkPath(path);
+    appendLog(setActivityLog, "Selected detected TikTok APK from local Downloads.");
+  }
+
+  return (
+    <section className="grid grid-cols-[360px_minmax(0,1fr)] gap-5">
+      <aside className="space-y-5">
+        <Panel title="TikTok Analysis Session" icon={Smartphone}>
+          <div className="space-y-3 text-sm text-ink-300">
+            <InfoLine label="Keyword" value={project.keyword} />
+            <InfoLine label="Category" value={project.productCategory ?? productCategory} />
+            <InfoLine label="Platform" value="TikTok Shop Android" />
+            <InfoLine label="Created" value={formatDateTime(project.createdAt)} />
+          </div>
+          <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
+            Launch Android, install or open TikTok, log in with Gmail if needed, then enter TikTok Shop manually. Closing the emulator keeps the AVD data partition, installed apps, and login state.
+          </div>
+          <button className="secondary-button mt-5" type="button" onClick={onNewAnalysis}>
+            <ClipboardCheck size={16} />
+            New Analysis
+          </button>
+        </Panel>
+
+        <Panel title="Mobile Collection Steps" icon={ListChecks}>
+          <ProgressBar value={(collectedCount / steps.length) * 100} />
+          <div className="mt-4 max-h-[420px] space-y-2 overflow-auto pr-1">
+            {steps.map((step, index) => (
+              <button
+                key={step.id}
+                type="button"
+                className={[
+                  "w-full rounded-md border px-3 py-2 text-left text-xs transition",
+                  index === activeStepIndex ? "border-signal-blue/40 bg-signal-blue/12" : "border-white/8 bg-white/5 hover:bg-white/8"
+                ].join(" ")}
+                onClick={() => setActiveStepIndex(index)}
+              >
+                <div className="mb-1 flex items-center justify-between gap-2 text-white">
+                  <span>Step {index + 1}</span>
+                  {collectedSteps[step.id] ? <CheckCircle2 size={14} className="text-signal-green" /> : <Circle size={12} className="text-ink-500" />}
+                </div>
+                <div className="text-ink-300">{step.label}</div>
+              </button>
+            ))}
+          </div>
+        </Panel>
+      </aside>
+
+      <div className="space-y-5">
+        <Panel
+          title="Android Emulator Workspace"
+          icon={Smartphone}
+          action={
+            <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => void androidStatus.refetch()}>
+              <RefreshCcw size={15} />
+              Refresh
+            </button>
+          }
+        >
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 2xl:grid-cols-7">
+            <AndroidStatusTile label="ADB" ready={Boolean(status?.adbPath)} value={status?.adbPath ? "Detected" : "Missing"} />
+            <AndroidStatusTile label="Java" ready={Boolean(status?.javaAvailable)} value={status?.javaAvailable ? "Detected" : "Missing"} />
+            <AndroidStatusTile label="Emulator" ready={Boolean(status?.emulatorPath)} value={status?.emulatorPath ? "Detected" : "Missing"} />
+            <AndroidStatusTile label="AVD" ready={Boolean(status?.avds.length)} value={status?.avds[0]?.name ?? "None"} />
+            <AndroidStatusTile
+              label="Device"
+              ready={Boolean(status?.devices.some((device) => device.bootCompleted))}
+              value={
+                status?.devices[0]
+                  ? `${status.devices[0].model ?? status.devices[0].id}${status.devices[0].bootCompleted ? " booted" : " booting"}`
+                  : "None"
+              }
+            />
+            <AndroidStatusTile label="TikTok" ready={Boolean(status?.tiktokInstalled)} value={status?.tiktokPackage ?? "Not installed"} />
+            <AndroidStatusTile
+              label="Runtime"
+              ready={runtime?.state === "responding" || Boolean(status?.ready)}
+              value={runtime ? formatAndroidRuntimeState(runtime.state) : "Unknown"}
+            />
+          </div>
+
+          <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
+            Emulator launch is persistent by design. The app does not wipe Android, uninstall TikTok, clear app data, or reset Google login when the emulator is closed.
+          </div>
+
+          {runtime?.activeAnr && (
+            <div className="mt-5 rounded-md border border-signal-rose/35 bg-signal-rose/10 p-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-signal-rose">
+                <AlertTriangle size={16} />
+                TikTok is not responding
+              </div>
+              <div className="text-xs leading-5 text-ink-300">
+                Android reported an ANR in TikTok. Recovery force-stops and reopens TikTok only; it keeps the emulator profile, installed app, and account data intact.
+                {runtime.lastAnrReason ? ` Last reason: ${runtime.lastAnrReason}` : ""}
+              </div>
+              <button className="primary-button mt-3 w-auto px-4" type="button" onClick={() => recoverTikTok.mutate()} disabled={recoverTikTok.isPending || !status?.tiktokInstalled}>
+                <RefreshCcw size={16} />
+                {recoverTikTok.isPending ? "Recovering TikTok" : "Recover TikTok"}
+              </button>
+            </div>
+          )}
+
+          <div className="mt-5 grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+            <select value={selectedAvd} onChange={(event) => setSelectedAvd(event.target.value)} className="input">
+              <option value="">{status?.avds.length ? "Use first available emulator" : "No Android emulator profile detected"}</option>
+              {(status?.avds ?? []).map((avd) => (
+                <option key={avd.name} value={avd.name}>
+                  {avd.name}
+                </option>
+              ))}
+            </select>
+            <button className="primary-button w-auto px-4" type="button" onClick={() => startEmulator.mutate()} disabled={startEmulator.isPending || !status?.emulatorPath || !status?.avds.length}>
+              <Smartphone size={16} />
+              Launch Emulator
+            </button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3">
+            <input className="input" value={apkPath} onChange={(event) => setApkPath(event.target.value)} placeholder="TikTok APK path" />
+            <button className="secondary-button w-auto px-4" type="button" onClick={() => void pickApk()}>
+              Select APK
+            </button>
+            <button className="primary-button w-auto px-4" type="button" onClick={() => installApk.mutate()} disabled={installApk.isPending || !apkPath.trim() || !bootedDevice}>
+              Install TikTok
+            </button>
+          </div>
+
+          {(apkCandidates.data?.length ?? 0) > 0 && (
+            <div className="mt-3 space-y-2">
+              {apkCandidates.data?.slice(0, 3).map((candidate) => (
+                <button
+                  key={candidate.path}
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 px-3 py-2 text-left text-xs text-ink-300 transition hover:bg-white/8 hover:text-white"
+                  onClick={() => selectDetectedApk(candidate.path)}
+                >
+                  <span className="truncate">{candidate.name}</span>
+                  <span className="shrink-0 text-ink-500">{formatFileSize(candidate.sizeBytes)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <button className="secondary-button" type="button" onClick={() => openTikTok.mutate()} disabled={openTikTok.isPending || !status?.tiktokInstalled}>
+              <ExternalLink size={16} />
+              Open TikTok App
+            </button>
+            <button className="secondary-button" type="button" onClick={() => recoverTikTok.mutate()} disabled={recoverTikTok.isPending || !status?.tiktokInstalled}>
+              <RefreshCcw size={16} />
+              {recoverTikTok.isPending ? "Recovering" : "Recover TikTok"}
+            </button>
+            <button className="secondary-button" type="button" onClick={() => extractVisibleText.mutate()} disabled={extractVisibleText.isPending || !bootedDevice}>
+              <TerminalSquare size={16} />
+              {extractVisibleText.isPending ? "Reading Text" : "Extract Text"}
+            </button>
+            <button className="primary-button" type="button" onClick={() => captureEvidence.mutate(activeStep)} disabled={captureEvidence.isPending || !activeStep.ready}>
+              <ClipboardCheck size={16} />
+              {captureEvidence.isPending ? "Capturing" : "Capture Active Step"}
+            </button>
+          </div>
+
+          <div className="mt-5 rounded-[18px] border border-white/8 bg-white/5 p-4">
+            <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-ink-500">
+              Active Step {activeStepIndex + 1}/{steps.length}
+            </div>
+            <div className="mb-2 text-lg font-semibold text-white">{activeStep.label}</div>
+            <div className="text-sm leading-6 text-ink-300">{activeStep.instruction}</div>
+            <div className={["mt-3 inline-flex rounded-full px-3 py-1 text-xs", activeStep.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-400"].join(" ")}>
+              {activeStep.ready ? "Ready to capture from Android" : "Launch Android, install TikTok, and open TikTok Shop manually first"}
+            </div>
+            {visibleText && (
+              <pre className="mt-4 max-h-32 overflow-auto whitespace-pre-wrap rounded-md border border-white/8 bg-black/20 p-3 text-xs leading-5 text-ink-300">
+                {visibleText}
+              </pre>
+            )}
+          </div>
+
+          {(status?.diagnostics.length ?? 0) > 0 && (
+            <div className="mt-5 space-y-2">
+              {status?.diagnostics.map((diagnostic) => (
+                <div key={diagnostic} className="rounded-md border border-signal-amber/25 bg-signal-amber/10 px-3 py-2 text-xs leading-5 text-signal-amber">
+                  {diagnostic}
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="Activity" icon={Gauge}>
+          <div className="space-y-2">
+            {activityLog.map((entry) => (
+              <div key={entry} className="rounded-md border border-white/8 bg-white/5 px-3 py-2 text-xs leading-5 text-ink-300">
+                {entry}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
     </section>
   );
 }
@@ -691,30 +1037,62 @@ function FloatingStepController({
   onPrevious: () => void;
   onNext: () => void;
 }) {
+  const [compact, setCompact] = useState(false);
+  if (compact) {
+    return (
+      <motion.div
+        className="mio-floating-collector absolute left-4 top-4 z-20 max-w-[360px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
+        initial={{ opacity: 0, y: -10, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.18 }}
+      >
+        <div className="flex items-center gap-2">
+          <button className="secondary-button h-8 w-8 rounded-full px-0" type="button" onClick={() => setCompact(false)} aria-label="Expand collector">
+            <Maximize2 size={13} />
+          </button>
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.12em] text-ink-500">
+              Step {stepNumber}/{stepTotal}
+            </div>
+            <div className="truncate text-xs font-medium text-white">{step.label}</div>
+          </div>
+          <span className={["shrink-0 rounded-full px-2 py-1 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
+            {captured ? "saved" : step.ready ? "ready" : "wait"}
+          </span>
+        </div>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
-      className="mio-floating-collector absolute left-4 top-4 z-20 w-[360px] rounded-[22px] border border-white/16 bg-ink-950/78 p-4 shadow-glow backdrop-blur-2xl"
-      initial={{ opacity: 0, y: -14, scale: 0.98 }}
+      className="mio-floating-collector absolute left-4 top-4 z-20 w-[320px] rounded-[20px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl"
+      initial={{ opacity: 0, y: -10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.22 }}
+      transition={{ duration: 0.18 }}
     >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-ink-500">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-ink-500">
             Guided Collection {stepNumber}/{stepTotal}
           </div>
-          <div className="text-sm font-semibold text-white">{step.label}</div>
+          <div className="truncate text-sm font-semibold text-white">{step.label}</div>
         </div>
-        <div className={["rounded-full px-2 py-1 text-[11px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
-          {captured ? "saved" : step.ready ? "ready" : "waiting"}
-        </div>
+        <button className="secondary-button h-8 w-8 rounded-full px-0" type="button" onClick={() => setCompact(true)} aria-label="Collapse collector">
+          <Minimize2 size={13} />
+        </button>
       </div>
       <ProgressBar value={(collectedCount / stepTotal) * 100} />
-      <div className="mt-3 rounded-2xl border border-white/8 bg-white/6 p-3 text-xs leading-5 text-ink-300">
-        <div className="mb-1 font-medium text-white">{step.section}</div>
+      <div className="mt-2 rounded-2xl border border-white/8 bg-white/6 p-3 text-xs leading-5 text-ink-300">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className="font-medium text-white">{step.section}</span>
+          <span className={["rounded-full px-2 py-0.5 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
+            {captured ? "saved" : step.ready ? "ready" : "waiting"}
+          </span>
+        </div>
         {step.instruction}
       </div>
-      <div className="mt-3 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-2">
+      <div className="mt-2 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-2">
         <button className="secondary-button h-9 w-10 px-0" type="button" onClick={onPrevious} aria-label="Previous step">
           <ChevronLeft size={15} />
         </button>
@@ -729,12 +1107,12 @@ function FloatingStepController({
         )}
       </div>
       {step.ready ? (
-        <button className="primary-button mt-3 h-10" type="button" disabled={saving} onClick={onCollect}>
+        <button className="primary-button mt-2 h-9" type="button" disabled={saving} onClick={onCollect}>
           <ClipboardCheck size={16} />
           {saving ? "Saving Evidence" : captured ? "Capture Again" : "Collect This Step"}
         </button>
       ) : (
-        <div className="mt-3 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
+        <div className="mt-2 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
           Navigate to the target page or section to reveal the collect button.
         </div>
       )}
@@ -1129,6 +1507,18 @@ function StatusPill({ status }: { status: string }) {
   return <span className="rounded-full bg-signal-green/15 px-2 py-1 text-xs text-signal-green">{status}</span>;
 }
 
+function AndroidStatusTile({ label, value, ready }: { label: string; value: string; ready: boolean }) {
+  return (
+    <div className="rounded-md border border-white/8 bg-white/5 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{label}</span>
+        {ready ? <CheckCircle2 size={14} className="text-signal-green" /> : <Circle size={12} className="text-ink-500" />}
+      </div>
+      <div className="truncate text-sm text-white">{value}</div>
+    </div>
+  );
+}
+
 function InsightCard({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-md border border-white/8 bg-ink-900/72 p-5 shadow-glow">
@@ -1162,6 +1552,53 @@ function buildCollectionSteps(project: ProjectSummary, platform: ResearchPlatfor
   return platform === "SHOPEE_ID"
     ? buildShopeeSteps(project, currentUrl)
     : buildTikTokSteps(project, currentUrl);
+}
+
+function buildAndroidTikTokSteps(project: ProjectSummary, status: AndroidToolStatus | undefined): CollectionStep[] {
+  const tiktokReady = Boolean(status?.ready);
+  const keyword = project.keyword;
+  return [
+    {
+      id: "android-tiktok-launch",
+      section: "Android TikTok Setup",
+      label: "TikTok app launch evidence",
+      kind: "SOCIAL_ACCOUNT",
+      instruction: "Launch the Android emulator, install or open TikTok, and capture the TikTok home or shop entry surface.",
+      ready: tiktokReady
+    },
+    {
+      id: "android-tiktok-keyword-search",
+      section: "TikTok Shop Search",
+      label: `TikTok keyword search: ${keyword}`,
+      kind: "SEARCH_RESULT",
+      instruction: "Inside the TikTok app, search the desired keyword or open TikTok Shop search, then capture the first useful result surface.",
+      ready: tiktokReady
+    },
+    {
+      id: "android-tiktok-product-detail",
+      section: "TikTok Shop Product",
+      label: "TikTok product detail evidence",
+      kind: "PRODUCT_PAGE",
+      instruction: "Open a candidate TikTok Shop product and capture title, price, seller, ratings, sales or trust indicators visible on the screen.",
+      ready: tiktokReady
+    },
+    {
+      id: "android-tiktok-store-detail",
+      section: "TikTok Shop Store",
+      label: "TikTok store detail evidence",
+      kind: "STORE_HOME",
+      instruction: "Open the seller or brand store in TikTok Shop and capture the visible profile, products, and trust cues.",
+      ready: tiktokReady
+    },
+    {
+      id: "android-tiktok-brand-search",
+      section: "Cross Platform Evidence",
+      label: "TikTok brand/store search evidence",
+      kind: "SOCIAL_ACCOUNT",
+      instruction: "Search the target Shopee store name or brand name in TikTok and capture the evidence for cross-platform presence.",
+      ready: tiktokReady
+    }
+  ];
 }
 
 function buildShopeeSteps(project: ProjectSummary, currentUrl: string): CollectionStep[] {
@@ -1407,6 +1844,30 @@ function formatDateTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+  return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
+function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): string {
+  switch (state) {
+    case "not-installed":
+      return "Not installed";
+    case "not-running":
+      return "Not running";
+    case "starting":
+      return "Starting";
+    case "responding":
+      return "Responding";
+    case "not-responding":
+      return "Not responding";
+    default:
+      return "Unknown";
+  }
 }
 
 function normalizeUrl(value: string): string {

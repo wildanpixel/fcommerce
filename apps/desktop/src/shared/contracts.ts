@@ -184,3 +184,73 @@ export type ManualEvidenceResult = {
   stepId: string;
   assetPath: string;
 };
+
+export type AndroidDeviceInfo = {
+  id: string;
+  state: string;
+  model?: string;
+  product?: string;
+  bootCompleted?: boolean;
+};
+
+export type AndroidAvdInfo = {
+  name: string;
+};
+
+export type AndroidToolStatus = {
+  adbPath?: string;
+  emulatorPath?: string;
+  sdkManagerPath?: string;
+  avdManagerPath?: string;
+  sdkRoot?: string;
+  javaAvailable: boolean;
+  devices: AndroidDeviceInfo[];
+  avds: AndroidAvdInfo[];
+  tiktokInstalled: boolean;
+  tiktokPackage?: string;
+  tiktokRuntime?: AndroidAppRuntimeStatus;
+  ready: boolean;
+  diagnostics: string[];
+};
+
+export type AndroidApkCandidate = {
+  path: string;
+  name: string;
+  sizeBytes: number;
+  modifiedAt: string;
+};
+
+export type AndroidStartPayload = {
+  avdName?: string;
+};
+
+export type AndroidInstallPayload = {
+  apkPath: string;
+};
+
+export type AndroidEvidencePayload = {
+  projectId: string;
+  stepId: string;
+  label: string;
+  kind: ManualEvidenceKind;
+  note?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type AndroidVisibleTextResult = {
+  ok: true;
+  text: string;
+};
+
+export type AndroidAppRuntimeStatus = {
+  packageName?: string;
+  state: "not-installed" | "not-running" | "starting" | "responding" | "not-responding";
+  activeAnr: boolean;
+  focusedPackage?: string;
+  focusedActivity?: string;
+  lastAnrAt?: string;
+  lastAnrReason?: string;
+  packageVersion?: string;
+  packageAbi?: string;
+  deviceAbi?: string;
+};

@@ -6,6 +6,11 @@ import { z } from "zod";
 import { DEFAULT_REPORT_SECTIONS } from "../shared/reportSections.js";
 import type {
   BrowserOption,
+  AndroidApkCandidate,
+  AndroidEvidencePayload,
+  AndroidInstallPayload,
+  AndroidStartPayload,
+  AndroidVisibleTextResult,
   CreateJobPayload,
   ManualEvidencePayload,
   NewProjectInput,
@@ -39,6 +44,8 @@ import { ProjectWorkspace, slug } from "../infrastructure/files/ProjectWorkspace
 import { BrowserDiscoveryService } from "../infrastructure/browser/BrowserDiscovery.js";
 import { getPlatformService } from "../infrastructure/platform/PlatformService.js";
 import { NoopUpdateService } from "../application/services/UpdateService.js";
+import { AndroidToolingService } from "../infrastructure/android/AndroidToolingService.js";
+import { AdbAndroidAutomationAdapter } from "../infrastructure/android/AdbAndroidAutomationAdapter.js";
 
 const marketplaceSchema = z.enum([
   "SHOPEE_ID",
@@ -138,6 +145,23 @@ const manualEvidenceSchema = z.object({
   metadata: z.record(z.unknown()).optional()
 });
 
+const androidStartSchema = z.object({
+  avdName: z.string().optional()
+});
+
+const androidInstallSchema = z.object({
+  apkPath: z.string().min(1)
+});
+
+const androidEvidenceSchema = z.object({
+  projectId: z.string().uuid(),
+  stepId: z.string().min(2),
+  label: z.string().min(2),
+  kind: manualEvidenceKindSchema,
+  note: z.string().optional(),
+  metadata: z.record(z.unknown()).optional()
+});
+
 export type ApiServer = {
   app: Express;
   server: http.Server;
@@ -190,6 +214,41 @@ export function createApp(): Express {
         })
       )
     );
+  }));
+
+  app.get("/api/android/status", asyncRoute(async (_request, response) => {
+    response.json(await dependencies.android.status());
+  }));
+
+  app.get("/api/android/apk-candidates", asyncRoute(async (_request, response) => {
+    response.json(await dependencies.android.findApkCandidates() satisfies AndroidApkCandidate[]);
+  }));
+
+  app.post("/api/android/start", asyncRoute(async (request, response) => {
+    const input = androidStartSchema.parse(request.body) satisfies AndroidStartPayload;
+    await dependencies.android.startEmulator(input.avdName);
+    response.json({ ok: true });
+  }));
+
+  app.post("/api/android/install", asyncRoute(async (request, response) => {
+    const input = androidInstallSchema.parse(request.body) satisfies AndroidInstallPayload;
+    await dependencies.android.installApk(input.apkPath);
+    response.json({ ok: true });
+  }));
+
+  app.post("/api/android/open-tiktok", asyncRoute(async (_request, response) => {
+    await dependencies.android.openTikTok();
+    response.json({ ok: true });
+  }));
+
+  app.post("/api/android/recover-tiktok", asyncRoute(async (_request, response) => {
+    await dependencies.android.recoverTikTok();
+    response.json({ ok: true });
+  }));
+
+  app.get("/api/android/visible-text", asyncRoute(async (_request, response) => {
+    const text = await dependencies.androidAdapter.extractVisibleText();
+    response.json({ ok: true, text } satisfies AndroidVisibleTextResult);
   }));
 
   app.get("/api/updates/status", asyncRoute(async (_request, response) => {
@@ -262,6 +321,48 @@ export function createApp(): Express {
       }
     });
 
+    response.status(201).json({ ok: true, stepId: input.stepId, assetPath });
+  }));
+
+  app.post("/api/android/capture-evidence", asyncRoute(async (request, response) => {
+    const input = androidEvidenceSchema.parse(request.body) satisfies AndroidEvidencePayload;
+    const project = await dependencies.projectRepository.get(input.projectId);
+    if (!project) {
+      response.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const projectFolder = await dependencies.workspace.projectFolder(project);
+    const evidenceFolder = resolve(projectFolder, "android-evidence");
+    const assetPath = await dependencies.android.captureScreenshot(evidenceFolder, input.label);
+    const visibleText = await dependencies.android.extractVisibleText().catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : "Android visible text extraction failed.";
+      return `Visible text unavailable: ${message}`;
+    });
+    await dependencies.intelligenceRepository.saveScreenshots(project.id, "ANDROID_STEP", input.stepId, [
+      {
+        kind: input.kind,
+        label: input.label,
+        path: assetPath,
+        sourceUrl: "android://emulator",
+        metadata: {
+          source: "android-emulator",
+          stepId: input.stepId,
+          note: input.note,
+          visibleText,
+          ...(input.metadata ?? {})
+        }
+      }
+    ]);
+    await dependencies.logRepository.write({
+      projectId: project.id,
+      level: "INFO",
+      message: `Android evidence captured: ${input.label}`,
+      context: {
+        stepId: input.stepId,
+        assetPath
+      }
+    });
     response.status(201).json({ ok: true, stepId: input.stepId, assetPath });
   }));
 
@@ -342,6 +443,8 @@ function createDependencies() {
   const marketplaces = new DefaultMarketplaceRegistry(settingsRepository);
   const platform = getPlatformService();
   const browsers = new BrowserDiscoveryService();
+  const android = new AndroidToolingService();
+  const androidAdapter = new AdbAndroidAutomationAdapter(android);
   const workspace = new ProjectWorkspace();
   const ai = new CompositeAIAnalysisService(settingsRepository);
   const workflow = new IntelligenceWorkflow(
@@ -357,6 +460,8 @@ function createDependencies() {
   return {
     platform,
     browsers,
+    android,
+    androidAdapter,
     marketplaces,
     projectRepository,
     intelligenceRepository,

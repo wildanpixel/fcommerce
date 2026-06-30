@@ -18,8 +18,19 @@ if (!existsSync(generatedDefaultClient)) {
 }
 
 await rm(incorrectNestedClientRoot, { recursive: true, force: true });
-await rm(appPrismaClientRoot, { recursive: true, force: true });
-await cp(generatedClientRoot, appPrismaClientRoot, {
-  recursive: true,
-  filter: (source) => !basename(source).includes(".tmp")
-});
+for (let attempt = 1; attempt <= 3; attempt += 1) {
+  try {
+    await rm(appPrismaClientRoot, { recursive: true, force: true });
+    await cp(generatedClientRoot, appPrismaClientRoot, {
+      recursive: true,
+      force: true,
+      errorOnExist: false,
+      filter: (source) => !basename(source).includes(".tmp")
+    });
+    break;
+  } catch (error) {
+    if (attempt === 3 || error?.code !== "EEXIST") {
+      throw error;
+    }
+  }
+}

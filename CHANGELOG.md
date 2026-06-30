@@ -2,6 +2,22 @@
 
 All notable changes to Marketplace Intelligence OS will be documented in this file.
 
+## Unreleased - 2026-06-30
+
+- Added an ADB-backed Android automation adapter and Android tooling service for ADB, emulator, SDK manager, AVD manager, Java, AVD, connected-device, boot-health, and TikTok package detection.
+- Added Android API routes for status, emulator launch, APK install, TikTok app launch, UIAutomator visible-text extraction, and Android evidence capture.
+- Reworked TikTok Shop research to open a dedicated Android Emulator Workspace instead of an embedded browser preview.
+- Added automatic TikTok APK candidate detection from local Downloads/Desktop folders.
+- Added Android mobile collection steps for TikTok launch, keyword search, product detail, store detail, and brand/store search evidence.
+- Added Android screenshot evidence persistence to project folders and Prisma assets, including visible text metadata when UIAutomator extraction succeeds.
+- Created local `MIO_TikTok_Stable` AVD profile using Android 35 Google Play x86_64 system image to reduce emulator memory pressure versus the earlier Pixel profile.
+- Made emulator launch persistent by preserving the AVD data partition and snapshots; the app does not wipe Android, clear TikTok data, or reset Google login when the emulator is closed and reopened.
+- Added TikTok runtime diagnostics for active ANR state, focused activity, package ABI, and device ABI.
+- Added Recover TikTok, which force-stops and reopens TikTok without clearing app data when Android reports `com.zhiliaoapp.musically` is not responding.
+- Validated the provided TikTok APK install as `com.zhiliaoapp.musically`, TikTok app launch/recovery, Android screenshot capture, and UIAutomator visible-text extraction on the local emulator.
+- Made the left sidebar fully hideable with a single restore button.
+- Made the Shopee floating step collector smaller and expandable/collapsible so it blocks less of the browser.
+
 ## 1.0.0 - 2026-06-27
 
 - Pivoted the primary product flow from fully automatic marketplace crawling to guided manual evidence collection for protected Shopee/TikTok sessions.
