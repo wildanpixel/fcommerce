@@ -1,33 +1,40 @@
 # Marketplace Intelligence OS - Release Report
 
-Release date: 2026-06-30
-Release task: M4 Android emulator persistence and TikTok ANR recovery
+Release date: 2026-07-02
+Release task: M1 UI readability, project inspection, report history, and safe evidence extraction
 Version: 1.0.0
 Local platform: Windows
 
 ## Summary
 
-M4 Android now uses a stable Android Emulator workflow for manual TikTok Shop evidence collection. The app detects local Android tooling, prefers the `MIO_TikTok_Stable` Android 35 Google Play AVD, detects TikTok APK candidates, installs/opens TikTok through ADB, captures screenshots, extracts UIAutomator text, and persists Android evidence as project assets.
+This release returns to M1 product experience and fixes the visible UI issues from the installed app:
 
-The emulator launch path is persistent. Marketplace Intelligence OS does not wipe Android, clear TikTok app data, uninstall TikTok, or reset Google login when the emulator is closed and reopened.
+- The app now defaults to a light white/grey theme, with dark mode still available.
+- Sidebar collapse no longer hides the main content; hide/show controls are icon-only with accessible labels.
+- Browser fullscreen and browser toolbar actions are icon-focused.
+- The floating guided collector uses a readable theme-aware surface.
+- Shopee step 13 now supports opening TikTok in Android and attaching a manual emulator screenshot as cross-platform evidence.
+- Browser capture now also extracts visible HTML text from the user-controlled embedded session where the page allows it.
+- Projects can be inspected for evidence readiness, products, stores, key-store evidence, reports, and recent assets before report generation.
+- Projects can be deleted from the UI.
+- Reports have persistent history with local open/download and delete actions.
 
-The TikTok freeze was traced to `com.zhiliaoapp.musically` ANR on the login/authorization flow while running an ARM64-only TikTok APK on an x86_64 emulator. The app now reports TikTok runtime state and exposes Recover TikTok, which force-stops and reopens TikTok without clearing app data.
+Anti-bot scope remains explicit: the app does not bypass Shopee anti-bot systems. The supported collection path is user-controlled browsing, screenshot capture, visible HTML extraction where accessible, and manual screenshot attachment.
 
 ## Files Changed
 
-- `apps/desktop/src/infrastructure/android/AndroidToolingService.ts`
-- `apps/desktop/src/infrastructure/android/AdbAndroidAutomationAdapter.ts`
-- `apps/desktop/src/api/server.ts`
-- `apps/desktop/src/renderer/App.tsx`
-- `apps/desktop/src/renderer/api/client.ts`
 - `apps/desktop/src/shared/contracts.ts`
+- `apps/desktop/src/domain/models.ts`
+- `apps/desktop/src/domain/repositories.ts`
+- `apps/desktop/src/infrastructure/repositories/PrismaRepositories.ts`
+- `apps/desktop/src/api/server.ts`
+- `apps/desktop/src/renderer/api/client.ts`
+- `apps/desktop/src/renderer/App.tsx`
+- `apps/desktop/src/renderer/styles.css`
 - `apps/desktop/e2e/smoke.spec.ts`
-- `apps/desktop/scripts/preparePrismaClient.mjs`
 - `IMPLEMENTATION_STATUS.md`
 - `ROADMAP.md`
 - `CHANGELOG.md`
-- `README.md`
-- `docs/CROSS_PLATFORM.md`
 - `RELEASE_REPORT.md`
 
 ## Release Checklist
@@ -45,9 +52,9 @@ The TikTok freeze was traced to `com.zhiliaoapp.musically` ANR on the login/auth
 | Generate macOS App | Pending GitHub Actions macOS runner |
 | Generate macOS DMG | Pending GitHub Actions macOS runner |
 | Launch packaged application automatically | Completed from `apps/desktop/release/win-unpacked/Marketplace Intelligence OS.exe` |
-| Verify UI reflects latest implementation | Completed: packaged renderer asset includes `Recover TikTok`; Playwright smoke test covers TikTok Android workspace |
+| Verify UI reflects latest implementation | Completed: packaged renderer contains `Project Inspector`, `Report History`, `Attach Shot`, and `Extract visible page text` |
 | Verify packaged application version | Completed: packaged `/api/health` returned version `1.0.0` |
-| Verify database initialization | Completed: packaged `/api/dashboard` returned project/job metrics |
+| Verify database initialization | Completed: packaged `/api/dashboard`, `/api/reports`, and `/api/projects/:id/detail` returned data |
 | Update changelog | Completed |
 | Commit | Pending |
 | Push | Pending |
@@ -63,22 +70,11 @@ The TikTok freeze was traced to `com.zhiliaoapp.musically` ANR on the login/auth
 - `pnpm --dir apps/desktop run build`: passed.
 - `pnpm --dir apps/desktop exec electron-builder --win --x64`: passed.
 - Packaged runtime `/api/health`: passed, version `1.0.0`.
-- Packaged runtime `/api/android/status`: passed, first AVD is `MIO_TikTok_Stable`.
-- Packaged runtime `/api/dashboard`: passed, Prisma query returned project/job metrics.
-
-## Android Validation Notes
-
-- Local stable AVD: `MIO_TikTok_Stable`.
-- Android image: Android 35 Google Play x86_64.
-- TikTok APK: `C:\Users\F-Commerce ID\Downloads\TikTok+-+Videos,+Shop+&+LIVE_45.8.2_APKPure.apk`.
-- Installed package: `com.zhiliaoapp.musically`.
-- Package ABI: `arm64-v8a`.
-- Device ABI: `x86_64`.
-- Known runtime risk: ARM-only TikTok APKs can freeze on x86_64 emulators because they run through translation. Use Play Store install or a universal/x86-compatible APK when available.
+- Packaged runtime `/api/reports`: passed.
+- Packaged runtime `/api/projects/:id/detail`: passed.
 
 ## Remaining Notes
 
-- TikTok Shop navigation remains manual by design. The app does not automate login, Gmail, TikTok Shop taps, or account state.
-- OCR and Vision AI extraction from Android screenshots remain future M4/M3 work.
-- Shopee Mobile app workflow remains future work.
 - macOS packaging cannot be produced locally from this Windows workstation and must be verified by GitHub Actions macOS runner.
+- OCR from arbitrary imported screenshots remains future work; current safe extraction covers visible browser HTML text and Android UIAutomator text.
+- Shopee anti-bot bypass is intentionally not implemented.

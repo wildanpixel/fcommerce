@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-06-30
+Last updated: 2026-07-02
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -29,6 +29,8 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-06-30 | TikTok APK availability | Fixed | The app detects TikTok APK candidates in Downloads, and the provided TikTok APK installed as `com.zhiliaoapp.musically`. |
 | 2026-06-30 | Emulator reopens like a new phone | Fixed | Emulator launch preserves the AVD data partition and snapshots; the app does not wipe data, clear TikTok data, or reset Google login on restart. |
 | 2026-06-30 | TikTok app not responding | Mitigated | Android status detects active TikTok ANR state and exposes Recover TikTok, which force-stops/reopens TikTok without clearing app data. The provided APK is ARM64 on an x86_64 emulator, so Play Store or universal APK install is recommended if freezes persist. |
+| 2026-07-02 | M1 sidebar collapse hides content | Fixed | Hidden sidebar now switches the app shell to one content column; collapse/restore controls are icon-only and keep accessible labels. |
+| 2026-07-02 | Shopee anti-bot bypass request | Re-scoped | The app will not bypass marketplace anti-bot protections. The supported path is user-controlled browsing plus visible HTML extraction, screenshot capture, and manual Android screenshot attachment. |
 
 ## Sprint Overview
 
@@ -69,10 +71,14 @@ Completed: 2026-06-29
 | Add Shopee desktop/mobile visible view | Electron webview | Done | Completed: Shopee can be opened in desktop or mobile view. |
 | Add browser fullscreen mode | Electron webview | Done | Completed: visible platform browser can expand fullscreen while the floating collector remains visible. |
 | Add shell personalization | React renderer | Done | Completed: sidebar can collapse and user can switch dark/light mode. |
+| Fix light default and readability | React renderer, CSS | Done | Completed: light white/grey theme is default, sidebar is readable, and the floating guide follows the dashboard theme. |
 | Add TikTok mobile visible view | Electron webview | Done | Completed: TikTok Shop opens in a mobile-style visible browser. |
 | Add manual evidence API | Project workspace, Prisma assets | Done | Completed: captured browser screenshots are saved to project folders and registered as assets. |
+| Add manual screenshot attachment | Project workspace, Prisma assets | Done | Completed: user-selected screenshot files can be attached to guided evidence steps. |
 | Add floating step controller | Evidence step map | Done | Completed: the active collection point floats over the browser and reveals the collect button only on matching target pages. |
 | Add progress visibility | Manual evidence state | Done | Completed: collected steps and activity log are visible beside the browser. |
+| Add project inspector | Project repository | Done | Completed: projects can be inspected for evidence readiness, key stores, evidence, reports, and deleted when needed. |
+| Add report history management | Report repository | Done | Completed: generated report history can be opened/downloaded or deleted from the Reports screen. |
 
 ### Acceptance Criteria
 
@@ -82,6 +88,8 @@ Completed: 2026-06-29
 - Passed: Shopee and TikTok Shop can be controlled manually inside the visible browser surface.
 - Passed: guided report steps are visible in a floating top-left browser controller.
 - Passed: user can interact directly with the embedded platform view.
+- Passed: default theme is light and the hidden sidebar no longer hides the main content.
+- Passed: report history and project inspection persist through the local database.
 
 ### Scope Boundary
 

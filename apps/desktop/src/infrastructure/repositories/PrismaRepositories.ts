@@ -3,8 +3,10 @@ import type {
   CreateJobPayload,
   JobSummary,
   NewProjectInput,
+  ProjectDetailPayload,
   ProjectSummary,
   ReportGenerationPayload,
+  ReportSummary,
   SettingsPayload
 } from "../../shared/contracts.js";
 import type {
@@ -74,6 +76,72 @@ export class PrismaProjectRepository implements ProjectRepository {
       include: projectInclude
     });
     return project ? toProjectSummary(project) : null;
+  }
+
+  async getDetail(id: string): Promise<ProjectDetailPayload | null> {
+    const project = await this.db.project.findUnique({
+      where: { id },
+      include: projectInclude
+    });
+    if (!project) {
+      return null;
+    }
+    const [products, stores, assets, reports] = await Promise.all([
+      this.db.product.findMany({
+        where: { projectId: id },
+        orderBy: [{ rank: "asc" }, { createdAt: "asc" }],
+        take: 50
+      }),
+      this.db.store.findMany({
+        where: { projectId: id },
+        orderBy: { createdAt: "asc" },
+        take: 50
+      }),
+      this.db.asset.findMany({
+        where: { projectId: id },
+        orderBy: { createdAt: "desc" },
+        take: 120
+      }),
+      this.db.report.findMany({
+        where: { projectId: id },
+        orderBy: { updatedAt: "desc" },
+        include: { project: { select: { name: true } } }
+      })
+    ]);
+    return {
+      project: toProjectSummary(project),
+      products: products.map((product) => ({
+        id: product.id,
+        title: product.title,
+        rank: product.rank,
+        source: product.source,
+        selectionReason: product.selectionReason,
+        priceAverage: product.priceAverage,
+        rating: product.rating,
+        reviewCount: product.reviewCount,
+        monthlySold: product.monthlySold,
+        totalSold: product.totalSold,
+        storeName: product.storeName,
+        productUrl: product.productUrl,
+        createdAt: product.createdAt.toISOString()
+      })),
+      stores: stores.map((store) => ({
+        id: store.id,
+        name: store.name,
+        url: store.url,
+        followers: store.followers,
+        productsCount: store.productsCount,
+        rating: store.rating,
+        voucherCount: store.voucherCount,
+        createdAt: store.createdAt.toISOString()
+      })),
+      assets: assets.map(toAssetSummary),
+      reports: reports.map(toReportSummary)
+    };
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.db.project.delete({ where: { id } });
   }
 }
 
@@ -246,7 +314,7 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
         label: screenshot.label,
         path: screenshot.path,
         sourceUrl: screenshot.sourceUrl,
-        mimeType: "image/png",
+        mimeType: screenshot.mimeType ?? "image/png",
         width: screenshot.width,
         height: screenshot.height,
         metadataJson: JSON.stringify(screenshot.metadata ?? {})
@@ -282,6 +350,31 @@ export class PrismaReportRepository implements ReportRepository {
       }
     });
     return report.id;
+  }
+
+  async list(): Promise<ReportSummary[]> {
+    const reports = await this.db.report.findMany({
+      orderBy: { updatedAt: "desc" },
+      include: { project: { select: { name: true } } }
+    });
+    return reports.map(toReportSummary);
+  }
+
+  async get(id: string): Promise<ReportSummary | null> {
+    const report = await this.db.report.findUnique({
+      where: { id },
+      include: { project: { select: { name: true } } }
+    });
+    return report ? toReportSummary(report) : null;
+  }
+
+  async delete(id: string): Promise<ReportSummary | null> {
+    const report = await this.get(id);
+    if (!report) {
+      return null;
+    }
+    await this.db.report.delete({ where: { id } });
+    return report;
   }
 
   async markGenerated(reportId: string, htmlPath: string, pdfPath: string): Promise<void> {
@@ -404,6 +497,10 @@ const projectInclude = {
 } satisfies Prisma.ProjectInclude;
 
 type ProjectWithCounts = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
+type AssetRecord = Prisma.AssetGetPayload<Record<string, never>>;
+type ReportWithProject = Prisma.ReportGetPayload<{
+  include: { project: { select: { name: true } } };
+}>;
 
 function toProjectSummary(project: ProjectWithCounts): ProjectSummary {
   return {
@@ -424,6 +521,39 @@ function toProjectSummary(project: ProjectWithCounts): ProjectSummary {
       stores: project._count.stores,
       reports: project._count.reports
     }
+  };
+}
+
+function toAssetSummary(asset: AssetRecord) {
+  return {
+    id: asset.id,
+    projectId: asset.projectId,
+    ownerType: asset.ownerType,
+    ownerId: asset.ownerId,
+    kind: asset.kind,
+    label: asset.label,
+    path: asset.path,
+    sourceUrl: asset.sourceUrl,
+    mimeType: asset.mimeType,
+    width: asset.width,
+    height: asset.height,
+    metadata: parseJsonObject(asset.metadataJson),
+    createdAt: asset.createdAt.toISOString()
+  };
+}
+
+function toReportSummary(report: ReportWithProject): ReportSummary {
+  return {
+    id: report.id,
+    projectId: report.projectId,
+    projectName: report.project.name,
+    templateId: report.templateId,
+    status: report.status,
+    htmlPath: report.htmlPath,
+    pdfPath: report.pdfPath,
+    generatedAt: report.generatedAt?.toISOString() ?? null,
+    createdAt: report.createdAt.toISOString(),
+    updatedAt: report.updatedAt.toISOString()
   };
 }
 
@@ -449,4 +579,13 @@ function inferProductType(title: string): string {
     return "false eyelashes";
   }
   return "marketplace product";
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }

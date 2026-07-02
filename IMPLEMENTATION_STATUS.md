@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-06-30
+Last updated: 2026-07-02
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[##############------] 71%
+[##############------] 72%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -101,20 +101,28 @@ Release blocker fixes:
 | TikTok mobile view selector | Completed | Product UI | Embedded platform view | Done | P1 |
 | Visible platform browser panel | Completed | Product UI | Electron webview | Done | P0 |
 | Browser fullscreen mode | Completed | Product UI | Electron webview | Done | P0 |
+| Icon-only browser controls | Completed | Product UI | Embedded platform browser | Done | P1 |
+| Browser-visible HTML text extraction | Completed | Product UI and Evidence API | Electron webview session | Done | P1 |
 | Floating guided collection controller | Completed | Product UI | Evidence step map, Electron webview | Done | P0 |
 | Manual evidence capture API | Completed | API and Database | Project workspace, Prisma assets | Done | P0 |
+| Manual screenshot attachment API | Completed | API and Database | Project workspace, Prisma assets | Done | P0 |
 | Product category persistence | Completed | Database | Prisma migration, project API | Done | P1 |
 | Collapsible sidebar | Completed | Product UI | Navigation shell | Done | P1 |
+| Readable icon-only sidebar collapse | Completed | Product UI | Navigation shell, light theme | Done | P1 |
 | Dark and light mode toggle | Completed | Product UI | Renderer theme state | Done | P1 |
+| Light mode default | Completed | Product UI | Renderer theme state, CSS | Done | P1 |
 | Guided collection progress display | Completed | Product UI | Manual evidence state | Done | P0 |
 | Projects overview | Completed | Product UI | Project repository, report counts | Done | P0 |
+| Project inspection and delete | Completed | Product UI and API | Project repository, Prisma cascade delete | Done | P0 |
 | Product tab UI shell | Completed | Product UI | Product repository, evidence assets | Done | P0 |
 | Store tab UI shell | Completed | Product UI | Store repository, screenshots, vouchers | Done | P0 |
 | Reviews tab UI shell | Completed | Product UI | Review collector, review repository | Done | P1 |
 | Media tab UI shell | Completed | Product UI | Media collector, screenshot assets | Done | P1 |
 | Visual Analysis tab UI shell | Completed | Product UI | AI analysis records | Done | P1 |
 | Key Stores screen UI shell | Completed | Product UI and AI | Store analysis ranking | Done | P0 |
+| Key Stores inside project inspector | Completed | Product UI | Project detail evidence assets | Done | P0 |
 | Reports screen | Completed | Product UI and Reporting | Report sections, PDF generation | Done | P0 |
+| Report history download/delete | Completed | Product UI and API | Report repository, platform open path | Done | P0 |
 | Settings screen | Completed | Product UI and Platform | Settings repository, platform service | Done | P0 |
 
 Implemented:
@@ -130,11 +138,20 @@ Implemented:
 - Browser fullscreen mode keeps the guided step controller visible for focused evidence capture.
 - Sidebar collapse and dark/light mode controls exist in the application shell.
 - Sidebar can now be fully hidden with a single control and restored from a floating show button.
+- The default app theme is now light white/grey, with dark mode available from the top bar.
+- Sidebar collapse uses a one-column shell when hidden, so the main content no longer disappears into a zero-width grid track.
+- Sidebar collapse and browser fullscreen controls are icon-only while keeping accessible labels.
 - Shopee browser collection uses a compact expandable/collapsible floating controller instead of a large blocking panel.
+- The floating browser collector follows the active dashboard theme and remains readable in light mode.
+- The browser toolbar can extract visible page text from the user-controlled embedded session and stores extracted text in manual evidence metadata during capture.
+- Shopee cross-platform step 13 now supports opening TikTok in the Android emulator and attaching a manual emulator screenshot to the Shopee project.
 - TikTok Shop no longer opens as a browser preview; it routes into a dedicated Android Emulator Workspace.
 - Project dashboard and tabs exist.
+- Projects are inspectable before report generation, including evidence readiness, products, stores, key-store evidence, recent evidence, reports, and project deletion.
+- Key-store evidence is available inside the selected project inspector.
 - Key Stores screen exists.
 - Reports screen exists.
+- Reports screen includes persistent report history with open/download and delete actions.
 
 M1 scope boundary:
 

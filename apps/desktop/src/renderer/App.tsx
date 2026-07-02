@@ -15,6 +15,7 @@ import {
   FileDown,
   Gauge,
   Globe2,
+  ImagePlus,
   KeyRound,
   LayoutDashboard,
   ListChecks,
@@ -33,7 +34,8 @@ import {
   Store,
   Sun,
   Table2,
-  TerminalSquare
+  TerminalSquare,
+  Trash2
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type {
@@ -43,6 +45,8 @@ import type {
   ManualEvidenceKind,
   MarketplaceId,
   NewProjectInput,
+  ProjectDetailPayload,
+  ReportSummary,
   SaveSettingsPayload,
   SettingsPayload
 } from "../shared/contracts.js";
@@ -92,6 +96,7 @@ type CapturedPageImage = {
 
 type WebviewElement = HTMLElement & {
   capturePage?: () => Promise<CapturedPageImage>;
+  executeJavaScript?: <T>(code: string) => Promise<T>;
   getURL?: () => string;
   loadURL?: (url: string) => Promise<void>;
   reload?: () => void;
@@ -106,11 +111,11 @@ type WebviewNavigationEvent = Event & {
 export default function App() {
   const activeView = useUiStore((state) => state.activeView);
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
 
   return (
     <div className={`mio-app ${themeMode === "light" ? "mio-light" : "mio-dark"} min-h-screen bg-ink-950 text-ink-100`}>
-      <div className={["grid min-h-screen transition-[grid-template-columns] duration-300 ease-out", sidebarVisible ? "grid-cols-[264px_minmax(0,1fr)]" : "grid-cols-[0_minmax(0,1fr)]"].join(" ")}>
+      <div className={["grid min-h-screen transition-[grid-template-columns] duration-300 ease-out", sidebarVisible ? "grid-cols-[264px_minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)]"].join(" ")}>
         <AnimatePresence>{sidebarVisible && <Sidebar onHide={() => setSidebarVisible(false)} />}</AnimatePresence>
         <main className="mio-main min-w-0 border-l border-white/8 bg-[linear-gradient(180deg,#10141d,#090b10_48%)]">
           {!sidebarVisible && (
@@ -154,7 +159,7 @@ function Sidebar({ onHide }: { onHide: () => void }) {
   return (
     <motion.aside
       className="mio-sidebar flex min-h-screen flex-col bg-ink-900 px-4 py-5 transition-all duration-300 ease-out"
-      initial={{ x: -24, opacity: 0 }}
+      initial={false}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: -24, opacity: 0 }}
       transition={{ duration: 0.18 }}
@@ -163,21 +168,20 @@ function Sidebar({ onHide }: { onHide: () => void }) {
         <div className="flex h-9 w-9 items-center justify-center rounded-md bg-signal-blue/15 text-signal-blue">
           <Brain size={20} />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">Marketplace Intelligence OS</div>
           <div className="text-xs text-ink-500">Guided Marketplace Evidence</div>
         </div>
+        <button
+          type="button"
+          className="secondary-button h-9 w-9 shrink-0 px-0"
+          aria-label="Hide sidebar"
+          title="Hide sidebar"
+          onClick={onHide}
+        >
+          <PanelLeftClose size={16} />
+        </button>
       </div>
-
-      <button
-        type="button"
-        className="secondary-button mb-4 h-9"
-        aria-label="Hide sidebar"
-        onClick={onHide}
-      >
-        <PanelLeftClose size={16} />
-        Hide Sidebar
-      </button>
 
       <nav className="space-y-1">
         {navItems.map((item) => {
@@ -765,6 +769,7 @@ function GuidedBrowserCollector({
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [collectedSteps, setCollectedSteps] = useState<Record<string, string>>({});
+  const [pageTextPreview, setPageTextPreview] = useState("");
   const [activityLog, setActivityLog] = useState<string[]>([
     "Open each target page manually, then capture the matching report step."
   ]);
@@ -788,6 +793,7 @@ function GuidedBrowserCollector({
         height: Math.round(webview.clientHeight)
       };
       const sourceUrl = webview.getURL?.() ?? currentUrl;
+      const extractedText = await extractVisibleBrowserText(webview).catch(() => "");
       return apiClient.saveManualEvidence({
         projectId: project.id,
         stepId: step.id,
@@ -804,6 +810,7 @@ function GuidedBrowserCollector({
           productCategory,
           marketplace: platform,
           viewMode,
+          extractedText,
           capturedAt: new Date().toISOString()
         }
       });
@@ -816,6 +823,41 @@ function GuidedBrowserCollector({
     },
     onError: (error) => {
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not capture the current step.");
+    }
+  });
+
+  const attachFileEvidence = useMutation({
+    mutationFn: async (step: CollectionStep) => {
+      const picked = await window.marketplaceOS?.platform?.pickFile?.();
+      if (!picked) {
+        throw new Error("No screenshot was selected.");
+      }
+      return apiClient.saveManualFileEvidence({
+        projectId: project.id,
+        stepId: step.id,
+        label: step.label,
+        kind: step.kind,
+        sourcePath: picked,
+        sourceUrl: currentUrl,
+        note: step.instruction,
+        metadata: {
+          section: step.section,
+          keyword: project.keyword,
+          productCategory,
+          marketplace: platform,
+          evidenceMode: "attached-screenshot",
+          capturedAt: new Date().toISOString()
+        }
+      });
+    },
+    onSuccess: async (result, step) => {
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      setCollectedSteps((current) => ({ ...current, [step.id]: result.assetPath }));
+      appendLog(setActivityLog, `Attached screenshot for ${step.label}.`);
+      setActiveStepIndex((current) => Math.min(current + 1, steps.length - 1));
+    },
+    onError: (error) => {
+      appendLog(setActivityLog, error instanceof Error ? error.message : "Could not attach screenshot evidence.");
     }
   });
 
@@ -880,6 +922,26 @@ function GuidedBrowserCollector({
     navigateTo(address);
   }
 
+  async function extractCurrentPageText() {
+    const webview = webviewRef.current;
+    if (!webview) {
+      appendLog(setActivityLog, "The embedded browser is not ready for text extraction.");
+      return;
+    }
+    const text = await extractVisibleBrowserText(webview).catch((error: unknown) => {
+      appendLog(setActivityLog, error instanceof Error ? error.message : "Could not extract browser text.");
+      return "";
+    });
+    setPageTextPreview(text);
+    appendLog(setActivityLog, text ? "Extracted visible page text from the current browser session." : "No readable browser text was found on the current page.");
+  }
+
+  async function openTikTokAndroidFromShopeeStep() {
+    await apiClient.openTikTokAndroid()
+      .then(() => appendLog(setActivityLog, "TikTok opened in the Android emulator. Attach a screenshot after navigating to the target evidence."))
+      .catch((error: unknown) => appendLog(setActivityLog, error instanceof Error ? error.message : "Could not open TikTok in Android."));
+  }
+
   const userAgent =
     viewMode === "mobile"
       ? "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
@@ -890,20 +952,21 @@ function GuidedBrowserCollector({
       title="Guided Platform Browser"
       icon={Globe2}
       action={
-        <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => setExpanded((value) => !value)}>
+        <button className="secondary-button h-9 w-9 px-0" type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Exit fullscreen" : "Expand browser"} title={expanded ? "Exit fullscreen" : "Expand browser"}>
           {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-          {expanded ? "Exit Fullscreen" : "Expand"}
         </button>
       }
     >
-      <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+      <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2">
         <input value={address} onChange={(event) => setAddress(event.target.value)} className="input" />
-        <button className="secondary-button w-auto px-3" type="button" onClick={goToAddress}>
+        <button className="secondary-button w-10 px-0" type="button" onClick={goToAddress} aria-label="Go to address" title="Go">
           <ChevronRight size={15} />
-          Go
         </button>
-        <button className="secondary-button w-auto px-3" type="button" onClick={() => webviewRef.current?.reload?.()}>
+        <button className="secondary-button w-10 px-0" type="button" onClick={() => webviewRef.current?.reload?.()} aria-label="Reload browser" title="Reload">
           <RefreshCcw size={15} />
+        </button>
+        <button className="secondary-button w-10 px-0" type="button" onClick={() => void extractCurrentPageText()} aria-label="Extract visible page text" title="Extract visible page text">
+          <TerminalSquare size={15} />
         </button>
       </div>
 
@@ -948,10 +1011,17 @@ function GuidedBrowserCollector({
           saving={saveEvidence.isPending}
           onOpenTarget={() => activeStep.targetUrl && navigateTo(activeStep.targetUrl)}
           onCollect={() => saveEvidence.mutate(activeStep)}
+          onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
+          onOpenAndroid={activeStep.id === "tiktok-brand-search" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
           onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
           onNext={() => setActiveStepIndex((current) => Math.min(steps.length - 1, current + 1))}
         />
       </div>
+      {pageTextPreview && (
+        <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
+          {pageTextPreview.slice(0, 4000)}
+        </pre>
+      )}
     </Panel>
   );
 
@@ -1022,6 +1092,8 @@ function FloatingStepController({
   saving,
   onOpenTarget,
   onCollect,
+  onAttachFile,
+  onOpenAndroid,
   onPrevious,
   onNext
 }: {
@@ -1034,6 +1106,8 @@ function FloatingStepController({
   saving: boolean;
   onOpenTarget: () => void;
   onCollect: () => void;
+  onAttachFile?: () => void;
+  onOpenAndroid?: () => void;
   onPrevious: () => void;
   onNext: () => void;
 }) {
@@ -1116,20 +1190,69 @@ function FloatingStepController({
           Navigate to the target page or section to reveal the collect button.
         </div>
       )}
+      {(onAttachFile || onOpenAndroid) && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {onOpenAndroid && (
+            <button className="secondary-button h-9 px-2 text-xs" type="button" onClick={onOpenAndroid}>
+              <Smartphone size={14} />
+              Open TikTok
+            </button>
+          )}
+          {onAttachFile && (
+            <button className="secondary-button h-9 px-2 text-xs" type="button" onClick={onAttachFile}>
+              <ImagePlus size={14} />
+              Attach Shot
+            </button>
+          )}
+        </div>
+      )}
     </motion.div>
   );
 }
 
 function ProjectsView() {
+  const queryClient = useQueryClient();
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
   const projects = dashboard.data?.projects ?? [];
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const activeProjectId = selectedProjectId || projects[0]?.id || "";
+  const detail = useQuery({
+    queryKey: ["project-detail", activeProjectId],
+    queryFn: () => apiClient.projectDetail(activeProjectId),
+    enabled: Boolean(activeProjectId)
+  });
+  const deleteProject = useMutation({
+    mutationFn: apiClient.deleteProject,
+    onSuccess: async () => {
+      setSelectedProjectId("");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
+        queryClient.invalidateQueries({ queryKey: ["reports"] })
+      ]);
+    }
+  });
+
+  function confirmDeleteProject(project: ProjectSummary) {
+    if (window.confirm(`Delete project "${project.name}" and its saved database records? Evidence files linked to this project will also be removed where possible.`)) {
+      deleteProject.mutate(project.id);
+    }
+  }
 
   return (
-    <section className="grid grid-cols-[minmax(0,1fr)_360px] gap-5">
+    <section className="grid grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)] gap-5">
       <Panel title="Projects" icon={Table2}>
         <div className="space-y-3">
           {projects.map((project) => (
-            <div key={project.id} className="rounded-md border border-white/8 bg-white/5 p-4">
+            <button
+              key={project.id}
+              type="button"
+              className={[
+                "w-full rounded-md border p-4 text-left transition",
+                activeProjectId === project.id ? "border-signal-blue/35 bg-signal-blue/10" : "border-white/8 bg-white/5 hover:bg-white/8"
+              ].join(" ")}
+              onClick={() => setSelectedProjectId(project.id)}
+            >
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="text-base font-semibold text-white">{project.name}</div>
                 <StatusPill status={project.status} />
@@ -1140,20 +1263,114 @@ function ProjectsView() {
                 <InfoLine label="Marketplace" value={project.marketplace} />
                 <InfoLine label="Updated" value={formatDate(project.updatedAt)} />
               </div>
-            </div>
+            </button>
           ))}
           {projects.length === 0 && <EmptyState label="No projects yet. Create an analysis from Home." />}
         </div>
       </Panel>
-      <Panel title="Vault Metrics" icon={Gauge}>
-        <div className="grid grid-cols-2 gap-3">
-          <Metric icon={Archive} label="Projects" value={projects.length} />
-          <Metric icon={FileDown} label="Reports" value={dashboard.data?.metrics.completedReports ?? 0} />
-          <Metric icon={ShoppingBag} label="Products" value={dashboard.data?.metrics.collectedProducts ?? 0} />
-          <Metric icon={Gauge} label="Running" value={dashboard.data?.metrics.runningJobs ?? 0} />
-        </div>
-      </Panel>
+      <div className="space-y-5">
+        <Panel title="Vault Metrics" icon={Gauge}>
+          <div className="grid grid-cols-4 gap-3">
+            <Metric icon={Archive} label="Projects" value={projects.length} />
+            <Metric icon={FileDown} label="Reports" value={dashboard.data?.metrics.completedReports ?? 0} />
+            <Metric icon={ShoppingBag} label="Products" value={dashboard.data?.metrics.collectedProducts ?? 0} />
+            <Metric icon={Gauge} label="Running" value={dashboard.data?.metrics.runningJobs ?? 0} />
+          </div>
+        </Panel>
+        {detail.data ? (
+          <ProjectInspectionPanel
+            detail={detail.data}
+            deleting={deleteProject.isPending}
+            onDelete={() => confirmDeleteProject(detail.data.project)}
+          />
+        ) : (
+          <Panel title="Project Inspector" icon={Search}>
+            <EmptyState label={activeProjectId ? "Loading project evidence..." : "Select a project to inspect evidence readiness."} />
+          </Panel>
+        )}
+      </div>
     </section>
+  );
+}
+
+function ProjectInspectionPanel({
+  detail,
+  deleting,
+  onDelete
+}: {
+  detail: ProjectDetailPayload;
+  deleting: boolean;
+  onDelete: () => void;
+}) {
+  const evidenceCount = detail.assets.length;
+  const keyStoreAssets = detail.assets.filter((asset) =>
+    ["STORE_HOME", "STORE_BANNER", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_PROMOTION", "STORE_VOUCHER", "SOCIAL_ACCOUNT"].includes(asset.kind)
+  );
+  return (
+    <Panel
+      title="Project Inspector"
+      icon={Search}
+      action={
+        <button className="secondary-button h-9 w-auto px-3 text-signal-rose" type="button" onClick={onDelete} disabled={deleting}>
+          <Trash2 size={15} />
+          Delete
+        </button>
+      }
+    >
+      <div className="grid grid-cols-5 gap-3">
+        <Metric icon={ImagePlus} label="Evidence" value={evidenceCount} />
+        <Metric icon={ShoppingBag} label="Products" value={detail.products.length} />
+        <Metric icon={Store} label="Stores" value={detail.stores.length} />
+        <Metric icon={FileDown} label="Reports" value={detail.reports.length} />
+        <Metric icon={CheckCircle2} label="Ready" value={projectReadinessScore(detail)} />
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-4">
+        <div className="rounded-md border border-white/8 bg-white/5 p-4">
+          <div className="mb-3 text-sm font-semibold text-white">Evidence Checklist</div>
+          <div className="space-y-2 text-xs text-ink-300">
+            <ReadinessLine label="Search / Top sales evidence" ready={hasAnyAsset(detail, ["SEARCH_RESULT", "TOP_SALES"])} />
+            <ReadinessLine label="Product detail evidence" ready={hasAnyAsset(detail, ["PRODUCT_PAGE", "PRODUCT_IMAGE", "PRODUCT_DESCRIPTION"])} />
+            <ReadinessLine label="Review evidence" ready={hasAnyAsset(detail, ["REVIEW_SECTION", "REVIEW_IMAGE"])} />
+            <ReadinessLine label="Key store evidence" ready={keyStoreAssets.length > 0 || detail.stores.length > 0} />
+            <ReadinessLine label="Report generated" ready={detail.reports.some((report) => report.status === "GENERATED")} />
+          </div>
+        </div>
+        <div className="rounded-md border border-white/8 bg-white/5 p-4">
+          <div className="mb-3 text-sm font-semibold text-white">Key Stores</div>
+          <div className="max-h-52 space-y-2 overflow-auto pr-1">
+            {detail.stores.slice(0, 8).map((store) => (
+              <button key={store.id} type="button" className="w-full rounded-md border border-white/8 bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/8" onClick={() => void apiClient.openUrl(store.url)}>
+                <div className="font-medium text-white">{store.name}</div>
+                <div className="mt-1 text-ink-500">
+                  Rating {store.rating ?? "-"} · Products {store.productsCount ?? "-"} · Vouchers {store.voucherCount ?? "-"}
+                </div>
+              </button>
+            ))}
+            {detail.stores.length === 0 && keyStoreAssets.slice(0, 8).map((asset) => (
+              <button key={asset.id} type="button" className="w-full rounded-md border border-white/8 bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/8" onClick={() => void apiClient.openPath(asset.path)}>
+                <div className="font-medium text-white">{asset.label}</div>
+                <div className="mt-1 text-ink-500">{asset.kind}</div>
+              </button>
+            ))}
+            {detail.stores.length === 0 && keyStoreAssets.length === 0 && <EmptyState label="No key-store evidence captured yet." />}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-md border border-white/8 bg-white/5 p-4">
+        <div className="mb-3 text-sm font-semibold text-white">Recent Evidence</div>
+        <div className="max-h-52 space-y-2 overflow-auto pr-1">
+          {detail.assets.slice(0, 12).map((asset) => (
+            <button key={asset.id} type="button" className="flex w-full items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/8" onClick={() => void apiClient.openPath(asset.path)}>
+              <span className="truncate text-white">{asset.label}</span>
+              <span className="shrink-0 text-ink-500">{asset.kind}</span>
+            </button>
+          ))}
+          {detail.assets.length === 0 && <EmptyState label="No evidence captured yet." />}
+        </div>
+      </div>
+    </Panel>
   );
 }
 
@@ -1179,11 +1396,22 @@ function KeyStoresView() {
 function ReportsView() {
   const queryClient = useQueryClient();
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
+  const reports = useQuery({ queryKey: ["reports"], queryFn: apiClient.reports });
   const [projectId, setProjectId] = useState("");
   const [sections, setSections] = useState<ReportSectionConfig[]>(DEFAULT_REPORT_SECTIONS);
   const generateReport = useMutation({
     mutationFn: apiClient.generateReport,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["reports"] });
+    }
+  });
+  const deleteReport = useMutation({
+    mutationFn: apiClient.deleteReport,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["reports"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    }
   });
 
   function submit(event: FormEvent) {
@@ -1199,31 +1427,65 @@ function ReportsView() {
     });
   }
 
+  function confirmDeleteReport(report: ReportSummary) {
+    if (window.confirm(`Delete report for "${report.projectName}"? The saved PDF/HTML files will be removed where possible.`)) {
+      deleteReport.mutate(report.id);
+    }
+  }
+
   return (
     <section className="grid grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)] gap-5">
-      <Panel title="Report Generator" icon={FileDown}>
-        <form className="space-y-4" onSubmit={submit}>
-          <Field label="Project">
-            <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="input">
-              <option value="">{dashboard.data?.projects[0] ? "Use latest project" : "No project"}</option>
-              {(dashboard.data?.projects ?? []).map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <button className="primary-button" type="submit" disabled={!dashboard.data?.projects.length || generateReport.isPending}>
-            <FileDown size={16} />
-            Export PDF
-          </button>
-          {generateReport.data && (
-            <div className="rounded-md border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
-              PDF exported to {generateReport.data.pdfPath}
-            </div>
-          )}
-        </form>
-      </Panel>
+      <div className="space-y-5">
+        <Panel title="Report Generator" icon={FileDown}>
+          <form className="space-y-4" onSubmit={submit}>
+            <Field label="Project">
+              <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="input">
+                <option value="">{dashboard.data?.projects[0] ? "Use latest project" : "No project"}</option>
+                {(dashboard.data?.projects ?? []).map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <button className="primary-button" type="submit" disabled={!dashboard.data?.projects.length || generateReport.isPending}>
+              <FileDown size={16} />
+              Export PDF
+            </button>
+            {generateReport.data && (
+              <div className="rounded-md border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
+                PDF exported to {generateReport.data.pdfPath}
+              </div>
+            )}
+          </form>
+        </Panel>
+        <Panel title="Report History" icon={Archive}>
+          <div className="max-h-[520px] space-y-2 overflow-auto pr-1">
+            {(reports.data ?? []).map((report) => (
+              <div key={report.id} className="rounded-md border border-white/8 bg-white/5 p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-white">{report.projectName}</div>
+                    <div className="text-xs text-ink-500">{formatDateTime(report.generatedAt ?? report.updatedAt)}</div>
+                  </div>
+                  <StatusPill status={report.status} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.pdfPath} onClick={() => report.pdfPath && void apiClient.openPath(report.pdfPath)}>
+                    <FileDown size={14} />
+                    Download
+                  </button>
+                  <button className="secondary-button h-9 px-3 text-xs text-signal-rose" type="button" disabled={deleteReport.isPending} onClick={() => confirmDeleteReport(report)}>
+                    <Trash2 size={14} />
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+            {(reports.data ?? []).length === 0 && <EmptyState label="No generated reports yet." />}
+          </div>
+        </Panel>
+      </div>
       <Panel title="Report Workflow Sections" icon={ListChecks}>
         <div className="grid grid-cols-2 gap-3">
           {sections.map((section) => (
@@ -1503,6 +1765,15 @@ function StatusLine({ label, active }: { label: string; active: boolean }) {
   );
 }
 
+function ReadinessLine({ label, ready }: { label: string; ready: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 px-3 py-2">
+      <span>{label}</span>
+      <span className={ready ? "text-signal-green" : "text-ink-500"}>{ready ? "Ready" : "Missing"}</span>
+    </div>
+  );
+}
+
 function StatusPill({ status }: { status: string }) {
   return <span className="rounded-full bg-signal-green/15 px-2 py-1 text-xs text-signal-green">{status}</span>;
 }
@@ -1608,7 +1879,6 @@ function buildShopeeSteps(project: ProjectSummary, currentUrl: string): Collecti
   const searchReady = isShopeeSearchPage(currentUrl);
   const productReady = isShopeeProductPage(currentUrl);
   const storeReady = isShopeeStorePage(currentUrl);
-  const tiktokReady = isTikTokPage(currentUrl);
   const popularStoreTarget = storeReady ? withStoreSort(currentUrl, "pop") : undefined;
   const bestSellerTarget = storeReady ? withStoreSort(currentUrl, "sales") : undefined;
 
@@ -1717,11 +1987,10 @@ function buildShopeeSteps(project: ProjectSummary, currentUrl: string): Collecti
     {
       id: "tiktok-brand-search",
       section: "Cross Platform Evidence",
-      label: "TikTok Shop brand/store search",
+      label: "TikTok Android brand/store screenshot",
       kind: "SOCIAL_ACCOUNT",
-      instruction: "Open TikTok/TikTok Shop, search the store or brand name, and capture the mobile-style evidence.",
-      targetUrl: `https://www.tiktok.com/search?q=${keyword}`,
-      ready: tiktokReady
+      instruction: "Open TikTok in the Android emulator, search the inspected Shopee store or brand name, then attach the emulator screenshot as cross-platform evidence.",
+      ready: true
     }
   ];
 }
@@ -1853,6 +2122,21 @@ function formatFileSize(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))} MB`;
 }
 
+function hasAnyAsset(detail: ProjectDetailPayload, kinds: Array<ProjectDetailPayload["assets"][number]["kind"]>): boolean {
+  return detail.assets.some((asset) => kinds.includes(asset.kind));
+}
+
+function projectReadinessScore(detail: ProjectDetailPayload): number {
+  const checks = [
+    hasAnyAsset(detail, ["SEARCH_RESULT", "TOP_SALES"]),
+    hasAnyAsset(detail, ["PRODUCT_PAGE", "PRODUCT_IMAGE", "PRODUCT_DESCRIPTION"]),
+    hasAnyAsset(detail, ["REVIEW_SECTION", "REVIEW_IMAGE"]),
+    detail.stores.length > 0 || hasAnyAsset(detail, ["STORE_HOME", "STORE_BANNER", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "SOCIAL_ACCOUNT"]),
+    detail.reports.some((report) => report.status === "GENERATED")
+  ];
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+}
+
 function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): string {
   switch (state) {
     case "not-installed":
@@ -1868,6 +2152,30 @@ function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): str
     default:
       return "Unknown";
   }
+}
+
+async function extractVisibleBrowserText(webview: WebviewElement): Promise<string> {
+  if (!webview.executeJavaScript) {
+    return "";
+  }
+  const result = await webview.executeJavaScript<{
+    title: string;
+    url: string;
+    text: string;
+  }>(`
+    (() => {
+      const text = (document.body?.innerText || "")
+        .replace(/\\s+/g, " ")
+        .trim()
+        .slice(0, 12000);
+      return {
+        title: document.title || "",
+        url: location.href,
+        text
+      };
+    })();
+  `);
+  return [result.title, result.url, result.text].filter(Boolean).join("\n");
 }
 
 function normalizeUrl(value: string): string {

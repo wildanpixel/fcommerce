@@ -107,6 +107,7 @@ export type ScreenshotEvidence = {
   label: string;
   path: string;
   sourceUrl?: string;
+  mimeType?: string;
   width?: number;
   height?: number;
   metadata?: Record<string, unknown>;

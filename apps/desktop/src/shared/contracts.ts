@@ -53,6 +53,53 @@ export type ProjectSummary = {
   };
 };
 
+export type EvidenceAssetSummary = {
+  id: string;
+  projectId: string;
+  ownerType: string;
+  ownerId?: string | null;
+  kind: ManualEvidenceKind | "REPORT";
+  label: string;
+  path: string;
+  sourceUrl?: string | null;
+  mimeType: string;
+  width?: number | null;
+  height?: number | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type ProjectDetailPayload = {
+  project: ProjectSummary;
+  products: Array<{
+    id: string;
+    title: string;
+    rank?: number | null;
+    source?: string | null;
+    selectionReason?: string | null;
+    priceAverage?: number | null;
+    rating?: number | null;
+    reviewCount?: number | null;
+    monthlySold?: number | null;
+    totalSold?: number | null;
+    storeName?: string | null;
+    productUrl: string;
+    createdAt: string;
+  }>;
+  stores: Array<{
+    id: string;
+    name: string;
+    url: string;
+    followers?: number | null;
+    productsCount?: number | null;
+    rating?: number | null;
+    voucherCount?: number | null;
+    createdAt: string;
+  }>;
+  assets: EvidenceAssetSummary[];
+  reports: ReportSummary[];
+};
+
 export type JobSummary = {
   id: string;
   projectId: string;
@@ -149,6 +196,19 @@ export type ReportGenerationResult = {
   pdfPath: string;
 };
 
+export type ReportSummary = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  templateId: string;
+  status: "DRAFT" | "GENERATED" | "FAILED";
+  htmlPath?: string | null;
+  pdfPath?: string | null;
+  generatedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ManualEvidenceKind =
   | "SEARCH_RESULT"
   | "TOP_SALES"
@@ -175,6 +235,17 @@ export type ManualEvidencePayload = {
   imageDataUrl: string;
   width?: number;
   height?: number;
+  note?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ManualFileEvidencePayload = {
+  projectId: string;
+  stepId: string;
+  label: string;
+  kind: ManualEvidenceKind;
+  sourcePath: string;
+  sourceUrl?: string;
   note?: string;
   metadata?: Record<string, unknown>;
 };

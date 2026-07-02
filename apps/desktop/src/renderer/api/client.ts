@@ -11,10 +11,13 @@ import type {
   HealthPayload,
   ManualEvidencePayload,
   ManualEvidenceResult,
+  ManualFileEvidencePayload,
   NewProjectInput,
   PlatformPayload,
+  ProjectDetailPayload,
   ReportGenerationPayload,
   ReportGenerationResult,
+  ReportSummary,
   SaveSettingsPayload,
   SettingsPayload
 } from "../../shared/contracts.js";
@@ -77,6 +80,11 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  projectDetail: (projectId: string) => request<ProjectDetailPayload>(`/projects/${projectId}/detail`),
+  deleteProject: (projectId: string) =>
+    request<{ ok: true }>(`/projects/${projectId}`, {
+      method: "DELETE"
+    }),
   createJob: (payload: CreateJobPayload) =>
     request<DashboardSnapshot["jobs"][number]>("/jobs", {
       method: "POST",
@@ -87,11 +95,21 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  saveManualFileEvidence: (payload: ManualFileEvidencePayload) =>
+    request<ManualEvidenceResult>("/manual-file-evidence", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   reportSections: () => request<ReportSectionConfig[]>("/report-sections"),
   generateReport: (payload: ReportGenerationPayload) =>
     request<ReportGenerationResult>("/reports", {
       method: "POST",
       body: JSON.stringify(payload)
+    }),
+  reports: () => request<ReportSummary[]>("/reports"),
+  deleteReport: (reportId: string) =>
+    request<{ ok: true }>(`/reports/${reportId}`, {
+      method: "DELETE"
     }),
   openPath: (path: string) =>
     request<{ ok: true }>("/platform/open-path", {

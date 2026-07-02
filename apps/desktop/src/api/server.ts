@@ -1,6 +1,6 @@
 import http from "node:http";
-import { mkdir, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { copyFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { extname, resolve } from "node:path";
 import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
 import { DEFAULT_REPORT_SECTIONS } from "../shared/reportSections.js";
@@ -13,6 +13,7 @@ import type {
   AndroidVisibleTextResult,
   CreateJobPayload,
   ManualEvidencePayload,
+  ManualFileEvidencePayload,
   NewProjectInput,
   PlatformPayload,
   ReportGenerationPayload,
@@ -145,6 +146,17 @@ const manualEvidenceSchema = z.object({
   metadata: z.record(z.unknown()).optional()
 });
 
+const manualFileEvidenceSchema = z.object({
+  projectId: z.string().uuid(),
+  stepId: z.string().min(2),
+  label: z.string().min(2),
+  kind: manualEvidenceKindSchema,
+  sourcePath: z.string().min(1),
+  sourceUrl: z.string().optional(),
+  note: z.string().optional(),
+  metadata: z.record(z.unknown()).optional()
+});
+
 const androidStartSchema = z.object({
   avdName: z.string().optional()
 });
@@ -271,9 +283,34 @@ export function createApp(): Express {
     response.json(await dependencies.projects.dashboard());
   }));
 
+  app.get("/api/projects/:id/detail", asyncRoute(async (request, response) => {
+    const input = z.object({ id: z.string().uuid() }).parse(request.params);
+    const detail = await dependencies.projectRepository.getDetail(input.id);
+    if (!detail) {
+      response.status(404).json({ error: "Project not found" });
+      return;
+    }
+    response.json(detail);
+  }));
+
   app.post("/api/projects", asyncRoute(async (request, response) => {
     const input = projectSchema.parse(request.body) satisfies NewProjectInput;
     response.status(201).json(await dependencies.projects.createProject(input));
+  }));
+
+  app.delete("/api/projects/:id", asyncRoute(async (request, response) => {
+    const input = z.object({ id: z.string().uuid() }).parse(request.params);
+    const detail = await dependencies.projectRepository.getDetail(input.id);
+    if (!detail) {
+      response.status(404).json({ error: "Project not found" });
+      return;
+    }
+    await dependencies.projectRepository.delete(input.id);
+    await safeRemoveFiles([
+      ...detail.assets.map((asset) => asset.path),
+      ...detail.reports.flatMap((report) => [report.htmlPath, report.pdfPath])
+    ]);
+    response.json({ ok: true });
   }));
 
   app.post("/api/manual-evidence", asyncRoute(async (request, response) => {
@@ -317,6 +354,64 @@ export function createApp(): Express {
       context: {
         stepId: input.stepId,
         sourceUrl: input.sourceUrl,
+        assetPath
+      }
+    });
+
+    response.status(201).json({ ok: true, stepId: input.stepId, assetPath });
+  }));
+
+  app.post("/api/manual-file-evidence", asyncRoute(async (request, response) => {
+    const input = manualFileEvidenceSchema.parse(request.body) satisfies ManualFileEvidencePayload;
+    const project = await dependencies.projectRepository.get(input.projectId);
+    if (!project) {
+      response.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const sourcePath = resolve(input.sourcePath);
+    const sourceStat = await stat(sourcePath).catch(() => undefined);
+    if (!sourceStat?.isFile()) {
+      response.status(400).json({ error: "Selected evidence file was not found." });
+      return;
+    }
+    const mimeType = imageMimeType(sourcePath);
+    if (!mimeType) {
+      response.status(400).json({ error: "Manual evidence file must be a PNG, JPG, JPEG, or WebP image." });
+      return;
+    }
+
+    const projectFolder = await dependencies.workspace.projectFolder(project);
+    const evidenceFolder = resolve(projectFolder, "manual-evidence");
+    await mkdir(evidenceFolder, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const assetPath = resolve(evidenceFolder, `${timestamp}-${slug(input.stepId)}${extname(sourcePath).toLowerCase()}`);
+    await copyFile(sourcePath, assetPath);
+
+    await dependencies.intelligenceRepository.saveScreenshots(project.id, "MANUAL_FILE_STEP", input.stepId, [
+      {
+        kind: input.kind,
+        label: input.label,
+        path: assetPath,
+        sourceUrl: input.sourceUrl,
+        mimeType,
+        metadata: {
+          source: "manual-file-evidence",
+          sourcePath,
+          stepId: input.stepId,
+          note: input.note,
+          ...(input.metadata ?? {})
+        }
+      }
+    ]);
+
+    await dependencies.logRepository.write({
+      projectId: project.id,
+      level: "INFO",
+      message: `Manual screenshot attached: ${input.label}`,
+      context: {
+        stepId: input.stepId,
+        sourcePath,
         assetPath
       }
     });
@@ -407,6 +502,21 @@ export function createApp(): Express {
     response.status(201).json(await dependencies.reports.generate(input));
   }));
 
+  app.get("/api/reports", asyncRoute(async (_request, response) => {
+    response.json(await dependencies.reportRepository.list());
+  }));
+
+  app.delete("/api/reports/:id", asyncRoute(async (request, response) => {
+    const input = z.object({ id: z.string().uuid() }).parse(request.params);
+    const deleted = await dependencies.reportRepository.delete(input.id);
+    if (!deleted) {
+      response.status(404).json({ error: "Report not found" });
+      return;
+    }
+    await safeRemoveFiles([deleted.htmlPath, deleted.pdfPath]);
+    response.json({ ok: true });
+  }));
+
   app.use((error: unknown, _request: Request, response: Response, _next: () => void) => {
     const status = error instanceof z.ZodError ? 400 : 500;
     response.status(status).json({
@@ -477,7 +587,8 @@ function createDependencies() {
       new ConsultingHtmlReportRenderer(),
       new PuppeteerPdfExporter(),
       workspace
-    )
+    ),
+    reportRepository
   };
 }
 
@@ -530,4 +641,33 @@ function listenOnAvailablePort(server: http.Server, preferredPort: number): Prom
     };
     tryPort(preferredPort);
   });
+}
+
+async function safeRemoveFiles(paths: Array<string | null | undefined>): Promise<void> {
+  await Promise.all(
+    paths
+      .filter((value): value is string => Boolean(value))
+      .map(async (path) => {
+        const resolved = resolve(path);
+        const fileStat = await stat(resolved).catch(() => undefined);
+        if (!fileStat?.isFile()) {
+          return;
+        }
+        await rm(resolved, { force: true }).catch(() => undefined);
+      })
+  );
+}
+
+function imageMimeType(path: string): string | undefined {
+  switch (extname(path).toLowerCase()) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".webp":
+      return "image/webp";
+    default:
+      return undefined;
+  }
 }

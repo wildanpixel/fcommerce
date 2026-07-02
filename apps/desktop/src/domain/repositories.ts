@@ -3,8 +3,10 @@ import type {
   JobSummary,
   MarketplaceId,
   NewProjectInput,
+  ProjectDetailPayload,
   ProjectSummary,
   ReportGenerationPayload,
+  ReportSummary,
   SettingsPayload
 } from "../shared/contracts.js";
 import type {
@@ -19,6 +21,8 @@ export interface ProjectRepository {
   create(input: NewProjectInput): Promise<ProjectSummary>;
   list(): Promise<ProjectSummary[]>;
   get(id: string): Promise<ProjectSummary | null>;
+  getDetail(id: string): Promise<ProjectDetailPayload | null>;
+  delete(id: string): Promise<void>;
 }
 
 export interface JobRepository {
@@ -48,6 +52,9 @@ export interface IntelligenceRepository {
 
 export interface ReportRepository {
   create(payload: ReportGenerationPayload): Promise<string>;
+  list(): Promise<ReportSummary[]>;
+  get(id: string): Promise<ReportSummary | null>;
+  delete(id: string): Promise<ReportSummary | null>;
   markGenerated(reportId: string, htmlPath: string, pdfPath: string): Promise<void>;
   markFailed(reportId: string): Promise<void>;
 }

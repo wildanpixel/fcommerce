@@ -2,8 +2,16 @@
 
 All notable changes to Marketplace Intelligence OS will be documented in this file.
 
-## Unreleased - 2026-06-30
+## Unreleased - 2026-07-02
 
+- Made the default UI theme light white/grey and kept dark mode available from the top bar.
+- Fixed sidebar collapse so the main content remains visible; sidebar hide/show and browser fullscreen controls are now icon-only with accessible labels.
+- Restyled the floating guided browser collector to remain readable in light mode.
+- Added visible browser text extraction from the user-controlled embedded session and stores extracted text in evidence metadata during capture.
+- Added manual screenshot attachment for guided evidence steps, including Shopee step 13 for TikTok Android emulator screenshots.
+- Added project inspection with evidence readiness, products, stores, key-store evidence, recent evidence, reports, and project deletion.
+- Added persistent report history with local download/open and delete actions.
+- Documented the safe collection boundary: the app does not bypass marketplace anti-bot systems; it supports user-controlled evidence capture, HTML text extraction where accessible, and screenshot attachment.
 - Added an ADB-backed Android automation adapter and Android tooling service for ADB, emulator, SDK manager, AVD manager, Java, AVD, connected-device, boot-health, and TikTok package detection.
 - Added Android API routes for status, emulator launch, APK install, TikTok app launch, UIAutomator visible-text extraction, and Android evidence capture.
 - Reworked TikTok Shop research to open a dedicated Android Emulator Workspace instead of an embedded browser preview.

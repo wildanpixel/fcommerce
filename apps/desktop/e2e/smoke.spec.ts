@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("renders the guided manual analysis flow", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("Marketplace Intelligence OS").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hide sidebar" })).toBeVisible();
   await page.getByRole("button", { name: "Hide sidebar" }).click();
   await expect(page.getByRole("button", { name: "Show sidebar" })).toBeVisible();
   await page.getByRole("button", { name: "Show sidebar" }).click();
@@ -18,7 +18,7 @@ test("renders the guided manual analysis flow", async ({ page }) => {
   await expect(page.getByText("Guided Platform Browser")).toBeVisible();
   await expect(page.getByText("Guided Collection 1/13")).toBeVisible();
   await expect(page.getByRole("button", { name: "Collect This Step" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Light" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dark" })).toBeVisible();
 });
 
 test("renders the TikTok Android emulator workspace", async ({ page }) => {
