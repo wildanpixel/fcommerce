@@ -1,41 +1,43 @@
 # Marketplace Intelligence OS - Release Report
 
 Release date: 2026-07-02
-Release task: M1 UI readability, project inspection, report history, and safe evidence extraction
 Version: 1.0.0
 Local platform: Windows
+Release task: M1/M2 guided rendered-page collection, project inspection, AI evaluation entry, and packaged UI validation
 
 ## Summary
 
-This release returns to M1 product experience and fixes the visible UI issues from the installed app:
+This release completes the current M1 product-experience corrections and advances M2/M3 through a safer user-controlled collection model:
 
-- The app now defaults to a light white/grey theme, with dark mode still available.
-- Sidebar collapse no longer hides the main content; hide/show controls are icon-only with accessible labels.
-- Browser fullscreen and browser toolbar actions are icon-focused.
-- The floating guided collector uses a readable theme-aware surface.
-- Shopee step 13 now supports opening TikTok in Android and attaching a manual emulator screenshot as cross-platform evidence.
-- Browser capture now also extracts visible HTML text from the user-controlled embedded session where the page allows it.
-- Projects can be inspected for evidence readiness, products, stores, key-store evidence, reports, and recent assets before report generation.
-- Projects can be deleted from the UI.
-- Reports have persistent history with local open/download and delete actions.
+- Collection no longer depends on bot-like background crawling for protected Shopee pages.
+- The user controls the embedded browser; the app captures the visible rendered page as screenshot, HTML, visible text, optional print-PDF data, and extracted product-card rows.
+- Relevance and Top Sales captures populate local product rows with thumbnail, product link, price, discount, rating, sold count, source, and selection reason.
+- Product-detail guided steps are generated dynamically from the collected product table.
+- Project Inspector now mirrors the report structure through collapsible sections: Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, and TikTok Evidence.
+- The embedded browser has zoom in, zoom out, print, screenshot review, crop, save-full, save-selected, and redo controls.
+- The generated HTML report is interactive, collapsible, and keeps product links usable.
+- Project AI evaluation can be triggered from Project Inspector and persists structured analysis.
+- Android tooling discovery now supports sidecar SDK folders through environment variables, packaged resources, or an `android-sdk` folder beside the executable.
+- The default app shell is light, readable, and verified in the packaged renderer.
 
-Anti-bot scope remains explicit: the app does not bypass Shopee anti-bot systems. The supported collection path is user-controlled browsing, screenshot capture, visible HTML extraction where accessible, and manual screenshot attachment.
+Anti-bot scope remains explicit: the app does not bypass Shopee or TikTok protections. The supported V1 path is user-controlled browsing, rendered-page evidence capture, HTML/text extraction where the page allows it, and manual Android screenshot attachment.
 
 ## Files Changed
 
-- `apps/desktop/src/shared/contracts.ts`
-- `apps/desktop/src/domain/models.ts`
-- `apps/desktop/src/domain/repositories.ts`
-- `apps/desktop/src/infrastructure/repositories/PrismaRepositories.ts`
-- `apps/desktop/src/api/server.ts`
-- `apps/desktop/src/renderer/api/client.ts`
-- `apps/desktop/src/renderer/App.tsx`
-- `apps/desktop/src/renderer/styles.css`
-- `apps/desktop/e2e/smoke.spec.ts`
+- `CHANGELOG.md`
 - `IMPLEMENTATION_STATUS.md`
 - `ROADMAP.md`
-- `CHANGELOG.md`
 - `RELEASE_REPORT.md`
+- `apps/desktop/e2e/smoke.spec.ts`
+- `apps/desktop/src/api/server.ts`
+- `apps/desktop/src/electron/main.ts`
+- `apps/desktop/src/infrastructure/android/AndroidToolingService.ts`
+- `apps/desktop/src/infrastructure/report/HtmlReportRenderer.ts`
+- `apps/desktop/src/infrastructure/repositories/PrismaRepositories.ts`
+- `apps/desktop/src/renderer/App.tsx`
+- `apps/desktop/src/renderer/api/client.ts`
+- `apps/desktop/src/renderer/styles.css`
+- `apps/desktop/src/shared/contracts.ts`
 
 ## Release Checklist
 
@@ -49,32 +51,39 @@ Anti-bot scope remains explicit: the app does not bypass Shopee anti-bot systems
 | Package Electron | Completed |
 | Generate Windows Installer | Completed: `apps/desktop/release/Marketplace Intelligence OS Setup 1.0.0.exe` |
 | Generate Windows Portable | Completed: `apps/desktop/release/Marketplace Intelligence OS Portable 1.0.0.exe` |
-| Generate macOS App | Pending GitHub Actions macOS runner |
-| Generate macOS DMG | Pending GitHub Actions macOS runner |
+| Generate macOS App | Not run locally on Windows; configured for GitHub Actions macOS runner |
+| Generate macOS DMG | Not run locally on Windows; configured for GitHub Actions macOS runner |
 | Launch packaged application automatically | Completed from `apps/desktop/release/win-unpacked/Marketplace Intelligence OS.exe` |
-| Verify UI reflects latest implementation | Completed: packaged renderer contains `Project Inspector`, `Report History`, `Attach Shot`, and `Extract visible page text` |
-| Verify packaged application version | Completed: packaged `/api/health` returned version `1.0.0` |
-| Verify database initialization | Completed: packaged `/api/dashboard`, `/api/reports`, and `/api/projects/:id/detail` returned data |
+| Verify UI reflects latest implementation | Completed through Chromium CDP screenshot and DOM inspection |
+| Verify packaged application version | Completed: package version `1.0.0` |
 | Update changelog | Completed |
-| Commit | Pending |
-| Push | Pending |
+| Commit | Pending at report generation time |
+| Push | Pending at report generation time |
 | Verify GitHub Actions | Pending after push |
 
 ## Local Validation
 
-- `pnpm --dir apps/desktop run typecheck`: passed.
-- `pnpm --dir apps/desktop run lint`: passed.
-- `pnpm --dir apps/desktop run test`: passed, 12 tests.
-- `pnpm --dir apps/desktop run test:e2e`: passed, 2 Playwright smoke tests.
-- `pnpm --dir apps/desktop run prisma:generate`: passed.
-- `pnpm --dir apps/desktop run build`: passed.
-- `pnpm --dir apps/desktop exec electron-builder --win --x64`: passed.
-- Packaged runtime `/api/health`: passed, version `1.0.0`.
-- Packaged runtime `/api/reports`: passed.
-- Packaged runtime `/api/projects/:id/detail`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop typecheck`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop lint`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop test`: passed, 5 files and 12 tests.
+- `pnpm --filter @marketplace-intelligence-os/desktop test:e2e`: passed, 2 Playwright tests.
+- `pnpm --filter @marketplace-intelligence-os/desktop prisma:generate`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop build`: passed.
+- `pnpm exec electron-builder --win nsis portable --x64 --publish never`: passed.
+- Packaged executable launched and responded.
+- Packaged renderer loaded from `app.asar/dist/index.html` with no console, page, or request errors captured during CDP validation.
+- Packaged renderer contained `Create Analysis`, `Manual Evidence Collection`, `Projects`, and the readable light-mode sidebar.
+
+## Generated Artifacts
+
+- `apps/desktop/release/Marketplace Intelligence OS Setup 1.0.0.exe`
+- `apps/desktop/release/Marketplace Intelligence OS Portable 1.0.0.exe`
+- `apps/desktop/release/win-unpacked/Marketplace Intelligence OS.exe`
+- `apps/desktop/release/Marketplace Intelligence OS Setup 1.0.0.exe.blockmap`
 
 ## Remaining Notes
 
-- macOS packaging cannot be produced locally from this Windows workstation and must be verified by GitHub Actions macOS runner.
-- OCR from arbitrary imported screenshots remains future work; current safe extraction covers visible browser HTML text and Android UIAutomator text.
-- Shopee anti-bot bypass is intentionally not implemented.
+- macOS artifacts must be verified on the GitHub Actions macOS runner.
+- Google Play system images and TikTok APKs are not bundled into the installer; production distribution should use sidecar SDK/tooling plus user-installed apps or user-provided APKs.
+- OCR and Vision AI extraction from arbitrary screenshots remain future M4/M3 work.
+- TikTok Shop adapter remains stubbed; Android evidence capture exists, but TikTok Shop navigation is user-controlled.

@@ -4,6 +4,20 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 ## Unreleased - 2026-07-02
 
+- Reworked M1/M2 collection around user-controlled rendered-page snapshots instead of bot-like scraping: captures screenshot, full HTML, visible text, optional webview print-PDF data, and extracted product cards from the currently visible browser page.
+- Added browser zoom in/out and print controls for the embedded marketplace browser.
+- Added screenshot review before saving evidence, including manual crop selection, save-full, save-selected, and redo controls.
+- Persisted extracted Relevance and Top Sales product cards into the local product table with thumbnail, product link, price estimate, rating, sold count, source, and selection reason.
+- Made the Shopee guided collector dynamic: after product table extraction, it generates per-product evidence steps for first page, slides/images, description, reviews, review media, and shop homepage.
+- Reworked Project Inspector into report-shaped collapsible sections: Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, and TikTok Evidence.
+- Added deterministic store evaluation cards using extracted product price and monthly sold values for GMV ETA and local scoring.
+- Added project AI evaluation endpoint and Run AI action so key-store/project analysis can be persisted from collected evidence.
+- Reworked generated HTML reports into interactive collapsible reports with embedded CSS/script while preserving print/PDF compatibility and product links.
+- Added Android SDK sidecar discovery through `MIO_ANDROID_SDK_ROOT`, packaged resources, or an `android-sdk` folder beside the executable for portable distributions.
+- Polished M1 light-mode UX after live UI inspection: stronger sidebar contrast, cleaner brand wrapping, flatter panels, clearer active navigation, and reduced visual wash from heavy blur.
+- Made the browser collector start in compact mode, improved the browser toolbar balance, and replaced raw load-state text with readable status pills.
+- Added a clear Shopee manual-action notice for login, traffic verification, protected pages, or failed embedded loads.
+- Auto-hidden the native Windows Electron menu bar so it no longer clashes with the light app shell while preserving macOS menu behavior.
 - Made the default UI theme light white/grey and kept dark mode available from the top bar.
 - Fixed sidebar collapse so the main content remains visible; sidebar hide/show and browser fullscreen controls are now icon-only with accessible labels.
 - Restyled the floating guided browser collector to remain readable in light mode.

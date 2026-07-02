@@ -37,8 +37,9 @@ async function createWindow(): Promise<void> {
     height: 880,
     minWidth: 1120,
     minHeight: 720,
-    backgroundColor: "#090b10",
+    backgroundColor: "#f5f7fb",
     title: "Marketplace Intelligence OS",
+    autoHideMenuBar: process.platform !== "darwin",
     webPreferences: {
       preload: join(currentDir, "preload.js"),
       contextIsolation: true,

@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[##############------] 72%
+[###############-----] 76%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -31,8 +31,8 @@ The overall percentage is a weighted product estimate based on foundation readin
 | --- | --- | ---: | --- |
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
-| M2 | Shopee Desktop | [##############------] 72% | Partial |
-| M3 | Intelligence | [#######-------------] 35% | Partial |
+| M2 | Shopee Desktop | [################----] 82% | Partial |
+| M3 | Intelligence | [##########----------] 50% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -103,6 +103,9 @@ Release blocker fixes:
 | Browser fullscreen mode | Completed | Product UI | Electron webview | Done | P0 |
 | Icon-only browser controls | Completed | Product UI | Embedded platform browser | Done | P1 |
 | Browser-visible HTML text extraction | Completed | Product UI and Evidence API | Electron webview session | Done | P1 |
+| Browser zoom and print controls | Completed | Product UI | Electron webview | Done | P1 |
+| Rendered-page snapshot capture | Completed | Product UI and Evidence API | Electron webview, project workspace | Done | P0 |
+| Screenshot crop and redo review | Completed | Product UI | Manual evidence capture | Done | P0 |
 | Floating guided collection controller | Completed | Product UI | Evidence step map, Electron webview | Done | P0 |
 | Manual evidence capture API | Completed | API and Database | Project workspace, Prisma assets | Done | P0 |
 | Manual screenshot attachment API | Completed | API and Database | Project workspace, Prisma assets | Done | P0 |
@@ -143,7 +146,13 @@ Implemented:
 - Sidebar collapse and browser fullscreen controls are icon-only while keeping accessible labels.
 - Shopee browser collection uses a compact expandable/collapsible floating controller instead of a large blocking panel.
 - The floating browser collector follows the active dashboard theme and remains readable in light mode.
+- M1 corrective UI polish now strengthens the light theme with solid panels, clearer sidebar text, active navigation contrast, balanced browser controls, compact collector-first behavior, and explicit manual-action states for Shopee login or protected pages.
+- The native Windows Electron menu is auto-hidden to reduce chrome clash; macOS keeps the standard application menu behavior.
 - The browser toolbar can extract visible page text from the user-controlled embedded session and stores extracted text in manual evidence metadata during capture.
+- The browser toolbar now supports zoom in, zoom out, and native print for the current embedded page.
+- Manual collection now saves a rendered-page snapshot: screenshot, full page HTML, visible text, optional print-PDF data, and extracted product rows from the page the user is currently viewing.
+- Screenshot capture now opens a review modal so the user can crop the evidence area, save the full capture, save only the selected area, or redo before data is stored.
+- Project inspection now mirrors the report hierarchy with collapsible sections for Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, and TikTok Evidence.
 - Shopee cross-platform step 13 now supports opening TikTok in the Android emulator and attaching a manual emulator screenshot to the Shopee project.
 - TikTok Shop no longer opens as a browser preview; it routes into a dedicated Android Emulator Workspace.
 - Project dashboard and tabs exist.
@@ -161,7 +170,7 @@ M1 scope boundary:
 
 ## M2 Shopee Desktop
 
-[##############------] 72%
+[################----] 82%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -170,11 +179,12 @@ M1 scope boundary:
 | Search result capture | Completed | Marketplace Automation | Playwright, screenshot engine | Done | P0 |
 | Top sales search path | Completed | Marketplace Automation | Playwright sorting, result parsing | Done | P0 |
 | Guided relevance/top-sales capture | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
+| Rendered relevance/top-sales product extraction | Completed | Product UI and Evidence API | Electron webview DOM snapshot, Prisma products | Done | P0 |
 | Guided key-product evidence step | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
-| Guided product-detail evidence steps | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
+| Dynamic guided product-detail evidence steps | Completed | Product UI and Evidence API | Extracted product table, embedded browser | Done | P0 |
 | Guided store evidence steps | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
-| Product card extraction | Completed | Marketplace Automation | Playwright DOM parsing | Done | P0 |
-| Product detail collection | Completed | Marketplace Automation | Product page parser | Done | P0 |
+| Product card extraction | Completed | Product UI and Evidence API | Rendered-page snapshot extraction | Done | P0 |
+| Product detail collection | Partial | Product UI and Evidence API | User-controlled PDP snapshot capture | 2 days | P0 |
 | Product images and slides | Partial | Marketplace Automation | Product media parser, screenshots | 2 days | P0 |
 | Product description | Completed | Marketplace Automation | Product page parser | Done | P0 |
 | Product specifications | Completed | Marketplace Automation | Product page parser | Done | P0 |
@@ -193,7 +203,11 @@ Implemented:
 - Shopee adapter class exists.
 - Keyword search URL generation exists and now uses `page=0&sortBy=relevancy` and `page=0&sortBy=sales` for the requested relevance and top-sales evidence.
 - The primary Shopee workflow is now guided/manual: users open target pages inside the app and capture each report-required evidence step themselves.
-- Manual evidence capture saves browser screenshots into project folders and Prisma asset records with step metadata.
+- Manual evidence capture saves browser screenshots, full rendered HTML, visible text, optional print-PDF output, and Prisma asset records with step metadata.
+- Relevance and top-sales snapshots extract rendered product cards from the visible browser page and persist product rows with thumbnail, product URL, price estimate, rating, sold count, source, and selection reason.
+- The key-product table is populated from rendered Relevance and Top Sales snapshots rather than direct marketplace API calls.
+- Product detail steps are generated dynamically from the collected product table; a 10-product table produces product-specific guided steps for those products.
+- Product evidence capture supports review/crop/redo before storage to reduce human capture errors.
 - Guided steps cover relevance, top sales, key-product source evidence, product first viewport, product images, description, reviews, review media, store homepage, store products, store best sellers, store visual style, and TikTok cross-platform search.
 - Relevance and top-sales search paths exist with retry diagnostics.
 - Product card extraction exists through Playwright page DOM anchors and parent-card text normalization.
@@ -201,7 +215,7 @@ Implemented:
 - Empty, blocked, login-gated, captcha, selector-empty, and navigation retry states are emitted as structured warning/error log messages.
 - Top-sales result ordering is validated against relevance ordering so ignored sort behavior is visible in job logs.
 - Key-product selection now merges relevance and top-sales products, stores source placement, and assigns reason-for-selection values such as platform recommended, best selling, cheap, mid price, high price, and strong visual.
-- Product page collection exists and captures first-page, description, and review-section screenshots where the page is browser-readable.
+- Product page collection exists as user-controlled rendered snapshot capture and stores product-specific assets where the user opens the PDP.
 - Product image URLs are collected into product raw evidence for report rendering with a 3-column image grid.
 - Store page collection exists.
 - Store homepage, banner, popular-products, and best-seller screenshots are captured where Shopee allows access.
@@ -215,7 +229,7 @@ Incomplete:
 - Review extraction is heuristic and depends on browser-readable text.
 - Voucher strategy and user media extraction are not fully structured.
 - Shopee mobile app evidence is not implemented.
-- Product slide capture is not complete as a distinct evidence workflow.
+- Product slide capture is supported as a product-specific guided step, but structured slide URL extraction from every PDP is still heuristic.
 - Report-quality evidence completeness is not guaranteed.
 
 Sprint 1 completion evidence:
@@ -231,7 +245,7 @@ Sprint 1 completion evidence:
 
 ## M3 Intelligence
 
-[#######-------------] 35%
+[##########----------] 50%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -239,7 +253,7 @@ Sprint 1 completion evidence:
 | Structured JSON analysis contract | Completed | AI Engineering | `AiAnalysisJson`, validation schema | Done | P0 |
 | OpenAI analysis path | Partial | AI Engineering | API key, screenshot evidence | 3 days | P0 |
 | Gemini analysis path | Partial | AI Engineering | API key, screenshot evidence | 3 days | P1 |
-| Local heuristic fallback | Partial | AI Engineering | Product, store, review inputs | 3 days | P1 |
+| Local heuristic fallback | Completed | AI Engineering | Product, store, review inputs | Done | P1 |
 | Executive summary | Partial | Reporting and AI | Analysis records, report renderer | 3 days | P0 |
 | SWOT | Partial | Reporting and AI | Analysis records | 3 days | P0 |
 | Pricing analysis | Partial | Intelligence | Product price normalization | 4 days | P0 |
@@ -247,8 +261,8 @@ Sprint 1 completion evidence:
 | Competitor analysis | Partial | Intelligence | Key products, product matrix | 5 days | P0 |
 | Visual analysis | Partial | AI Vision | Screenshot completeness, provider keys | 5 days | P0 |
 | Recommendations | Partial | AI Engineering | Structured analysis output | 3 days | P0 |
-| Key Stores AI ranking | Placeholder | AI Engineering and Product UI | Store evidence, persisted scoring | 5 days | P0 |
-| HTML report generation | Partial | Reporting | Report data loader, renderer | 4 days | P0 |
+| Key Stores AI ranking | Partial | AI Engineering and Product UI | Store evidence, persisted scoring | 3 days | P0 |
+| HTML report generation | Completed | Reporting | Report data loader, renderer | Done | P0 |
 | PDF export | Partial | Reporting | Puppeteer PDF, local workspace | 3 days | P0 |
 
 Implemented:
@@ -256,16 +270,18 @@ Implemented:
 - AI service returns structured JSON through a typed analysis contract.
 - OpenAI and Gemini provider paths exist when API keys are configured.
 - Local heuristic analysis fallback exists.
+- Project-level AI evaluation can be triggered from Project Inspector and persists a structured analysis record from collected products, stores, reviews, and screenshots.
+- Store Evaluation Phase cards estimate GMV locally from extracted price and monthly sold values, then expose a deterministic candidate score.
 - Report sections are modular.
-- HTML report generation exists.
+- HTML report generation now produces interactive collapsible report sections with embedded CSS and script while remaining printable/PDF-compatible.
 - Puppeteer PDF export exists.
 
 Incomplete:
 
 - AI quality depends on complete product, store, review, and screenshot evidence.
 - Several analysis sections are only as strong as the partial Shopee data pipeline.
-- Key Stores ranking is not backed by persisted AI ranking output.
-- PowerPoint, Excel, CSV, JSON, and HTML export labels are visible, but only PDF export is wired.
+- Key Stores ranking still depends on the completeness of captured store evidence and configured AI providers for higher-confidence narrative scoring.
+- PowerPoint, Excel, CSV, and JSON export labels are visible, but only HTML/PDF report output is wired.
 
 ## M4 Android
 
@@ -277,6 +293,7 @@ Incomplete:
 | Unsupported Android adapter fallback | Completed | Mobile Automation | Android automation interface | Done | P1 |
 | ADB detection | Completed | Mobile Automation | Android SDK Platform Tools | Done | P1 |
 | Android Emulator discovery | Completed | Mobile Automation | Android SDK Emulator CLI | Done | P1 |
+| Android sidecar SDK discovery | Completed | Mobile Automation | Packaged resources, executable folder, environment variables | Done | P1 |
 | SDK manager and AVD manager discovery | Completed | Mobile Automation | Android command-line tools, Java | Done | P1 |
 | Local AVD profile discovery | Completed | Mobile Automation | Android emulator CLI | Done | P1 |
 | Local AVD profile creation | Completed | Mobile Automation | Android 35 Google Play x86_64 image | Done | P1 |
@@ -300,6 +317,7 @@ Implemented:
 - Adapter methods are shaped for availability, start, screenshot capture, visible text extraction, and stop.
 - `AdbAndroidAutomationAdapter` exists and delegates to the Android tooling service.
 - `AndroidToolingService` detects ADB, Android Emulator, SDK manager, AVD manager, Java, SDK root, local AVD profiles, connected devices, Android boot completion, and TikTok package IDs.
+- Android SDK discovery now also checks `MIO_ANDROID_SDK_ROOT`, packaged Electron resources, and an `android-sdk` folder beside the executable. This supports portable sidecar distribution without bundling restricted Google Play/TikTok assets into the app binary.
 - Local workstation setup now prefers `MIO_TikTok_Stable`, an Android 35 Google Play x86_64 AVD profile tuned for lower memory pressure than the earlier Pixel profile.
 - `MIO_TikTok_Stable` uses a Google Play system image so users can install apps through Play Store after logging in.
 - Emulator launch is persistent: the app does not pass `-wipe-data`, does not clear TikTok data, and does not reset Google login when the emulator is closed and reopened.
@@ -321,6 +339,7 @@ Partial behavior and blockers:
 - TikTok Shop navigation remains user-controlled inside TikTok; the app does not automate TikTok Shop taps, login, Gmail, or account state.
 - OCR and Vision AI analysis are still not connected to Android screenshots.
 - Shopee Mobile app workflow is still not implemented.
+- Google Play system images and TikTok APKs are not bundled into the installer because they are large third-party assets with separate licensing/distribution requirements; supported production distribution is sidecar SDK/tooling plus user-installed apps or user-provided APKs.
 
 ## M5 TikTok Shop
 
@@ -445,19 +464,16 @@ Modified in the latest implementation commit:
 - `ROADMAP.md`
 - `CHANGELOG.md`
 - `RELEASE_REPORT.md`
-- `apps/desktop/eslint.config.js`
 - `apps/desktop/e2e/smoke.spec.ts`
-- `apps/desktop/src/application/services/IntelligenceWorkflow.ts`
-- `apps/desktop/src/application/services/ReportService.ts`
-- `apps/desktop/src/domain/models.ts`
+- `apps/desktop/src/api/server.ts`
 - `apps/desktop/src/electron/main.ts`
-- `apps/desktop/src/infrastructure/marketplaces/shopee/ShopeeAdapter.ts`
+- `apps/desktop/src/infrastructure/android/AndroidToolingService.ts`
 - `apps/desktop/src/infrastructure/report/HtmlReportRenderer.ts`
 - `apps/desktop/src/infrastructure/repositories/PrismaRepositories.ts`
 - `apps/desktop/src/renderer/App.tsx`
 - `apps/desktop/src/renderer/api/client.ts`
 - `apps/desktop/src/renderer/styles.css`
-- `apps/desktop/src/renderer/vite-env.d.ts`
+- `apps/desktop/src/shared/contracts.ts`
 
 Existing implementation files inspected:
 

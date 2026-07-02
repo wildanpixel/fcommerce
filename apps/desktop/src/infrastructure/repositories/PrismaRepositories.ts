@@ -113,15 +113,19 @@ export class PrismaProjectRepository implements ProjectRepository {
       products: products.map((product) => ({
         id: product.id,
         title: product.title,
+        imageUrl: extractProductImageUrl(product.rawJson),
         rank: product.rank,
         source: product.source,
         selectionReason: product.selectionReason,
         priceAverage: product.priceAverage,
+        originalPrice: product.originalPrice,
+        discount: product.discount,
         rating: product.rating,
         reviewCount: product.reviewCount,
         monthlySold: product.monthlySold,
         totalSold: product.totalSold,
         storeName: product.storeName,
+        storeUrl: product.storeUrl,
         productUrl: product.productUrl,
         createdAt: product.createdAt.toISOString()
       })),
@@ -579,6 +583,19 @@ function inferProductType(title: string): string {
     return "false eyelashes";
   }
   return "marketplace product";
+}
+
+function extractProductImageUrl(rawJson: string): string | undefined {
+  const raw = parseJsonObject(rawJson);
+  const imageUrl = raw.imageUrl;
+  if (typeof imageUrl === "string") {
+    return imageUrl;
+  }
+  const images = raw.images;
+  if (Array.isArray(images) && typeof images[0] === "string") {
+    return images[0];
+  }
+  return undefined;
 }
 
 function parseJsonObject(value: string): Record<string, unknown> {

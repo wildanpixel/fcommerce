@@ -81,6 +81,11 @@ export const apiClient = {
       body: JSON.stringify(payload)
     }),
   projectDetail: (projectId: string) => request<ProjectDetailPayload>(`/projects/${projectId}/detail`),
+  analyzeProject: (projectId: string) =>
+    request<{ ok: true; analysisId: string; provider: string }>(`/projects/${projectId}/analyze`, {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
   deleteProject: (projectId: string) =>
     request<{ ok: true }>(`/projects/${projectId}`, {
       method: "DELETE"

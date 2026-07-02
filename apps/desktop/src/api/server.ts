@@ -12,6 +12,7 @@ import type {
   AndroidStartPayload,
   AndroidVisibleTextResult,
   CreateJobPayload,
+  ExtractedPageProduct,
   ManualEvidencePayload,
   ManualFileEvidencePayload,
   NewProjectInput,
@@ -19,10 +20,13 @@ import type {
   ReportGenerationPayload,
   SaveSettingsPayload
 } from "../shared/contracts.js";
+import type { ProductDetail, StoreProfile } from "../domain/models.js";
 import { ProjectService } from "../application/services/ProjectService.js";
 import { JobQueue } from "../application/services/JobQueue.js";
 import { IntelligenceWorkflow } from "../application/services/IntelligenceWorkflow.js";
 import { ReportService } from "../application/services/ReportService.js";
+import type { ReportData } from "../application/services/ReportService.js";
+import type { AnalysisInput } from "../application/services/AIAnalysisService.js";
 import { prisma } from "../infrastructure/db/prismaClient.js";
 import { ensureDatabaseSchema } from "../infrastructure/db/bootstrapSql.js";
 import {
@@ -133,16 +137,44 @@ const manualEvidenceKindSchema = z.enum([
   "SOCIAL_ACCOUNT"
 ]);
 
+const evidenceOwnerTypeSchema = z.enum(["MANUAL_STEP", "PRODUCT", "STORE", "PROJECT"]);
+
+const extractedPageProductSchema = z.object({
+  rank: z.number().int().positive(),
+  title: z.string().min(1),
+  url: z.string().min(1),
+  imageUrl: z.string().optional(),
+  priceText: z.string().optional(),
+  priceAverage: z.number().optional(),
+  originalPrice: z.number().optional(),
+  discount: z.string().optional(),
+  rating: z.number().optional(),
+  reviewCount: z.number().int().optional(),
+  soldCount: z.number().int().optional(),
+  storeName: z.string().optional(),
+  storeUrl: z.string().optional(),
+  mallStatus: z.boolean().optional(),
+  officialStatus: z.boolean().optional(),
+  starSeller: z.boolean().optional(),
+  rawText: z.string().optional()
+});
+
 const manualEvidenceSchema = z.object({
   projectId: z.string().uuid(),
   stepId: z.string().min(2),
   label: z.string().min(2),
   kind: manualEvidenceKindSchema,
+  ownerType: evidenceOwnerTypeSchema.optional(),
+  ownerId: z.string().optional(),
   sourceUrl: z.string().optional(),
   imageDataUrl: z.string().min(20),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   note: z.string().optional(),
+  pageHtml: z.string().optional(),
+  visibleText: z.string().optional(),
+  pagePdfDataUrl: z.string().optional(),
+  extractedProducts: z.array(extractedPageProductSchema).optional(),
   metadata: z.record(z.unknown()).optional()
 });
 
@@ -151,6 +183,8 @@ const manualFileEvidenceSchema = z.object({
   stepId: z.string().min(2),
   label: z.string().min(2),
   kind: manualEvidenceKindSchema,
+  ownerType: evidenceOwnerTypeSchema.optional(),
+  ownerId: z.string().optional(),
   sourcePath: z.string().min(1),
   sourceUrl: z.string().optional(),
   note: z.string().optional(),
@@ -293,6 +327,29 @@ export function createApp(): Express {
     response.json(detail);
   }));
 
+  app.post("/api/projects/:id/analyze", asyncRoute(async (request, response) => {
+    const input = z.object({ id: z.string().uuid() }).parse(request.params);
+    const project = await dependencies.projectRepository.get(input.id);
+    if (!project) {
+      response.status(404).json({ error: "Project not found" });
+      return;
+    }
+    const data = await dependencies.reportDataLoader.load(input.id);
+    const analysis = await dependencies.ai.analyze(toAnalysisInput(data));
+    const analysisId = await dependencies.intelligenceRepository.saveAnalysis(input.id, analysis);
+    await dependencies.logRepository.write({
+      projectId: input.id,
+      level: "INFO",
+      message: "AI key-store evaluation generated.",
+      context: {
+        analysisId,
+        provider: analysis.provider,
+        confidence: analysis.confidence
+      }
+    });
+    response.status(201).json({ ok: true, analysisId, provider: analysis.provider });
+  }));
+
   app.post("/api/projects", asyncRoute(async (request, response) => {
     const input = projectSchema.parse(request.body) satisfies NewProjectInput;
     response.status(201).json(await dependencies.projects.createProject(input));
@@ -326,10 +383,34 @@ export function createApp(): Express {
     const evidenceFolder = resolve(projectFolder, "manual-evidence");
     await mkdir(evidenceFolder, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const assetPath = resolve(evidenceFolder, `${timestamp}-${slug(input.stepId)}.png`);
+    const baseName = `${timestamp}-${slug(input.stepId)}`;
+    const assetPath = resolve(evidenceFolder, `${baseName}.png`);
     await writeFile(assetPath, image.buffer);
+    const htmlPath = input.pageHtml ? resolve(evidenceFolder, `${baseName}.html`) : undefined;
+    const textPath = input.visibleText ? resolve(evidenceFolder, `${baseName}.txt`) : undefined;
+    const pdfPath = input.pagePdfDataUrl ? resolve(evidenceFolder, `${baseName}.pdf`) : undefined;
+    if (htmlPath && input.pageHtml) {
+      await writeFile(htmlPath, input.pageHtml, "utf8");
+    }
+    if (textPath && input.visibleText) {
+      await writeFile(textPath, input.visibleText, "utf8");
+    }
+    if (pdfPath && input.pagePdfDataUrl) {
+      const pdf = decodeDataUrl(input.pagePdfDataUrl);
+      await writeFile(pdfPath, pdf.buffer);
+    }
+    const extractedProductCount = await persistExtractedProducts(
+      dependencies.intelligenceRepository,
+      project.id,
+      input,
+      {
+        htmlPath,
+        textPath,
+        pdfPath
+      }
+    );
 
-    await dependencies.intelligenceRepository.saveScreenshots(project.id, "MANUAL_STEP", input.stepId, [
+    await dependencies.intelligenceRepository.saveScreenshots(project.id, input.ownerType ?? "MANUAL_STEP", input.ownerId ?? input.stepId, [
       {
         kind: input.kind,
         label: input.label,
@@ -342,6 +423,10 @@ export function createApp(): Express {
           stepId: input.stepId,
           note: input.note,
           mimeType: image.mimeType,
+          htmlPath,
+          textPath,
+          pdfPath,
+          extractedProductCount,
           ...(input.metadata ?? {})
         }
       }
@@ -358,7 +443,15 @@ export function createApp(): Express {
       }
     });
 
-    response.status(201).json({ ok: true, stepId: input.stepId, assetPath });
+    response.status(201).json({
+      ok: true,
+      stepId: input.stepId,
+      assetPath,
+      htmlPath,
+      textPath,
+      pdfPath,
+      extractedProductCount
+    });
   }));
 
   app.post("/api/manual-file-evidence", asyncRoute(async (request, response) => {
@@ -388,7 +481,7 @@ export function createApp(): Express {
     const assetPath = resolve(evidenceFolder, `${timestamp}-${slug(input.stepId)}${extname(sourcePath).toLowerCase()}`);
     await copyFile(sourcePath, assetPath);
 
-    await dependencies.intelligenceRepository.saveScreenshots(project.id, "MANUAL_FILE_STEP", input.stepId, [
+    await dependencies.intelligenceRepository.saveScreenshots(project.id, input.ownerType ?? "MANUAL_STEP", input.ownerId ?? input.stepId, [
       {
         kind: input.kind,
         label: input.label,
@@ -557,6 +650,7 @@ function createDependencies() {
   const androidAdapter = new AdbAndroidAutomationAdapter(android);
   const workspace = new ProjectWorkspace();
   const ai = new CompositeAIAnalysisService(settingsRepository);
+  const reportDataLoader = new PrismaReportDataLoader(prisma);
   const workflow = new IntelligenceWorkflow(
     marketplaces,
     projectRepository,
@@ -583,13 +677,295 @@ function createDependencies() {
     queue,
     reports: new ReportService(
       reportRepository,
-      new PrismaReportDataAdapter(new PrismaReportDataLoader(prisma)),
+      new PrismaReportDataAdapter(reportDataLoader),
       new ConsultingHtmlReportRenderer(),
       new PuppeteerPdfExporter(),
       workspace
     ),
+    ai,
+    reportDataLoader,
     reportRepository
   };
+}
+
+function toAnalysisInput(data: ReportData): AnalysisInput {
+  return {
+    projectId: data.project.id,
+    subjectType: "PROJECT",
+    keyword: data.project.keyword,
+    language: data.project.language,
+    screenshotPaths: data.assets
+      .filter((asset) => asset.path.toLowerCase().endsWith(".png"))
+      .map((asset) => asset.path),
+    products: data.products.map((product, index) => ({
+      marketplace: "SHOPEE_ID",
+      rank: product.rank ?? index + 1,
+      source: product.source ?? undefined,
+      selectionReason: product.selectionReason ?? undefined,
+      title: product.title,
+      url: product.productUrl,
+      price: {
+        average: product.priceAverage ?? undefined,
+        currency: "IDR"
+      },
+      rating: product.rating ?? undefined,
+      reviewCount: product.reviewCount ?? undefined,
+      monthlySold: product.monthlySold ?? undefined,
+      totalSold: product.totalSold ?? undefined,
+      storeName: product.storeName ?? undefined,
+      storeUrl: product.storeUrl ?? undefined,
+      mallStatus: product.mallStatus,
+      officialStatus: product.officialStatus,
+      starSeller: product.starSeller,
+      variants: safeParseJson<string[]>(product.variantsJson, []),
+      description: product.description ?? undefined,
+      specifications: safeParseJson<Record<string, string>>(product.specificationsJson, {}),
+      images: safeParseJson<{ images?: string[]; imageUrl?: string }>(product.rawJson, {}).images ?? [],
+      videos: [],
+      raw: safeParseJson<Record<string, unknown>>(product.rawJson, {})
+    })),
+    stores: data.stores.map((store) => ({
+      marketplace: "SHOPEE_ID",
+      name: store.name,
+      url: store.url,
+      followers: store.followers ?? undefined,
+      productsCount: store.productsCount ?? undefined,
+      rating: store.rating ?? undefined,
+      chatResponse: store.chatResponse ?? undefined,
+      voucherCount: store.voucherCount ?? undefined,
+      categories: [],
+      voucherTypes: [],
+      featuredProducts: [],
+      bestSellers: [],
+      visualTheme: safeParseJson<StoreProfile["visualTheme"]>(store.visualThemeJson, {
+        dominantColors: [],
+        typographySignals: [],
+        bannerStyle: []
+      }),
+      raw: {}
+    })),
+    reviews: data.reviews.map((review) => ({
+      sentiment: review.sentiment === "NEGATIVE" ? "NEGATIVE" : review.sentiment === "POSITIVE" ? "POSITIVE" : "NEUTRAL",
+      rating: review.rating ?? undefined,
+      comment: review.comment,
+      variation: review.variation ?? undefined,
+      reviewDate: review.reviewDate ?? undefined,
+      mediaUrls: [],
+      raw: {}
+    }))
+  };
+}
+
+function safeParseJson<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+async function persistExtractedProducts(
+  intelligenceRepository: {
+    saveProduct(projectId: string, product: ProductDetail): Promise<string>;
+    saveStore(projectId: string, store: StoreProfile): Promise<string>;
+  },
+  projectId: string,
+  input: ManualEvidencePayload,
+  files: {
+    htmlPath?: string;
+    textPath?: string;
+    pdfPath?: string;
+  }
+): Promise<number> {
+  if (!["SEARCH_RESULT", "TOP_SALES"].includes(input.kind) || !input.extractedProducts?.length) {
+    return 0;
+  }
+
+  const source = input.kind === "TOP_SALES" ? "Top Sales" : "Relevance";
+  const uniqueProducts = uniqueExtractedProducts(input.extractedProducts).slice(0, 80);
+  const medianPrice = median(uniqueProducts.map((product) => product.priceAverage ?? parsePrice(product.priceText)).filter(isFiniteNumber));
+
+  await prisma.product.deleteMany({
+    where: {
+      projectId,
+      source
+    }
+  });
+
+  const savedStores = new Set<string>();
+  for (const product of uniqueProducts) {
+    if (product.storeName && product.storeUrl && !savedStores.has(product.storeUrl)) {
+      savedStores.add(product.storeUrl);
+      await intelligenceRepository.saveStore(projectId, toStoreProfile(product));
+    }
+    await intelligenceRepository.saveProduct(
+      projectId,
+      toProductDetail(product, {
+        source,
+        stepId: input.stepId,
+        sourceUrl: input.sourceUrl,
+        htmlPath: files.htmlPath,
+        textPath: files.textPath,
+        pdfPath: files.pdfPath,
+        medianPrice
+      })
+    );
+  }
+
+  return uniqueProducts.length;
+}
+
+function uniqueExtractedProducts(products: ExtractedPageProduct[]): ExtractedPageProduct[] {
+  const seen = new Set<string>();
+  const unique: ExtractedPageProduct[] = [];
+  for (const product of products) {
+    const key = normalizeUrl(product.url || product.title);
+    if (!product.title || !product.url || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(product);
+  }
+  return unique.map((product, index) => ({ ...product, rank: product.rank || index + 1 }));
+}
+
+function toProductDetail(
+  product: ExtractedPageProduct,
+  context: {
+    source: string;
+    stepId: string;
+    sourceUrl?: string;
+    htmlPath?: string;
+    textPath?: string;
+    pdfPath?: string;
+    medianPrice?: number;
+  }
+): ProductDetail {
+  const priceAverage = product.priceAverage ?? parsePrice(product.priceText);
+  return {
+    marketplace: "SHOPEE_ID",
+    rank: product.rank,
+    source: context.source,
+    selectionReason: selectionReason(product, context.source, priceAverage, context.medianPrice),
+    title: product.title,
+    url: normalizeUrl(product.url),
+    imageUrl: product.imageUrl,
+    price: {
+      average: priceAverage,
+      original: product.originalPrice,
+      currency: "IDR"
+    },
+    rating: product.rating,
+    reviewCount: product.reviewCount,
+    monthlySold: context.source === "Top Sales" ? product.soldCount : undefined,
+    totalSold: undefined,
+    storeName: product.storeName,
+    storeUrl: product.storeUrl ? normalizeUrl(product.storeUrl) : undefined,
+    mallStatus: Boolean(product.mallStatus),
+    officialStatus: Boolean(product.officialStatus),
+    starSeller: Boolean(product.starSeller),
+    variants: [],
+    specifications: {},
+    images: product.imageUrl ? [product.imageUrl] : [],
+    videos: [],
+    raw: {
+      source: "rendered-page-snapshot",
+      sourceStepId: context.stepId,
+      sourceUrl: context.sourceUrl,
+      imageUrl: product.imageUrl,
+      images: product.imageUrl ? [product.imageUrl] : [],
+      htmlPath: context.htmlPath,
+      textPath: context.textPath,
+      pdfPath: context.pdfPath,
+      rawText: product.rawText,
+      priceText: product.priceText
+    }
+  };
+}
+
+function toStoreProfile(product: ExtractedPageProduct): StoreProfile {
+  return {
+    marketplace: "SHOPEE_ID",
+    name: product.storeName ?? "Unknown Shopee Store",
+    url: normalizeUrl(product.storeUrl ?? product.url),
+    categories: [],
+    voucherTypes: [],
+    featuredProducts: [],
+    bestSellers: [],
+    visualTheme: {
+      dominantColors: [],
+      typographySignals: [],
+      bannerStyle: []
+    },
+    raw: {
+      source: "rendered-page-snapshot",
+      productTitle: product.title
+    }
+  };
+}
+
+function selectionReason(
+  product: ExtractedPageProduct,
+  source: string,
+  priceAverage?: number,
+  medianPrice?: number
+): string {
+  const reasons = new Set<string>();
+  if (source === "Top Sales") {
+    reasons.add("best selling");
+  } else {
+    reasons.add("platform recommended");
+  }
+  if (priceAverage && medianPrice) {
+    if (priceAverage < medianPrice * 0.78) {
+      reasons.add("cheap");
+    } else if (priceAverage > medianPrice * 1.28) {
+      reasons.add("high price");
+    } else {
+      reasons.add("mid price");
+    }
+  }
+  if (product.imageUrl) {
+    reasons.add("strong visual");
+  }
+  if ((product.soldCount ?? 0) > 0) {
+    reasons.add("sales");
+  }
+  return Array.from(reasons).join(" / ");
+}
+
+function parsePrice(value?: string): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const matches = value.match(/(?:Rp\s*)?[\d.]+(?:,\d+)?/giu) ?? [];
+  const values = matches
+    .map((match) => Number(match.replace(/[^\d]/gu, "")))
+    .filter((number) => Number.isFinite(number) && number > 0);
+  if (values.length === 0) {
+    return undefined;
+  }
+  return Math.round(values.reduce((sum, number) => sum + number, 0) / values.length);
+}
+
+function normalizeUrl(value: string): string {
+  try {
+    return new URL(value, "https://shopee.co.id").toString();
+  } catch {
+    return value;
+  }
+}
+
+function median(values: number[]): number | undefined {
+  if (values.length === 0) {
+    return undefined;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function isFiniteNumber(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function decodeDataUrl(dataUrl: string): { mimeType: string; buffer: Buffer } {

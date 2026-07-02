@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { access, mkdir, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, extname, join, resolve } from "node:path";
+import { delimiter, dirname, extname, join, resolve } from "node:path";
 import type {
   AndroidAppRuntimeStatus,
   AndroidApkCandidate,
@@ -476,9 +476,13 @@ function executableNames(base: string): string[] {
 
 function candidateSdkRoots(): string[] {
   const home = homedir();
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
   const roots = [
+    process.env.MIO_ANDROID_SDK_ROOT,
     process.env.ANDROID_HOME,
     process.env.ANDROID_SDK_ROOT,
+    resourcesPath ? join(resourcesPath, "android-sdk") : undefined,
+    process.execPath ? join(dirname(process.execPath), "android-sdk") : undefined,
     getPlatformService().info.os === "windows"
       ? join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "Android", "Sdk")
       : undefined,

@@ -15,9 +15,9 @@ test("renders the guided manual analysis flow", async ({ page }) => {
   await page.getByLabel("Desired Keyword").fill("bulu mata palsu");
   await page.getByLabel("Product Category").fill("false eyelashes");
   await page.getByRole("button", { name: /Proceed to Browser/ }).click();
-  await expect(page.getByText("Guided Platform Browser")).toBeVisible();
-  await expect(page.getByText("Guided Collection 1/13")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Collect This Step" })).toBeVisible();
+  await expect(page.getByText("Platform Browser")).toBeVisible();
+  await expect(page.getByText(/Step 1\/\d+/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Expand collector" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Dark" })).toBeVisible();
 });
 

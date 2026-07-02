@@ -74,15 +74,19 @@ export type ProjectDetailPayload = {
   products: Array<{
     id: string;
     title: string;
+    imageUrl?: string | null;
     rank?: number | null;
     source?: string | null;
     selectionReason?: string | null;
     priceAverage?: number | null;
+    originalPrice?: number | null;
+    discount?: string | null;
     rating?: number | null;
     reviewCount?: number | null;
     monthlySold?: number | null;
     totalSold?: number | null;
     storeName?: string | null;
+    storeUrl?: string | null;
     productUrl: string;
     createdAt: string;
   }>;
@@ -231,11 +235,17 @@ export type ManualEvidencePayload = {
   stepId: string;
   label: string;
   kind: ManualEvidenceKind;
+  ownerType?: "MANUAL_STEP" | "PRODUCT" | "STORE" | "PROJECT";
+  ownerId?: string;
   sourceUrl?: string;
   imageDataUrl: string;
   width?: number;
   height?: number;
   note?: string;
+  pageHtml?: string;
+  visibleText?: string;
+  pagePdfDataUrl?: string;
+  extractedProducts?: ExtractedPageProduct[];
   metadata?: Record<string, unknown>;
 };
 
@@ -244,6 +254,8 @@ export type ManualFileEvidencePayload = {
   stepId: string;
   label: string;
   kind: ManualEvidenceKind;
+  ownerType?: "MANUAL_STEP" | "PRODUCT" | "STORE" | "PROJECT";
+  ownerId?: string;
   sourcePath: string;
   sourceUrl?: string;
   note?: string;
@@ -254,6 +266,30 @@ export type ManualEvidenceResult = {
   ok: true;
   stepId: string;
   assetPath: string;
+  htmlPath?: string;
+  textPath?: string;
+  pdfPath?: string;
+  extractedProductCount?: number;
+};
+
+export type ExtractedPageProduct = {
+  rank: number;
+  title: string;
+  url: string;
+  imageUrl?: string;
+  priceText?: string;
+  priceAverage?: number;
+  originalPrice?: number;
+  discount?: string;
+  rating?: number;
+  reviewCount?: number;
+  soldCount?: number;
+  storeName?: string;
+  storeUrl?: string;
+  mallStatus?: boolean;
+  officialStatus?: boolean;
+  starSeller?: boolean;
+  rawText?: string;
 };
 
 export type AndroidDeviceInfo = {

@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -25,6 +25,7 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Printer,
   RefreshCcw,
   Search,
   Settings,
@@ -35,14 +36,18 @@ import {
   Sun,
   Table2,
   TerminalSquare,
-  Trash2
+  Trash2,
+  ZoomIn,
+  ZoomOut
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type {
   AndroidAppRuntimeStatus,
   AndroidToolStatus,
   DashboardSnapshot,
+  ExtractedPageProduct,
   ManualEvidenceKind,
+  ManualEvidencePayload,
   MarketplaceId,
   NewProjectInput,
   ProjectDetailPayload,
@@ -71,6 +76,7 @@ type PlatformViewMode = "desktop" | "mobile";
 type ThemeMode = "dark" | "light";
 type ResearchMode = "home" | "setup" | "collect";
 type ProjectSummary = DashboardSnapshot["projects"][number];
+type ProjectProductEvidence = ProjectDetailPayload["products"][number];
 
 type AnalysisFormState = {
   keyword: string;
@@ -84,6 +90,8 @@ type CollectionStep = {
   section: string;
   label: string;
   kind: ManualEvidenceKind;
+  ownerType?: ManualEvidencePayload["ownerType"];
+  ownerId?: string;
   instruction: string;
   targetUrl?: string;
   ready: boolean;
@@ -94,12 +102,28 @@ type CapturedPageImage = {
   getSize?: () => { width: number; height: number };
 };
 
+type PendingEvidenceCapture = {
+  payload: ManualEvidencePayload;
+  stepLabel: string;
+};
+
+type CropRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 type WebviewElement = HTMLElement & {
   capturePage?: () => Promise<CapturedPageImage>;
   executeJavaScript?: <T>(code: string) => Promise<T>;
   getURL?: () => string;
   loadURL?: (url: string) => Promise<void>;
   reload?: () => void;
+  setZoomFactor?: (factor: number) => void;
+  getZoomFactor?: () => number;
+  print?: (options?: Record<string, unknown>) => void;
+  printToPDF?: (options?: Record<string, unknown>) => Promise<Uint8Array>;
 };
 
 type WebviewNavigationEvent = Event & {
@@ -165,12 +189,12 @@ function Sidebar({ onHide }: { onHide: () => void }) {
       transition={{ duration: 0.18 }}
     >
       <div className="mb-8 flex items-center gap-3 px-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-signal-blue/15 text-signal-blue">
+        <div className="mio-brand-mark flex h-9 w-9 items-center justify-center rounded-md bg-signal-blue/15 text-signal-blue">
           <Brain size={20} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Marketplace Intelligence OS</div>
-          <div className="text-xs text-ink-500">Guided Marketplace Evidence</div>
+          <div className="mio-brand-title text-sm font-semibold leading-5">Marketplace Intelligence</div>
+          <div className="mio-brand-subtitle text-xs leading-5 text-ink-500">Operating System</div>
         </div>
         <button
           type="button"
@@ -192,8 +216,8 @@ function Sidebar({ onHide }: { onHide: () => void }) {
               key={item.id}
               type="button"
               className={[
-                "flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition",
-                active ? "bg-white/9 text-white shadow-glow" : "text-ink-300 hover:bg-white/6 hover:text-white"
+                "mio-nav-button flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition",
+                active ? "mio-nav-active bg-white/9 text-white shadow-glow" : "text-ink-300 hover:bg-white/6 hover:text-white"
               ].join(" ")}
               onClick={() => setActiveView(item.id)}
             >
@@ -770,55 +794,40 @@ function GuidedBrowserCollector({
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [collectedSteps, setCollectedSteps] = useState<Record<string, string>>({});
   const [pageTextPreview, setPageTextPreview] = useState("");
+  const [zoomFactor, setZoomFactor] = useState(1);
+  const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
   const [activityLog, setActivityLog] = useState<string[]>([
     "Open each target page manually, then capture the matching report step."
   ]);
+  const projectDetail = useQuery({
+    queryKey: ["project-detail", project.id],
+    queryFn: () => apiClient.projectDetail(project.id)
+  });
 
   const steps = useMemo(
-    () => buildCollectionSteps(project, platform, currentUrl),
-    [currentUrl, platform, project]
+    () => buildCollectionSteps(project, platform, currentUrl, projectDetail.data),
+    [currentUrl, platform, project, projectDetail.data]
   );
   const activeStep = steps[activeStepIndex] ?? steps[0];
   const collectedCount = steps.filter((step) => collectedSteps[step.id]).length;
+  const isManualActionState =
+    platform === "SHOPEE_ID" &&
+    (isProtectedShopeePage(currentUrl) || isShopeeLoginPage(currentUrl) || loadState === "failed");
 
   const saveEvidence = useMutation({
-    mutationFn: async (step: CollectionStep) => {
-      const webview = webviewRef.current;
-      if (!webview?.capturePage) {
-        throw new Error("The embedded browser cannot capture this page in the current runtime.");
-      }
-      const image = await webview.capturePage();
-      const size = image.getSize?.() ?? {
-        width: Math.round(webview.clientWidth),
-        height: Math.round(webview.clientHeight)
-      };
-      const sourceUrl = webview.getURL?.() ?? currentUrl;
-      const extractedText = await extractVisibleBrowserText(webview).catch(() => "");
-      return apiClient.saveManualEvidence({
-        projectId: project.id,
-        stepId: step.id,
-        label: step.label,
-        kind: step.kind,
-        sourceUrl: sourceUrl === "about:blank" ? undefined : sourceUrl,
-        imageDataUrl: image.toDataURL(),
-        width: size.width,
-        height: size.height,
-        note: step.instruction,
-        metadata: {
-          section: step.section,
-          keyword: project.keyword,
-          productCategory,
-          marketplace: platform,
-          viewMode,
-          extractedText,
-          capturedAt: new Date().toISOString()
-        }
-      });
-    },
-    onSuccess: async (result, step) => {
-      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    mutationFn: apiClient.saveManualEvidence,
+    onSuccess: async (result, payload) => {
+      const step = steps.find((item) => item.id === payload.stepId) ?? activeStep;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
+      ]);
       setCollectedSteps((current) => ({ ...current, [step.id]: result.assetPath }));
-      appendLog(setActivityLog, `Captured ${step.label}.`);
+      setPendingCapture(null);
+      appendLog(
+        setActivityLog,
+        `Captured ${step.label}${result.extractedProductCount ? ` and extracted ${result.extractedProductCount} product rows` : ""}.`
+      );
       setActiveStepIndex((current) => Math.min(current + 1, steps.length - 1));
     },
     onError: (error) => {
@@ -837,6 +846,8 @@ function GuidedBrowserCollector({
         stepId: step.id,
         label: step.label,
         kind: step.kind,
+        ownerType: step.ownerType,
+        ownerId: step.ownerId,
         sourcePath: picked,
         sourceUrl: currentUrl,
         note: step.instruction,
@@ -922,6 +933,84 @@ function GuidedBrowserCollector({
     navigateTo(address);
   }
 
+  function applyZoom(nextZoom: number) {
+    const clamped = Math.max(0.5, Math.min(2, Number(nextZoom.toFixed(2))));
+    setZoomFactor(clamped);
+    webviewRef.current?.setZoomFactor?.(clamped);
+  }
+
+  function printCurrentPage() {
+    const webview = webviewRef.current;
+    if (!webview?.print) {
+      appendLog(setActivityLog, "Print is not available in the current embedded browser runtime.");
+      return;
+    }
+    webview.print({ printBackground: true });
+    appendLog(setActivityLog, "Opened the browser print workflow for the current page.");
+  }
+
+  async function captureAndSaveEvidence(step: CollectionStep) {
+    try {
+      appendLog(setActivityLog, `Capturing rendered page snapshot for ${step.label}...`);
+      setPendingCapture({
+        payload: await buildManualEvidencePayload(step),
+        stepLabel: step.label
+      });
+      appendLog(setActivityLog, "Review the screenshot, crop if needed, then save the evidence.");
+    } catch (error) {
+      appendLog(setActivityLog, error instanceof Error ? error.message : "Could not prepare rendered page snapshot.");
+    }
+  }
+
+  async function buildManualEvidencePayload(step: CollectionStep): Promise<ManualEvidencePayload> {
+    const webview = webviewRef.current;
+    if (!webview?.capturePage) {
+      throw new Error("The embedded browser cannot capture this page in the current runtime.");
+    }
+    const image = await webview.capturePage();
+    const size = image.getSize?.() ?? {
+      width: Math.round(webview.clientWidth),
+      height: Math.round(webview.clientHeight)
+    };
+    const sourceUrl = webview.getURL?.() ?? currentUrl;
+    const snapshot = await extractRenderedPageSnapshot(webview).catch(() => ({
+      html: "",
+      visibleText: "",
+      products: [] as ExtractedPageProduct[]
+    }));
+    const printPdfDataUrl = await webview.printToPDF?.({ printBackground: true })
+      .then((data) => `data:application/pdf;base64,${uint8ArrayToBase64(data)}`)
+      .catch(() => undefined);
+    return {
+      projectId: project.id,
+      stepId: step.id,
+      label: step.label,
+      kind: step.kind,
+      ownerType: step.ownerType,
+      ownerId: step.ownerId,
+      sourceUrl: sourceUrl === "about:blank" ? undefined : sourceUrl,
+      imageDataUrl: image.toDataURL(),
+      width: size.width,
+      height: size.height,
+      note: step.instruction,
+      pageHtml: snapshot.html,
+      visibleText: snapshot.visibleText,
+      pagePdfDataUrl: printPdfDataUrl,
+      extractedProducts: snapshot.products,
+      metadata: {
+        section: step.section,
+        keyword: project.keyword,
+        productCategory,
+        marketplace: platform,
+        viewMode,
+        zoomFactor,
+        extractedText: snapshot.visibleText,
+        extractedProductCount: snapshot.products.length,
+        capturedAt: new Date().toISOString()
+      }
+    };
+  }
+
   async function extractCurrentPageText() {
     const webview = webviewRef.current;
     if (!webview) {
@@ -949,7 +1038,7 @@ function GuidedBrowserCollector({
 
   const browserPanel = (
     <Panel
-      title="Guided Platform Browser"
+      title="Platform Browser"
       icon={Globe2}
       action={
         <button className="secondary-button h-9 w-9 px-0" type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Exit fullscreen" : "Expand browser"} title={expanded ? "Exit fullscreen" : "Expand browser"}>
@@ -957,17 +1046,28 @@ function GuidedBrowserCollector({
         </button>
       }
     >
-      <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2">
-        <input value={address} onChange={(event) => setAddress(event.target.value)} className="input" />
-        <button className="secondary-button w-10 px-0" type="button" onClick={goToAddress} aria-label="Go to address" title="Go">
-          <ChevronRight size={15} />
-        </button>
-        <button className="secondary-button w-10 px-0" type="button" onClick={() => webviewRef.current?.reload?.()} aria-label="Reload browser" title="Reload">
-          <RefreshCcw size={15} />
-        </button>
-        <button className="secondary-button w-10 px-0" type="button" onClick={() => void extractCurrentPageText()} aria-label="Extract visible page text" title="Extract visible page text">
-          <TerminalSquare size={15} />
-        </button>
+      <div className="mio-browser-toolbar mb-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <input value={address} onChange={(event) => setAddress(event.target.value)} className="input mio-address-input" aria-label="Browser address" />
+        <div className="flex items-center gap-2">
+          <button className="secondary-button w-10 px-0" type="button" onClick={goToAddress} aria-label="Go to address" title="Go">
+            <ChevronRight size={15} />
+          </button>
+          <button className="secondary-button w-10 px-0" type="button" onClick={() => webviewRef.current?.reload?.()} aria-label="Reload browser" title="Reload">
+            <RefreshCcw size={15} />
+          </button>
+          <button className="secondary-button w-10 px-0" type="button" onClick={() => applyZoom(zoomFactor - 0.1)} aria-label="Zoom out" title="Zoom out">
+            <ZoomOut size={15} />
+          </button>
+          <button className="secondary-button w-10 px-0" type="button" onClick={() => applyZoom(zoomFactor + 0.1)} aria-label="Zoom in" title="Zoom in">
+            <ZoomIn size={15} />
+          </button>
+          <button className="secondary-button w-10 px-0" type="button" onClick={printCurrentPage} aria-label="Print current page" title="Print current page">
+            <Printer size={15} />
+          </button>
+          <button className="secondary-button w-10 px-0" type="button" onClick={() => void extractCurrentPageText()} aria-label="Extract visible page text" title="Extract visible page text">
+            <TerminalSquare size={15} />
+          </button>
+        </div>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -984,10 +1084,18 @@ function GuidedBrowserCollector({
             Mobile
           </SegmentButton>
         </div>
-        <div className="rounded-full border border-white/10 bg-white/6 px-3 py-1 text-xs text-ink-300">
-          {loadState}
-        </div>
+        <LoadStatePill state={loadState} />
       </div>
+
+      {isManualActionState && (
+        <div className="mio-manual-state mb-3 rounded-xl border border-signal-amber/30 bg-signal-amber/10 px-4 py-3 text-sm leading-6 text-ink-300">
+          <div className="mb-1 flex items-center gap-2 font-semibold text-white">
+            <AlertTriangle size={16} className="text-signal-amber" />
+            Manual action required
+          </div>
+          Shopee is showing login, verification, or a protected page. Use the browser manually, then capture evidence after the target page is visible.
+        </div>
+      )}
 
       <div className={["relative overflow-hidden rounded-[18px] border border-white/12 bg-black", viewMode === "mobile" ? "mx-auto h-[720px] max-w-[430px]" : "h-[720px] w-full"].join(" ")}>
         <webview
@@ -1010,7 +1118,7 @@ function GuidedBrowserCollector({
           captured={Boolean(collectedSteps[activeStep.id])}
           saving={saveEvidence.isPending}
           onOpenTarget={() => activeStep.targetUrl && navigateTo(activeStep.targetUrl)}
-          onCollect={() => saveEvidence.mutate(activeStep)}
+          onCollect={() => void captureAndSaveEvidence(activeStep)}
           onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
           onOpenAndroid={activeStep.id === "tiktok-brand-search" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
           onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
@@ -1022,11 +1130,19 @@ function GuidedBrowserCollector({
           {pageTextPreview.slice(0, 4000)}
         </pre>
       )}
+      {pendingCapture && (
+        <ScreenshotReviewModal
+          capture={pendingCapture}
+          saving={saveEvidence.isPending}
+          onCancel={() => setPendingCapture(null)}
+          onSave={(payload) => saveEvidence.mutate(payload)}
+        />
+      )}
     </Panel>
   );
 
   return (
-    <section className={expanded ? "fixed inset-0 z-50 overflow-auto bg-ink-950 p-5" : "grid grid-cols-[360px_minmax(0,1fr)] gap-5"}>
+    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-auto bg-ink-950 p-5" : "grid grid-cols-[360px_minmax(0,1fr)] gap-5"}>
       {!expanded && (
         <aside className="space-y-5">
           <Panel title="Analysis Session" icon={ClipboardCheck}>
@@ -1050,8 +1166,8 @@ function GuidedBrowserCollector({
                   key={step.id}
                   type="button"
                   className={[
-                    "w-full rounded-md border px-3 py-2 text-left text-xs transition",
-                    index === activeStepIndex ? "border-signal-blue/40 bg-signal-blue/12" : "border-white/8 bg-white/5 hover:bg-white/8"
+                    "mio-step-card w-full rounded-md border px-3 py-2 text-left text-xs transition",
+                    index === activeStepIndex ? "mio-step-card-active border-signal-blue/40 bg-signal-blue/12" : "border-white/8 bg-white/5 hover:bg-white/8"
                   ].join(" ")}
                   onClick={() => setActiveStepIndex(index)}
                 >
@@ -1111,11 +1227,11 @@ function FloatingStepController({
   onPrevious: () => void;
   onNext: () => void;
 }) {
-  const [compact, setCompact] = useState(false);
+  const [compact, setCompact] = useState(true);
   if (compact) {
     return (
       <motion.div
-        className="mio-floating-collector absolute left-4 top-4 z-20 max-w-[360px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
+        className="mio-floating-collector mio-floating-collector-compact absolute left-4 top-4 z-20 max-w-[300px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
         initial={{ opacity: 0, y: -10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.18 }}
@@ -1140,7 +1256,7 @@ function FloatingStepController({
 
   return (
     <motion.div
-      className="mio-floating-collector absolute left-4 top-4 z-20 w-[320px] rounded-[20px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl"
+      className="mio-floating-collector absolute left-4 top-4 z-20 w-[304px] rounded-[18px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl"
       initial={{ opacity: 0, y: -10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.18 }}
@@ -1187,7 +1303,7 @@ function FloatingStepController({
         </button>
       ) : (
         <div className="mt-2 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
-          Navigate to the target page or section to reveal the collect button.
+          Open the target page or complete Shopee login/verification manually. The collect button appears when this step is ready.
         </div>
       )}
       {(onAttachFile || onOpenAndroid) && (
@@ -1207,6 +1323,122 @@ function FloatingStepController({
         </div>
       )}
     </motion.div>
+  );
+}
+
+function ScreenshotReviewModal({
+  capture,
+  saving,
+  onCancel,
+  onSave
+}: {
+  capture: PendingEvidenceCapture;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (payload: ManualEvidencePayload) => void;
+}) {
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [selection, setSelection] = useState<CropRect | null>(null);
+
+  function pointerPosition(event: PointerEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, event.clientY - rect.top))
+    };
+  }
+
+  function startSelection(event: PointerEvent<HTMLDivElement>) {
+    const point = pointerPosition(event);
+    setDragStart(point);
+    setSelection({ x: point.x, y: point.y, width: 0, height: 0 });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function updateSelection(event: PointerEvent<HTMLDivElement>) {
+    if (!dragStart) {
+      return;
+    }
+    const point = pointerPosition(event);
+    setSelection({
+      x: Math.min(dragStart.x, point.x),
+      y: Math.min(dragStart.y, point.y),
+      width: Math.abs(point.x - dragStart.x),
+      height: Math.abs(point.y - dragStart.y)
+    });
+  }
+
+  function endSelection() {
+    setDragStart(null);
+  }
+
+  async function saveSelected() {
+    if (!selection || selection.width < 8 || selection.height < 8 || !imageRef.current) {
+      onSave(capture.payload);
+      return;
+    }
+    const cropped = await cropImageDataUrl(capture.payload.imageDataUrl, imageRef.current, selection);
+    onSave({
+      ...capture.payload,
+      imageDataUrl: cropped.imageDataUrl,
+      width: cropped.width,
+      height: cropped.height,
+      metadata: {
+        ...(capture.payload.metadata ?? {}),
+        screenshotMode: "manual-crop",
+        crop: selection
+      }
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+      <div className="mio-panel w-full max-w-5xl rounded-[18px] border border-white/12 bg-ink-900/95 p-5 shadow-glow">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-semibold text-white">Review Screenshot</div>
+            <div className="mt-1 text-xs text-ink-400">{capture.stepLabel}</div>
+          </div>
+          <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onCancel} disabled={saving}>
+            Redo
+          </button>
+        </div>
+        <div
+          className="relative max-h-[64vh] overflow-auto rounded-xl border border-white/12 bg-black/80"
+          onPointerDown={startSelection}
+          onPointerMove={updateSelection}
+          onPointerUp={endSelection}
+          onPointerCancel={endSelection}
+        >
+          <img ref={imageRef} src={capture.payload.imageDataUrl} alt="Captured evidence preview" className="mx-auto block max-h-[64vh] max-w-full select-none" draggable={false} />
+          {selection && selection.width > 2 && selection.height > 2 && (
+            <div
+              className="pointer-events-none absolute border-2 border-signal-blue bg-signal-blue/15"
+              style={{
+                left: selection.x,
+                top: selection.y,
+                width: selection.width,
+                height: selection.height
+              }}
+            />
+          )}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-ink-400">
+            Drag over the screenshot to save only the needed area. Use Redo if the capture is wrong.
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => onSave(capture.payload)} disabled={saving}>
+              Save Full
+            </button>
+            <button className="primary-button h-9 w-auto px-4" type="button" onClick={() => void saveSelected()} disabled={saving}>
+              {saving ? "Saving" : selection ? "Save Selected" : "Save Evidence"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1302,19 +1534,29 @@ function ProjectInspectionPanel({
   deleting: boolean;
   onDelete: () => void;
 }) {
+  const queryClient = useQueryClient();
   const evidenceCount = detail.assets.length;
-  const keyStoreAssets = detail.assets.filter((asset) =>
-    ["STORE_HOME", "STORE_BANNER", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_PROMOTION", "STORE_VOUCHER", "SOCIAL_ACCOUNT"].includes(asset.kind)
-  );
+  const runAnalysis = useMutation({
+    mutationFn: () => apiClient.analyzeProject(detail.project.id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["project-detail", detail.project.id] });
+    }
+  });
   return (
     <Panel
       title="Project Inspector"
       icon={Search}
       action={
-        <button className="secondary-button h-9 w-auto px-3 text-signal-rose" type="button" onClick={onDelete} disabled={deleting}>
-          <Trash2 size={15} />
-          Delete
-        </button>
+        <div className="flex items-center gap-2">
+          <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => runAnalysis.mutate()} disabled={runAnalysis.isPending}>
+            <Brain size={15} />
+            {runAnalysis.isPending ? "Scoring" : "Run AI"}
+          </button>
+          <button className="secondary-button h-9 w-auto px-3 text-signal-rose" type="button" onClick={onDelete} disabled={deleting}>
+            <Trash2 size={15} />
+            Delete
+          </button>
+        </div>
       }
     >
       <div className="grid grid-cols-5 gap-3">
@@ -1325,52 +1567,190 @@ function ProjectInspectionPanel({
         <Metric icon={CheckCircle2} label="Ready" value={projectReadinessScore(detail)} />
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-4">
-        <div className="rounded-md border border-white/8 bg-white/5 p-4">
-          <div className="mb-3 text-sm font-semibold text-white">Evidence Checklist</div>
-          <div className="space-y-2 text-xs text-ink-300">
-            <ReadinessLine label="Search / Top sales evidence" ready={hasAnyAsset(detail, ["SEARCH_RESULT", "TOP_SALES"])} />
-            <ReadinessLine label="Product detail evidence" ready={hasAnyAsset(detail, ["PRODUCT_PAGE", "PRODUCT_IMAGE", "PRODUCT_DESCRIPTION"])} />
-            <ReadinessLine label="Review evidence" ready={hasAnyAsset(detail, ["REVIEW_SECTION", "REVIEW_IMAGE"])} />
-            <ReadinessLine label="Key store evidence" ready={keyStoreAssets.length > 0 || detail.stores.length > 0} />
-            <ReadinessLine label="Report generated" ready={detail.reports.some((report) => report.status === "GENERATED")} />
-          </div>
+      {runAnalysis.data && (
+        <div className="mt-4 rounded-md border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
+          AI evaluation saved with {runAnalysis.data.provider}.
         </div>
-        <div className="rounded-md border border-white/8 bg-white/5 p-4">
-          <div className="mb-3 text-sm font-semibold text-white">Key Stores</div>
-          <div className="max-h-52 space-y-2 overflow-auto pr-1">
-            {detail.stores.slice(0, 8).map((store) => (
-              <button key={store.id} type="button" className="w-full rounded-md border border-white/8 bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/8" onClick={() => void apiClient.openUrl(store.url)}>
-                <div className="font-medium text-white">{store.name}</div>
-                <div className="mt-1 text-ink-500">
-                  Rating {store.rating ?? "-"} · Products {store.productsCount ?? "-"} · Vouchers {store.voucherCount ?? "-"}
-                </div>
-              </button>
-            ))}
-            {detail.stores.length === 0 && keyStoreAssets.slice(0, 8).map((asset) => (
-              <button key={asset.id} type="button" className="w-full rounded-md border border-white/8 bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/8" onClick={() => void apiClient.openPath(asset.path)}>
-                <div className="font-medium text-white">{asset.label}</div>
-                <div className="mt-1 text-ink-500">{asset.kind}</div>
-              </button>
-            ))}
-            {detail.stores.length === 0 && keyStoreAssets.length === 0 && <EmptyState label="No key-store evidence captured yet." />}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5 rounded-md border border-white/8 bg-white/5 p-4">
-        <div className="mb-3 text-sm font-semibold text-white">Recent Evidence</div>
-        <div className="max-h-52 space-y-2 overflow-auto pr-1">
-          {detail.assets.slice(0, 12).map((asset) => (
-            <button key={asset.id} type="button" className="flex w-full items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/8" onClick={() => void apiClient.openPath(asset.path)}>
-              <span className="truncate text-white">{asset.label}</span>
-              <span className="shrink-0 text-ink-500">{asset.kind}</span>
-            </button>
-          ))}
-          {detail.assets.length === 0 && <EmptyState label="No evidence captured yet." />}
-        </div>
-      </div>
+      )}
+      <ProjectReportOutline detail={detail} />
     </Panel>
+  );
+}
+
+function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
+  const relevanceProducts = detail.products.filter((product) => product.source === "Relevance");
+  const topSalesProducts = detail.products.filter((product) => product.source === "Top Sales");
+  return (
+    <div className="mt-5 space-y-3">
+      <ReportOutlineSection title="Keyword General" defaultOpen>
+        <NestedReportSection title="Relevance">
+          <AssetList assets={detail.assets.filter((asset) => asset.kind === "SEARCH_RESULT")} />
+          <ProductCardGrid products={relevanceProducts} />
+        </NestedReportSection>
+        <NestedReportSection title="Top Sales">
+          <AssetList assets={detail.assets.filter((asset) => asset.kind === "TOP_SALES")} />
+          <ProductCardGrid products={topSalesProducts} />
+        </NestedReportSection>
+      </ReportOutlineSection>
+
+      <ReportOutlineSection title="Key Product">
+        <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
+          Monthly sold only applies to Top Sales result snapshots. Total sold is collected from PDP evidence when visible.
+          Rating is the star value; Reviews is the rating/review count. Price ranges are stored as estimated average price.
+        </div>
+        <ProductInfoTable products={detail.products} />
+      </ReportOutlineSection>
+
+      <ReportOutlineSection title="Product Detailed Qualified">
+        <div className="space-y-3">
+          {detail.products.map((product, index) => (
+            <NestedReportSection key={product.id} title={`Product ${index + 1}: ${product.title}`}>
+              <AssetList assets={detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id)} />
+            </NestedReportSection>
+          ))}
+          {detail.products.length === 0 && <EmptyState label="Capture Relevance or Top Sales first to generate dynamic product detail steps." />}
+        </div>
+      </ReportOutlineSection>
+
+      <ReportOutlineSection title="Evaluation Phase">
+        <EvaluationCards detail={detail} />
+      </ReportOutlineSection>
+
+      <ReportOutlineSection title="Key Store">
+        <AssetList assets={detail.assets.filter((asset) => ["STORE_HOME", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER", "STORE_PROMOTION", "STORE_VOUCHER"].includes(asset.kind))} />
+      </ReportOutlineSection>
+
+      <ReportOutlineSection title="TikTok Evidence">
+        <AssetList assets={detail.assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT")} />
+      </ReportOutlineSection>
+    </div>
+  );
+}
+
+function ReportOutlineSection({ title, defaultOpen, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <details className="mio-report-section rounded-md border border-white/8 bg-white/5 p-4" open={defaultOpen}>
+      <summary className="cursor-pointer select-none text-sm font-semibold text-white">{title}</summary>
+      <div className="mt-4">{children}</div>
+    </details>
+  );
+}
+
+function NestedReportSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <details className="mb-3 rounded-md border border-white/8 bg-white/[0.04] p-3" open>
+      <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-[0.08em] text-ink-500">{title}</summary>
+      <div className="mt-3">{children}</div>
+    </details>
+  );
+}
+
+function AssetList({ assets }: { assets: ProjectDetailPayload["assets"] }) {
+  if (assets.length === 0) {
+    return <EmptyState label="No collected data yet for this section." />;
+  }
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      {assets.slice(0, 12).map((asset) => (
+        <button key={asset.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openPath(asset.path)}>
+          <div className="aspect-video overflow-hidden rounded bg-white/10">
+            {asset.mimeType.startsWith("image/") ? <img src={toFileImageSrc(asset.path)} alt={asset.label} className="h-full w-full object-cover" /> : null}
+          </div>
+          <div className="mt-2 truncate text-xs font-medium text-white">{asset.label}</div>
+          <div className="mt-1 truncate text-[11px] text-ink-500">{asset.kind}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ProductCardGrid({ products }: { products: ProjectProductEvidence[] }) {
+  if (products.length === 0) {
+    return <EmptyState label="No rendered product rows extracted yet." />;
+  }
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {products.slice(0, 20).map((product) => (
+        <button key={product.id} type="button" className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
+          <div className="h-16 w-16 overflow-hidden rounded bg-white/10">
+            {product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover" /> : null}
+          </div>
+          <div className="min-w-0">
+            <div className="line-clamp-2 text-xs font-medium text-white">{product.title}</div>
+            <div className="mt-1 text-[11px] text-ink-500">
+              {formatCurrency(product.priceAverage)} · Rating {product.rating ?? "-"} · Sold {formatOptionalNumber(product.monthlySold)}
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) {
+  if (products.length === 0) {
+    return <EmptyState label="Product info table is empty. Capture Relevance and Top Sales pages first." />;
+  }
+  return (
+    <div className="overflow-auto rounded-md border border-white/8">
+      <table className="min-w-[980px] text-left text-xs">
+        <thead className="bg-white/8 text-ink-500">
+          <tr>
+            <th className="px-3 py-2">No</th>
+            <th className="px-3 py-2">Source</th>
+            <th className="px-3 py-2">Reason</th>
+            <th className="px-3 py-2">Product Title</th>
+            <th className="px-3 py-2">Monthly Sold</th>
+            <th className="px-3 py-2">Store</th>
+            <th className="px-3 py-2">Type</th>
+            <th className="px-3 py-2">Price</th>
+            <th className="px-3 py-2">Rating</th>
+            <th className="px-3 py-2">Reviews</th>
+            <th className="px-3 py-2">Total Sold</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.map((product, index) => (
+            <tr key={product.id} className="border-t border-white/8">
+              <td className="px-3 py-2">{index + 1}</td>
+              <td className="px-3 py-2">{product.source ?? "-"}</td>
+              <td className="px-3 py-2">{product.selectionReason ?? "-"}</td>
+              <td className="px-3 py-2">{product.title}</td>
+              <td className="px-3 py-2">{formatOptionalNumber(product.monthlySold)}</td>
+              <td className="px-3 py-2">{product.storeName ?? "-"}</td>
+              <td className="px-3 py-2">Marketplace</td>
+              <td className="px-3 py-2">{formatCurrency(product.priceAverage)}</td>
+              <td className="px-3 py-2">{product.rating ?? "-"}</td>
+              <td className="px-3 py-2">{formatOptionalNumber(product.reviewCount)}</td>
+              <td className="px-3 py-2">{formatOptionalNumber(product.totalSold)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EvaluationCards({ detail }: { detail: ProjectDetailPayload }) {
+  const candidates = storeEvaluationCandidates(detail);
+  if (candidates.length === 0) {
+    return <EmptyState label="No store candidates yet. Capture product table data first." />;
+  }
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      {candidates.map((candidate) => (
+        <div key={candidate.key} className="rounded-md border border-white/8 bg-white/5 p-3">
+          <div className="mb-2 aspect-video overflow-hidden rounded bg-white/10">
+            {candidate.thumbnail ? <img src={candidate.thumbnail} alt={candidate.name} className="h-full w-full object-cover" /> : null}
+          </div>
+          <div className="text-sm font-semibold text-white">{candidate.name}</div>
+          <div className="mt-1 text-xs text-ink-500">{candidate.type}</div>
+          <div className="mt-3 text-xs text-ink-400">GMV ETA</div>
+          <div className="text-lg font-semibold text-white">{formatCurrency(candidate.gmvEta)}</div>
+          <div className="mt-2 text-xs text-ink-500">Score {candidate.score}/100</div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1765,17 +2145,30 @@ function StatusLine({ label, active }: { label: string; active: boolean }) {
   );
 }
 
-function ReadinessLine({ label, ready }: { label: string; ready: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 px-3 py-2">
-      <span>{label}</span>
-      <span className={ready ? "text-signal-green" : "text-ink-500"}>{ready ? "Ready" : "Missing"}</span>
-    </div>
-  );
-}
-
 function StatusPill({ status }: { status: string }) {
   return <span className="rounded-full bg-signal-green/15 px-2 py-1 text-xs text-signal-green">{status}</span>;
+}
+
+function LoadStatePill({ state }: { state: "idle" | "loading" | "ready" | "failed" }) {
+  const labels: Record<typeof state, string> = {
+    idle: "Idle",
+    loading: "Loading",
+    ready: "Ready",
+    failed: "Needs attention"
+  };
+  return (
+    <div
+      className={[
+        "mio-load-pill rounded-full border px-3 py-1 text-xs",
+        state === "ready" ? "border-signal-green/25 bg-signal-green/10 text-signal-green" : "",
+        state === "failed" ? "border-signal-amber/35 bg-signal-amber/10 text-signal-amber" : "",
+        state === "loading" ? "border-signal-blue/25 bg-signal-blue/10 text-signal-blue" : "",
+        state === "idle" ? "border-white/10 bg-white/6 text-ink-300" : ""
+      ].join(" ")}
+    >
+      {labels[state]}
+    </div>
+  );
 }
 
 function AndroidStatusTile({ label, value, ready }: { label: string; value: string; ready: boolean }) {
@@ -1819,9 +2212,14 @@ function ProgressBar({ value }: { value: number }) {
   );
 }
 
-function buildCollectionSteps(project: ProjectSummary, platform: ResearchPlatform, currentUrl: string): CollectionStep[] {
+function buildCollectionSteps(
+  project: ProjectSummary,
+  platform: ResearchPlatform,
+  currentUrl: string,
+  detail?: ProjectDetailPayload
+): CollectionStep[] {
   return platform === "SHOPEE_ID"
-    ? buildShopeeSteps(project, currentUrl)
+    ? buildShopeeSteps(project, currentUrl, detail?.products ?? [])
     : buildTikTokSteps(project, currentUrl);
 }
 
@@ -1872,7 +2270,11 @@ function buildAndroidTikTokSteps(project: ProjectSummary, status: AndroidToolSta
   ];
 }
 
-function buildShopeeSteps(project: ProjectSummary, currentUrl: string): CollectionStep[] {
+function buildShopeeSteps(
+  project: ProjectSummary,
+  currentUrl: string,
+  products: ProjectProductEvidence[]
+): CollectionStep[] {
   const keyword = encodeURIComponent(project.keyword);
   const relevanceUrl = `https://shopee.co.id/search?keyword=${keyword}&page=0&sortBy=relevancy`;
   const salesUrl = `https://shopee.co.id/search?keyword=${keyword}&page=0&sortBy=sales`;
@@ -1882,7 +2284,7 @@ function buildShopeeSteps(project: ProjectSummary, currentUrl: string): Collecti
   const popularStoreTarget = storeReady ? withStoreSort(currentUrl, "pop") : undefined;
   const bestSellerTarget = storeReady ? withStoreSort(currentUrl, "sales") : undefined;
 
-  return [
+  const discoverySteps: CollectionStep[] = [
     {
       id: "keyword-relevance",
       section: "Keyword as Title",
@@ -1909,47 +2311,94 @@ function buildShopeeSteps(project: ProjectSummary, currentUrl: string): Collecti
       instruction: "Use the relevance and top-sales pages to decide the candidate products and capture the page used for the table.",
       targetUrl: relevanceUrl,
       ready: searchReady
-    },
+    }
+  ];
+
+  const productSteps = products.slice(0, 12).flatMap((product, productIndex): CollectionStep[] => {
+    const productUrl = product.productUrl;
+    const productCurrent = productReady && sameProductIntent(currentUrl, productUrl);
+    return [
+      {
+        id: `product-${product.id}-first-page`,
+        section: `Product ${productIndex + 1}`,
+        label: "First page screenshot",
+        kind: "PRODUCT_PAGE",
+        ownerType: "PRODUCT",
+        ownerId: product.id,
+        targetUrl: productUrl,
+        instruction: `Open product ${productIndex + 1} from the product info table and capture images, title, ratings, reviews, sold count, price, variants, add-to-cart, and buy buttons.`,
+        ready: productCurrent
+      },
+      {
+        id: `product-${product.id}-slides`,
+        section: `Product ${productIndex + 1}`,
+        label: "Slides and product images",
+        kind: "PRODUCT_IMAGE",
+        ownerType: "PRODUCT",
+        ownerId: product.id,
+        targetUrl: productUrl,
+        instruction: "Capture product image slides or gallery images. The report renders collected images in rows of no more than three.",
+        ready: productCurrent
+      },
+      {
+        id: `product-${product.id}-description`,
+        section: `Product ${productIndex + 1}`,
+        label: "Description",
+        kind: "PRODUCT_DESCRIPTION",
+        ownerType: "PRODUCT",
+        ownerId: product.id,
+        targetUrl: productUrl,
+        instruction: "Scroll to the product description/specifications section and capture it. Rendered HTML/text is saved in the background.",
+        ready: productCurrent
+      },
+      {
+        id: `product-${product.id}-reviews`,
+        section: `Product ${productIndex + 1}`,
+        label: "Reviews: 3 positive and 2 negative",
+        kind: "REVIEW_SECTION",
+        ownerType: "PRODUCT",
+        ownerId: product.id,
+        targetUrl: productUrl,
+        instruction: "Open the review area and display positive and negative reviews before capture.",
+        ready: productCurrent
+      },
+      {
+        id: `product-${product.id}-review-media`,
+        section: `Product ${productIndex + 1}`,
+        label: "Media in user reviews",
+        kind: "REVIEW_IMAGE",
+        ownerType: "PRODUCT",
+        ownerId: product.id,
+        targetUrl: productUrl,
+        instruction: "Filter or scroll to user reviews with attached images, then capture customer media evidence.",
+        ready: productCurrent
+      },
+      {
+        id: `product-${product.id}-shop-home`,
+        section: `Product ${productIndex + 1}`,
+        label: "Shop homepage from product",
+        kind: "STORE_HOME",
+        ownerType: product.storeUrl ? "STORE" : "PRODUCT",
+        ownerId: product.storeUrl ? `${project.id}:${product.storeUrl}` : product.id,
+        targetUrl: product.storeUrl ?? productUrl,
+        instruction: "Open the product's shop page and capture the first visible shop homepage evidence.",
+        ready: product.storeUrl ? sameStoreIntent(currentUrl, product.storeUrl) : storeReady
+      }
+    ];
+  });
+
+  const genericProductSteps: CollectionStep[] = products.length > 0 ? [] : [
     {
       id: "product-detail-first-page",
       section: "Product Detailed Qualified",
       label: "Product page first viewport",
       kind: "PRODUCT_PAGE",
-      instruction: "Open a selected product page. Capture the viewport containing product images, title, ratings, sold count, price, variants, and buy buttons.",
+      instruction: "Capture relevance/top-sales first. Until products are extracted, open any selected product page and capture the first viewport.",
       ready: productReady
-    },
-    {
-      id: "product-images",
-      section: "Product Detailed Qualified",
-      label: "Product images 1-9",
-      kind: "PRODUCT_IMAGE",
-      instruction: "Navigate through the product image carousel or gallery. Capture the image evidence, no more than three images per report row.",
-      ready: productReady
-    },
-    {
-      id: "product-description",
-      section: "Product Detailed Qualified",
-      label: "Product description",
-      kind: "PRODUCT_DESCRIPTION",
-      instruction: "Scroll to the product description/specification section and capture it.",
-      ready: productReady
-    },
-    {
-      id: "product-reviews",
-      section: "Product Detailed Qualified",
-      label: "Reviews: 3 positive and 2 negative",
-      kind: "REVIEW_SECTION",
-      instruction: "Open the review area and capture visible positive or negative review evidence including timestamp when visible.",
-      ready: productReady
-    },
-    {
-      id: "review-user-media",
-      section: "Product Detailed Qualified",
-      label: "Review user media",
-      kind: "REVIEW_IMAGE",
-      instruction: "Filter or scroll to reviews with attached images and capture user media evidence.",
-      ready: productReady
-    },
+    }
+  ];
+
+  const storeSteps: CollectionStep[] = [
     {
       id: "store-homepage",
       section: "Key Store",
@@ -1993,6 +2442,8 @@ function buildShopeeSteps(project: ProjectSummary, currentUrl: string): Collecti
       ready: true
     }
   ];
+
+  return [...discoverySteps, ...genericProductSteps, ...productSteps, ...storeSteps];
 }
 
 function buildTikTokSteps(project: ProjectSummary, currentUrl: string): CollectionStep[] {
@@ -2047,6 +2498,14 @@ function isShopeeSearchPage(value: string): boolean {
   return value.includes("shopee.co.id/search");
 }
 
+function isProtectedShopeePage(value: string): boolean {
+  return value.includes("shopee.co.id/verify") || value.includes("traffic") || value.includes("captcha");
+}
+
+function isShopeeLoginPage(value: string): boolean {
+  return value.includes("shopee.co.id/buyer/login") || value.includes("login");
+}
+
 function isShopeeProductPage(value: string): boolean {
   if (!isShopeePage(value) || isShopeeSearchPage(value)) {
     return false;
@@ -2089,6 +2548,34 @@ function sameUrlIntent(current: string, target: string): boolean {
   }
 }
 
+function sameProductIntent(current: string, target: string): boolean {
+  const currentId = shopeeProductIdentity(current);
+  const targetId = shopeeProductIdentity(target);
+  if (currentId && targetId) {
+    return currentId === targetId;
+  }
+  return samePathIntent(current, target);
+}
+
+function sameStoreIntent(current: string, target: string): boolean {
+  return samePathIntent(current, target);
+}
+
+function samePathIntent(current: string, target: string): boolean {
+  try {
+    const currentUrl = new URL(current);
+    const targetUrl = new URL(target);
+    return currentUrl.hostname === targetUrl.hostname && currentUrl.pathname === targetUrl.pathname;
+  } catch {
+    return false;
+  }
+}
+
+function shopeeProductIdentity(value: string): string | undefined {
+  const match = /(?:-i\.|i\.|product\/)(\d+)[./](\d+)/u.exec(value);
+  return match ? `${match[1]}:${match[2]}` : undefined;
+}
+
 function withStoreSort(value: string, sortBy: "pop" | "sales"): string {
   try {
     const url = new URL(value);
@@ -2103,6 +2590,80 @@ function withStoreSort(value: string, sortBy: "pop" | "sales"): string {
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat("en", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
+}
+
+function formatCurrency(value?: number | null): string {
+  if (!value) {
+    return "-";
+  }
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+function formatOptionalNumber(value?: number | null): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return new Intl.NumberFormat("id-ID").format(value);
+}
+
+function toFileImageSrc(path: string): string {
+  const normalized = path.replace(/\\/gu, "/");
+  if (/^[a-z]:\//iu.test(normalized)) {
+    return `file:///${normalized}`;
+  }
+  if (normalized.startsWith("/")) {
+    return `file://${normalized}`;
+  }
+  return normalized;
+}
+
+function storeEvaluationCandidates(detail: ProjectDetailPayload): Array<{
+  key: string;
+  name: string;
+  type: string;
+  thumbnail?: string;
+  gmvEta?: number;
+  score: number;
+}> {
+  const byStore = new Map<string, {
+    name: string;
+    url?: string | null;
+    products: ProjectProductEvidence[];
+  }>();
+  for (const product of detail.products) {
+    const key = product.storeUrl || product.storeName || product.id;
+    const current = byStore.get(key) ?? {
+      name: product.storeName || "Unknown Store",
+      url: product.storeUrl,
+      products: []
+    };
+    current.products.push(product);
+    byStore.set(key, current);
+  }
+  return Array.from(byStore.entries())
+    .map(([key, value]) => {
+      const gmvEta = value.products.reduce(
+        (sum, product) => sum + ((product.priceAverage ?? 0) * (product.monthlySold ?? 0)),
+        0
+      );
+      const thumbnail = value.products.find((product) => product.imageUrl)?.imageUrl ?? undefined;
+      const ratingScore = Math.max(...value.products.map((product) => product.rating ?? 0), 0) * 12;
+      const evidenceScore = detail.assets.some((asset) => asset.sourceUrl && value.url && asset.sourceUrl.includes(value.url)) ? 20 : 0;
+      const score = Math.min(100, Math.round(Math.log10(Math.max(gmvEta, 1)) * 10 + ratingScore + evidenceScore));
+      return {
+        key,
+        name: value.name,
+        type: value.products.some((product) => product.source === "Top Sales") ? "Top-sales candidate" : "Relevance candidate",
+        thumbnail,
+        gmvEta,
+        score
+      };
+    })
+    .sort((left, right) => (right.gmvEta ?? 0) - (left.gmvEta ?? 0));
 }
 
 function formatDateTime(value: string): string {
@@ -2176,6 +2737,171 @@ async function extractVisibleBrowserText(webview: WebviewElement): Promise<strin
     })();
   `);
   return [result.title, result.url, result.text].filter(Boolean).join("\n");
+}
+
+async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
+  html: string;
+  visibleText: string;
+  products: ExtractedPageProduct[];
+}> {
+  if (!webview.executeJavaScript) {
+    return { html: "", visibleText: "", products: [] };
+  }
+  return webview.executeJavaScript<{
+    html: string;
+    visibleText: string;
+    products: ExtractedPageProduct[];
+  }>(`
+    (() => {
+      const parseHumanNumber = (value) => {
+        if (!value) return undefined;
+        const normalized = String(value).toLowerCase().replace(/\\+/g, "").replace(/,/g, ".").trim();
+        const match = normalized.match(/([\\d.]+)\\s*(rb|ribu|k|jt|juta|m)?/i);
+        if (!match) return undefined;
+        const number = Number(match[1]);
+        if (!Number.isFinite(number)) return undefined;
+        const suffix = match[2] || "";
+        if (["rb", "ribu", "k"].includes(suffix)) return Math.round(number * 1000);
+        if (["jt", "juta", "m"].includes(suffix)) return Math.round(number * 1000000);
+        return Math.round(number);
+      };
+      const parsePrice = (value) => {
+        const matches = String(value || "").match(/(?:Rp\\s*)?[\\d.]+(?:,\\d+)?/gi) || [];
+        const values = matches
+          .map((item) => Number(item.replace(/[^\\d]/g, "")))
+          .filter((item) => Number.isFinite(item) && item > 0);
+        if (!values.length) return undefined;
+        return Math.round(values.reduce((sum, item) => sum + item, 0) / values.length);
+      };
+      const absoluteUrl = (href) => {
+        try { return new URL(href, location.href).toString(); } catch { return href || ""; }
+      };
+      const compact = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+      const meaningfulTitle = (text, imageAlt) => {
+        const lines = String(text || "")
+          .split(/\\n+/)
+          .map(compact)
+          .filter(Boolean)
+          .filter((line) => !/^rp\\s*/i.test(line))
+          .filter((line) => !/(terjual|sold|rating|penilaian|gratis ongkir|cashback|mall)$/i.test(line))
+          .filter((line) => line.length >= 8 && line.length <= 180);
+        const alt = compact(imageAlt);
+        if (alt && alt.length >= 8 && !/^image/i.test(alt)) return alt;
+        return lines.sort((left, right) => right.length - left.length)[0] || lines[0] || "";
+      };
+      const findCard = (anchor) => {
+        let node = anchor;
+        let best = anchor;
+        for (let depth = 0; depth < 7 && node?.parentElement; depth += 1) {
+          node = node.parentElement;
+          const text = node.innerText || "";
+          if (text.length > (best.innerText || "").length && node.querySelector("img")) {
+            best = node;
+          }
+        }
+        return best;
+      };
+      const anchors = Array.from(document.querySelectorAll('a[href]'))
+        .filter((anchor) => /(?:-i\\.|\\/product\\/|i\\.)/i.test(anchor.getAttribute("href") || ""))
+        .filter((anchor) => !/cart|checkout|help|seller/i.test(anchor.getAttribute("href") || ""));
+      const seen = new Set();
+      const products = [];
+      for (const anchor of anchors) {
+        const url = absoluteUrl(anchor.getAttribute("href"));
+        const key = url.split("?")[0];
+        if (!url || seen.has(key)) continue;
+        const card = findCard(anchor);
+        const text = card.innerText || anchor.innerText || "";
+        const image = card.querySelector("img");
+        const title = meaningfulTitle(text, image?.alt);
+        if (!title) continue;
+        seen.add(key);
+        const priceText = compact((text.match(/Rp\\s*[\\d.]+(?:\\s*-\\s*Rp\\s*[\\d.]+)?/i) || [])[0] || "");
+        const soldMatch = text.match(/(?:terjual|sold)\\s*([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)|([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)\\s*(?:terjual|sold)/i);
+        const reviewMatch = text.match(/([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)\\s*(?:penilaian|ratings?|ulasan|reviews?)/i);
+        const ratingMatch = text.match(/(?:^|\\s)([1-5](?:[.,]\\d)?)\\s*(?:\\/\\s*5|\\||rating|bintang|stars?)?/i);
+        products.push({
+          rank: products.length + 1,
+          title,
+          url,
+          imageUrl: image?.currentSrc || image?.src || undefined,
+          priceText: priceText || undefined,
+          priceAverage: parsePrice(priceText),
+          rating: ratingMatch ? Number(ratingMatch[1].replace(",", ".")) : undefined,
+          reviewCount: reviewMatch ? parseHumanNumber(reviewMatch[1]) : undefined,
+          soldCount: soldMatch ? parseHumanNumber(soldMatch[1] || soldMatch[2]) : undefined,
+          mallStatus: /mall/i.test(text),
+          officialStatus: /official|resmi/i.test(text),
+          starSeller: /star\\s*seller/i.test(text),
+          rawText: compact(text).slice(0, 1200)
+        });
+      }
+      const html = document.documentElement?.outerHTML || "";
+      const visibleText = [document.title || "", location.href, compact(document.body?.innerText || "").slice(0, 20000)]
+        .filter(Boolean)
+        .join("\\n");
+      return { html, visibleText, products };
+    })();
+  `);
+}
+
+function uint8ArrayToBase64(data: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < data.length; index += chunkSize) {
+    binary += String.fromCharCode(...data.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function cropImageDataUrl(
+  imageDataUrl: string,
+  imageElement: HTMLImageElement,
+  selection: CropRect
+): Promise<{ imageDataUrl: string; width: number; height: number }> {
+  if (!imageElement.complete || imageElement.naturalWidth === 0 || imageElement.naturalHeight === 0) {
+    return { imageDataUrl, width: imageElement.naturalWidth, height: imageElement.naturalHeight };
+  }
+  const parentRect = imageElement.parentElement?.getBoundingClientRect();
+  const imageRect = imageElement.getBoundingClientRect();
+  const offsetX = parentRect ? imageRect.left - parentRect.left : 0;
+  const offsetY = parentRect ? imageRect.top - parentRect.top : 0;
+  const selectedX = Math.max(0, selection.x - offsetX);
+  const selectedY = Math.max(0, selection.y - offsetY);
+  const selectedWidth = Math.min(selection.width, imageRect.width - selectedX);
+  const selectedHeight = Math.min(selection.height, imageRect.height - selectedY);
+  if (selectedWidth <= 0 || selectedHeight <= 0) {
+    return { imageDataUrl, width: imageElement.naturalWidth, height: imageElement.naturalHeight };
+  }
+  const scaleX = imageElement.naturalWidth / imageRect.width;
+  const scaleY = imageElement.naturalHeight / imageRect.height;
+  const sourceX = Math.round(selectedX * scaleX);
+  const sourceY = Math.round(selectedY * scaleY);
+  const sourceWidth = Math.round(selectedWidth * scaleX);
+  const sourceHeight = Math.round(selectedHeight * scaleY);
+  const canvas = document.createElement("canvas");
+  canvas.width = sourceWidth;
+  canvas.height = sourceHeight;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return { imageDataUrl, width: imageElement.naturalWidth, height: imageElement.naturalHeight };
+  }
+  context.drawImage(
+    imageElement,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    0,
+    0,
+    sourceWidth,
+    sourceHeight
+  );
+  return {
+    imageDataUrl: canvas.toDataURL("image/png"),
+    width: sourceWidth,
+    height: sourceHeight
+  };
 }
 
 function normalizeUrl(value: string): string {

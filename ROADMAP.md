@@ -31,6 +31,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-06-30 | TikTok app not responding | Mitigated | Android status detects active TikTok ANR state and exposes Recover TikTok, which force-stops/reopens TikTok without clearing app data. The provided APK is ARM64 on an x86_64 emulator, so Play Store or universal APK install is recommended if freezes persist. |
 | 2026-07-02 | M1 sidebar collapse hides content | Fixed | Hidden sidebar now switches the app shell to one content column; collapse/restore controls are icon-only and keep accessible labels. |
 | 2026-07-02 | Shopee anti-bot bypass request | Re-scoped | The app will not bypass marketplace anti-bot protections. The supported path is user-controlled browsing plus visible HTML extraction, screenshot capture, and manual Android screenshot attachment. |
+| 2026-07-02 | M1 light-mode UI readability | Fixed | The app now uses stronger light-mode contrast, solid panels, readable sidebar/navigation states, compact collector-first behavior, balanced browser controls, and an explicit manual-action notice for Shopee protected pages. |
+| 2026-07-02 | Product extraction from protected marketplace pages | Re-scoped | Collection now captures the user-visible rendered page as screenshot, full HTML, visible text, optional print-PDF, and offline product rows from the current webview instead of launching a separate bot crawler. |
+| 2026-07-02 | Portable Android tooling expectation | Clarified | The app cannot bundle Google Play system images or TikTok by default; Android tooling can now be discovered from sidecar SDK folders beside the executable or packaged resources when legally supplied. |
 
 ## Sprint Overview
 
@@ -70,14 +73,17 @@ Completed: 2026-06-29
 | Add analysis setup form | Project API | Done | Completed: keyword, product category, created date, and platform are captured before browser launch. |
 | Add Shopee desktop/mobile visible view | Electron webview | Done | Completed: Shopee can be opened in desktop or mobile view. |
 | Add browser fullscreen mode | Electron webview | Done | Completed: visible platform browser can expand fullscreen while the floating collector remains visible. |
+| Add browser zoom and print | Electron webview | Done | Completed: embedded browser exposes zoom in/out and native print controls. |
 | Add shell personalization | React renderer | Done | Completed: sidebar can collapse and user can switch dark/light mode. |
 | Fix light default and readability | React renderer, CSS | Done | Completed: light white/grey theme is default, sidebar is readable, and the floating guide follows the dashboard theme. |
 | Add TikTok mobile visible view | Electron webview | Done | Completed: TikTok Shop opens in a mobile-style visible browser. |
 | Add manual evidence API | Project workspace, Prisma assets | Done | Completed: captured browser screenshots are saved to project folders and registered as assets. |
+| Add rendered-page snapshot persistence | Project workspace, Prisma assets | Done | Completed: capture saves screenshot, HTML, visible text, optional print-PDF data, and extracted product rows. |
+| Add screenshot review crop | React renderer | Done | Completed: user can crop, save full, save selected, or redo before evidence is stored. |
 | Add manual screenshot attachment | Project workspace, Prisma assets | Done | Completed: user-selected screenshot files can be attached to guided evidence steps. |
 | Add floating step controller | Evidence step map | Done | Completed: the active collection point floats over the browser and reveals the collect button only on matching target pages. |
 | Add progress visibility | Manual evidence state | Done | Completed: collected steps and activity log are visible beside the browser. |
-| Add project inspector | Project repository | Done | Completed: projects can be inspected for evidence readiness, key stores, evidence, reports, and deleted when needed. |
+| Add project inspector | Project repository | Done | Completed: projects can be inspected through report-shaped collapsible sections, evidence readiness, key stores, products, reports, and delete controls. |
 | Add report history management | Report repository | Done | Completed: generated report history can be opened/downloaded or deleted from the Reports screen. |
 
 ### Acceptance Criteria
@@ -89,7 +95,9 @@ Completed: 2026-06-29
 - Passed: guided report steps are visible in a floating top-left browser controller.
 - Passed: user can interact directly with the embedded platform view.
 - Passed: default theme is light and the hidden sidebar no longer hides the main content.
+- Passed: light-mode sidebar, browser controls, floating collector, and Shopee protected-page states remain readable after the corrective UI polish pass.
 - Passed: report history and project inspection persist through the local database.
+- Passed: project inspector mirrors the report hierarchy and displays extracted product/store/evidence data in collapsible sections.
 
 ### Scope Boundary
 
