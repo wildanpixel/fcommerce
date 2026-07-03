@@ -36,6 +36,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-02 | Portable Android tooling expectation | Clarified | The app cannot bundle Google Play system images or TikTok by default; Android tooling can now be discovered from sidecar SDK folders beside the executable or packaged resources when legally supplied. |
 | 2026-07-03 | Projects split-view inspection | Fixed | Projects now opens as a dedicated Vault Metrics and project-list page; selecting a project opens a full-page inspector shaped like the final report. |
 | 2026-07-03 | Report hierarchy mismatch | Fixed for guided evidence scope | Project inspection and generated reports now render Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, and TikTok Evidence in the PRD/PDF workflow order. |
+| 2026-07-03 | Long Shopee HTML snapshots | Fixed | Browser capture now targets `#main` when available, formats saved HTML across lines, displays capture status, and offers a manual Download HTML fallback. |
+| 2026-07-03 | Collection flow too long | Fixed | Guided collection is now split into Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store with persisted save/resume progress. |
+| 2026-07-03 | Shopee login state lost between projects | Fixed | The embedded browser now uses a persistent marketplace session partition instead of per-project partitions. |
 
 ## Sprint Overview
 
@@ -76,11 +79,14 @@ Completed: 2026-06-29
 | Add Shopee desktop/mobile visible view | Electron webview | Done | Completed: Shopee can be opened in desktop or mobile view. |
 | Add browser fullscreen mode | Electron webview | Done | Completed: visible platform browser can expand fullscreen while the floating collector remains visible. |
 | Add browser zoom and print | Electron webview | Done | Completed: embedded browser exposes zoom in/out and native print controls. |
+| Add background HTML capture status | Electron webview | Done | Completed: browser overlay shows target received, HTML download, done, failed, and Download HTML fallback. |
 | Add shell personalization | React renderer | Done | Completed: sidebar can collapse and user can switch dark/light mode. |
 | Fix light default and readability | React renderer, CSS | Done | Completed: light white/grey theme is default, sidebar is readable, and the floating guide follows the dashboard theme. |
 | Add TikTok mobile visible view | Electron webview | Done | Completed: TikTok Shop opens in a mobile-style visible browser. |
 | Add manual evidence API | Project workspace, Prisma assets | Done | Completed: captured browser screenshots are saved to project folders and registered as assets. |
 | Add rendered-page snapshot persistence | Project workspace, Prisma assets | Done | Completed: capture saves screenshot, HTML, visible text, optional print-PDF data, and extracted product rows. |
+| Add three-part guided flow | Evidence step map, project state | Done | Completed: collection is split into Keyword General, Product Details, and Evaluation/Key Store phases. |
+| Add collection pause/resume state | Prisma project state | Done | Completed: Projects list shows saved stage/progress and the collector restores stage, completed steps, URL, and view mode. |
 | Add screenshot review crop | React renderer | Done | Completed: user can crop, save full, save selected, or redo before evidence is stored. |
 | Add manual screenshot attachment | Project workspace, Prisma assets | Done | Completed: user-selected screenshot files can be attached to guided evidence steps. |
 | Add floating step controller | Evidence step map | Done | Completed: the active collection point floats over the browser and reveals the collect button only on matching target pages. |
@@ -100,6 +106,7 @@ Completed: 2026-06-29
 - Passed: light-mode sidebar, browser controls, floating collector, and Shopee protected-page states remain readable after the corrective UI polish pass.
 - Passed: report history and project inspection persist through the local database.
 - Passed: project inspector mirrors the report hierarchy and displays extracted product/store/evidence data in collapsible sections.
+- Passed: collection can be saved and resumed from the Projects vault with visible stage and percentage.
 
 ### Scope Boundary
 
@@ -202,6 +209,7 @@ Completed: 2026-07-03
 - Passed: missing fields remain visible as collection limitations in the inspector/report instead of silent failures.
 - Passed: Product detail rows in `IMPLEMENTATION_STATUS.md` are updated.
 - Follow-up: protected slide/video extraction and dedicated parser fixtures remain open.
+- 2026-07-03 update: rendered-page capture now targets `#main`, formats HTML snapshots across lines, shows browser capture status, persists collection phase/progress, and localizes WebP thumbnails to JPG where possible.
 
 ## Sprint 3 - Complete Store Detail
 

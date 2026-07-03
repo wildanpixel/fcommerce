@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[################----] 80%
+[#################---] 83%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -31,7 +31,7 @@ The overall percentage is a weighted product estimate based on foundation readin
 | --- | --- | ---: | --- |
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
-| M2 | Shopee Desktop | [##################--] 90% | Partial |
+| M2 | Shopee Desktop | [##################--] 92% | Partial |
 | M3 | Intelligence | [#############-------] 65% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
@@ -104,6 +104,8 @@ Release blocker fixes:
 | Browser fullscreen mode | Completed | Product UI | Electron webview | Done | P0 |
 | Icon-only browser controls | Completed | Product UI | Embedded platform browser | Done | P1 |
 | Browser-visible HTML text extraction | Completed | Product UI and Evidence API | Electron webview session | Done | P1 |
+| Browser HTML download status | Completed | Product UI and Evidence API | Electron webview session | Done | P1 |
+| Persistent marketplace browser session | Completed | Product UI | Electron persistent partition | Done | P0 |
 | Browser zoom and print controls | Completed | Product UI | Electron webview | Done | P1 |
 | Rendered-page snapshot capture | Completed | Product UI and Evidence API | Electron webview, project workspace | Done | P0 |
 | Screenshot crop and redo review | Completed | Product UI | Manual evidence capture | Done | P0 |
@@ -116,6 +118,8 @@ Release blocker fixes:
 | Dark and light mode toggle | Completed | Product UI | Renderer theme state | Done | P1 |
 | Light mode default | Completed | Product UI | Renderer theme state, CSS | Done | P1 |
 | Guided collection progress display | Completed | Product UI | Manual evidence state | Done | P0 |
+| Three-part collection workflow | Completed | Product UI | Guided step map, project state | Done | P0 |
+| Pause/resume collection state | Completed | Product UI and Database | Project collection state JSON | Done | P0 |
 | Projects overview | Completed | Product UI | Project repository, report counts | Done | P0 |
 | Project inspection and delete | Completed | Product UI and API | Project repository, Prisma cascade delete | Done | P0 |
 | Product tab UI shell | Completed | Product UI | Product repository, evidence assets | Done | P0 |
@@ -150,8 +154,12 @@ Implemented:
 - M1 corrective UI polish now strengthens the light theme with solid panels, clearer sidebar text, active navigation contrast, balanced browser controls, compact collector-first behavior, and explicit manual-action states for Shopee login or protected pages.
 - The native Windows Electron menu is auto-hidden to reduce chrome clash; macOS keeps the standard application menu behavior.
 - The browser toolbar can extract visible page text from the user-controlled embedded session and stores extracted text in manual evidence metadata during capture.
+- The browser shows a small top-center background status while it receives the target page, downloads `#main` HTML, completes, or needs manual HTML download.
+- Shopee browser sessions now use a persistent marketplace partition so login/cache state can survive browser close, project switches, and app restarts.
 - The browser toolbar now supports zoom in, zoom out, and native print for the current embedded page.
 - Manual collection now saves a rendered-page snapshot: screenshot, full page HTML, visible text, optional print-PDF data, and extracted product rows from the page the user is currently viewing.
+- Manual collection is split into Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store so the user can finish and save each phase without one long collection run.
+- Project cards now show saved collection stage and percentage so unfinished analysis can be resumed from the Projects vault.
 - Screenshot capture now opens a review modal so the user can crop the evidence area, save the full capture, save only the selected area, or redo before data is stored.
 - Project inspection now mirrors the report hierarchy with collapsible sections for Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, and TikTok Evidence.
 - Shopee cross-platform step 13 now supports opening TikTok in the Android emulator and attaching a manual emulator screenshot to the Shopee project.
@@ -171,7 +179,7 @@ M1 scope boundary:
 
 ## M2 Shopee Desktop
 
-[##################--] 90%
+[##################--] 92%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -181,6 +189,8 @@ M1 scope boundary:
 | Top sales search path | Completed | Marketplace Automation | Playwright sorting, result parsing | Done | P0 |
 | Guided relevance/top-sales capture | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
 | Rendered relevance/top-sales product extraction | Completed | Product UI and Evidence API | Electron webview DOM snapshot, Prisma products | Done | P0 |
+| `#main` HTML snapshot formatting | Completed | Product UI and Evidence API | Electron webview DOM snapshot | Done | P1 |
+| WebP thumbnail JPG localization | Partial | Evidence API | Network image fetch, Sharp conversion | 1 day | P1 |
 | Guided key-product evidence step | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
 | Dynamic guided product-detail evidence steps | Completed | Product UI and Evidence API | Extracted product table, embedded browser | Done | P0 |
 | Guided store evidence steps | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
@@ -205,7 +215,10 @@ Implemented:
 - Keyword search URL generation exists and now uses `page=0&sortBy=relevancy` and `page=0&sortBy=sales` for the requested relevance and top-sales evidence.
 - The primary Shopee workflow is now guided/manual: users open target pages inside the app and capture each report-required evidence step themselves.
 - Manual evidence capture saves browser screenshots, full rendered HTML, visible text, optional print-PDF output, and Prisma asset records with step metadata.
+- Manual evidence capture now targets `div#main`/`main`/body content and formats saved HTML across multiple lines to avoid unusable single-line snapshots.
+- Browser capture status is visible to the user with `targeted page received`, `downloading HTML`, done, and failed states plus a manual `Download HTML` fallback action.
 - Relevance and top-sales snapshots extract rendered product cards from the visible browser page and persist product rows with thumbnail, product URL, price estimate, rating, sold count, source, and selection reason.
+- WebP product thumbnails from rendered result pages are converted to local JPG files where the backend can fetch them; failed conversions safely fall back to original URLs.
 - The key-product table is populated from rendered Relevance and Top Sales snapshots rather than direct marketplace API calls.
 - Product detail steps are generated dynamically from the collected product table; a 10-product table produces product-specific guided steps for those products.
 - Product evidence capture supports review/crop/redo before storage to reduce human capture errors.

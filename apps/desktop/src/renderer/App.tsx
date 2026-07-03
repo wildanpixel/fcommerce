@@ -43,6 +43,8 @@ import type { LucideIcon } from "lucide-react";
 import type {
   AndroidAppRuntimeStatus,
   AndroidToolStatus,
+  CollectionStage,
+  CollectionState,
   DashboardSnapshot,
   ExtractedPageProduct,
   ManualEvidenceKind,
@@ -85,6 +87,7 @@ type AnalysisFormState = {
 
 type CollectionStep = {
   id: string;
+  stage: CollectionStage;
   section: string;
   label: string;
   kind: ManualEvidenceKind;
@@ -103,6 +106,12 @@ type CapturedPageImage = {
 type PendingEvidenceCapture = {
   payload: ManualEvidencePayload;
   stepLabel: string;
+};
+
+type BrowserCaptureStatus = {
+  message: string;
+  state: "idle" | "working" | "done" | "failed";
+  actionLabel?: string;
 };
 
 type CropRect = {
@@ -784,16 +793,24 @@ function GuidedBrowserCollector({
   const webviewRef = useRef<WebviewElement | null>(null);
   const queryClient = useQueryClient();
   const platform = project.marketplace as ResearchPlatform;
-  const [viewMode, setViewMode] = useState<PlatformViewMode>(platform === "TIKTOK_SHOP" ? "mobile" : "desktop");
+  const savedCollectionState = projectCollectionState(project);
+  const initialUrl = savedCollectionState.browserUrl ?? browserUrl;
+  const [viewMode, setViewMode] = useState<PlatformViewMode>(savedCollectionState.viewMode ?? (platform === "TIKTOK_SHOP" ? "mobile" : "desktop"));
+  const [activeStage, setActiveStage] = useState<CollectionStage>(savedCollectionState.stage);
   const [expanded, setExpanded] = useState(false);
-  const [address, setAddress] = useState(browserUrl);
-  const [currentUrl, setCurrentUrl] = useState(browserUrl);
+  const [address, setAddress] = useState(initialUrl);
+  const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [activeStepIndex, setActiveStepIndex] = useState(0);
-  const [collectedSteps, setCollectedSteps] = useState<Record<string, string>>({});
+  const [collectedSteps, setCollectedSteps] = useState<Record<string, string>>(savedCollectionState.stepAssetPaths);
+  const [stageCompleted, setStageCompleted] = useState<CollectionState["stageCompleted"]>(savedCollectionState.stageCompleted);
   const [pageTextPreview, setPageTextPreview] = useState("");
   const [zoomFactor, setZoomFactor] = useState(1);
   const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
+  const [captureStatus, setCaptureStatus] = useState<BrowserCaptureStatus>({
+    message: "Waiting for target page",
+    state: "idle"
+  });
   const [activityLog, setActivityLog] = useState<string[]>([
     "Open each target page manually, then capture the matching report step."
   ]);
@@ -802,15 +819,53 @@ function GuidedBrowserCollector({
     queryFn: () => apiClient.projectDetail(project.id)
   });
 
-  const steps = useMemo(
+  const allSteps = useMemo(
     () => buildCollectionSteps(project, platform, currentUrl, projectDetail.data),
     [currentUrl, platform, project, projectDetail.data]
   );
-  const activeStep = steps[activeStepIndex] ?? steps[0];
-  const collectedCount = steps.filter((step) => collectedSteps[step.id]).length;
+  const steps = useMemo(() => allSteps.filter((step) => step.stage === activeStage), [activeStage, allSteps]);
+  const activeStep = steps[activeStepIndex] ?? steps[0] ?? allSteps[0];
+  const collectedCount = allSteps.filter((step) => collectedSteps[step.id]).length;
+  const stageCollectedCount = steps.filter((step) => collectedSteps[step.id]).length;
+  const collectionProgressPercent = allSteps.length > 0 ? Math.round((collectedCount / allSteps.length) * 100) : 0;
   const isManualActionState =
     platform === "SHOPEE_ID" &&
     (isProtectedShopeePage(currentUrl) || isShopeeLoginPage(currentUrl) || loadState === "failed");
+
+  const saveCollectionState = useMutation({
+    mutationFn: (state: CollectionState) => apiClient.saveCollectionState(project.id, state),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
+      ]);
+    },
+    onError: (error) => {
+      appendLog(setActivityLog, error instanceof Error ? error.message : "Could not save collection progress.");
+    }
+  });
+
+  function buildCollectionState(overrides: Partial<CollectionState> = {}): CollectionState {
+    const stepAssetPaths = overrides.stepAssetPaths ?? collectedSteps;
+    const completedStepIds = Object.keys(stepAssetPaths);
+    const nextStage = overrides.stage ?? activeStage;
+    return {
+      stage: nextStage,
+      stageLabel: overrides.stageLabel ?? collectionStageLabel(nextStage),
+      progressPercent: overrides.progressPercent ?? collectionProgress(allSteps, stepAssetPaths),
+      completedStepIds: overrides.completedStepIds ?? completedStepIds,
+      stepAssetPaths,
+      stageCompleted: overrides.stageCompleted ?? stageCompleted,
+      currentStepId: overrides.currentStepId ?? activeStep?.id,
+      browserUrl: overrides.browserUrl ?? currentUrl,
+      viewMode: overrides.viewMode ?? viewMode,
+      savedAt: new Date().toISOString()
+    };
+  }
+
+  function persistCollectionState(overrides: Partial<CollectionState> = {}) {
+    saveCollectionState.mutate(buildCollectionState(overrides));
+  }
 
   const saveEvidence = useMutation({
     mutationFn: apiClient.saveManualEvidence,
@@ -820,13 +875,21 @@ function GuidedBrowserCollector({
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
       ]);
-      setCollectedSteps((current) => ({ ...current, [step.id]: result.assetPath }));
+      const nextCollectedSteps = { ...collectedSteps, [step.id]: result.assetPath };
+      setCollectedSteps(nextCollectedSteps);
       setPendingCapture(null);
       appendLog(
         setActivityLog,
         `Captured ${step.label}${result.extractedProductCount ? ` and extracted ${result.extractedProductCount} product rows` : ""}.`
       );
-      setActiveStepIndex((current) => Math.min(current + 1, steps.length - 1));
+      const nextStepIndex = Math.min(activeStepIndex + 1, steps.length - 1);
+      setActiveStepIndex(nextStepIndex);
+      persistCollectionState({
+        stepAssetPaths: nextCollectedSteps,
+        completedStepIds: Object.keys(nextCollectedSteps),
+        progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+        currentStepId: steps[nextStepIndex]?.id ?? step.id
+      });
     },
     onError: (error) => {
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not capture the current step.");
@@ -861,9 +924,17 @@ function GuidedBrowserCollector({
     },
     onSuccess: async (result, step) => {
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      setCollectedSteps((current) => ({ ...current, [step.id]: result.assetPath }));
+      const nextCollectedSteps = { ...collectedSteps, [step.id]: result.assetPath };
+      setCollectedSteps(nextCollectedSteps);
       appendLog(setActivityLog, `Attached screenshot for ${step.label}.`);
-      setActiveStepIndex((current) => Math.min(current + 1, steps.length - 1));
+      const nextStepIndex = Math.min(activeStepIndex + 1, steps.length - 1);
+      setActiveStepIndex(nextStepIndex);
+      persistCollectionState({
+        stepAssetPaths: nextCollectedSteps,
+        completedStepIds: Object.keys(nextCollectedSteps),
+        progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+        currentStepId: steps[nextStepIndex]?.id ?? step.id
+      });
     },
     onError: (error) => {
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not attach screenshot evidence.");
@@ -871,9 +942,13 @@ function GuidedBrowserCollector({
   });
 
   useEffect(() => {
-    setAddress(browserUrl);
-    setCurrentUrl(browserUrl);
-  }, [browserUrl]);
+    setAddress(initialUrl);
+    setCurrentUrl(initialUrl);
+  }, [initialUrl]);
+
+  useEffect(() => {
+    setActiveStepIndex(0);
+  }, [activeStage]);
 
   useEffect(() => {
     const webview = webviewRef.current;
@@ -947,8 +1022,41 @@ function GuidedBrowserCollector({
     appendLog(setActivityLog, "Opened the browser print workflow for the current page.");
   }
 
+  function saveProgress() {
+    persistCollectionState();
+    appendLog(setActivityLog, "Collection progress saved. You can close the browser and continue from this project later.");
+  }
+
+  function completeCurrentStage() {
+    const nextStage = nextCollectionStage(activeStage);
+    const nextStageCompleted = {
+      ...stageCompleted,
+      [activeStage]: true
+    };
+    setStageCompleted(nextStageCompleted);
+    if (nextStage) {
+      setActiveStage(nextStage);
+      setActiveStepIndex(0);
+      persistCollectionState({
+        stage: nextStage,
+        stageLabel: collectionStageLabel(nextStage),
+        stageCompleted: nextStageCompleted,
+        currentStepId: allSteps.find((step) => step.stage === nextStage)?.id
+      });
+      appendLog(setActivityLog, `${collectionStageLabel(activeStage)} completed. Continue with ${collectionStageLabel(nextStage)}.`);
+      return;
+    }
+    persistCollectionState({
+      stageCompleted: nextStageCompleted,
+      progressPercent: 100,
+      currentStepId: activeStep?.id
+    });
+    appendLog(setActivityLog, "Shopee collection flow marked complete. Review the project inspector before generating the report.");
+  }
+
   async function captureAndSaveEvidence(step: CollectionStep) {
     try {
+      setCaptureStatus({ message: "Targeted page received", state: "working" });
       appendLog(setActivityLog, `Capturing rendered page snapshot for ${step.label}...`);
       setPendingCapture({
         payload: await buildManualEvidencePayload(step),
@@ -965,17 +1073,31 @@ function GuidedBrowserCollector({
     if (!webview?.capturePage) {
       throw new Error("The embedded browser cannot capture this page in the current runtime.");
     }
+    setCaptureStatus({ message: "Targeted page received", state: "working" });
     const image = await webview.capturePage();
     const size = image.getSize?.() ?? {
       width: Math.round(webview.clientWidth),
       height: Math.round(webview.clientHeight)
     };
     const sourceUrl = webview.getURL?.() ?? currentUrl;
-    const snapshot = await extractRenderedPageSnapshot(webview).catch(() => ({
-      html: "",
-      visibleText: "",
-      products: [] as ExtractedPageProduct[]
-    }));
+    setCaptureStatus({ message: "Downloading HTML from #main", state: "working" });
+    const snapshot = await extractRenderedPageSnapshot(webview)
+      .then((value) => {
+        setCaptureStatus({
+          message: value.html ? "HTML download done" : "HTML download failed",
+          state: value.html ? "done" : "failed",
+          actionLabel: value.html ? undefined : "Download HTML"
+        });
+        return value;
+      })
+      .catch(() => {
+        setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML" });
+        return {
+          html: "",
+          visibleText: "",
+          products: [] as ExtractedPageProduct[]
+        };
+      });
     const printPdfDataUrl = await webview.printToPDF?.({ printBackground: true })
       .then((data) => `data:application/pdf;base64,${uint8ArrayToBase64(data)}`)
       .catch(() => undefined);
@@ -1021,6 +1143,31 @@ function GuidedBrowserCollector({
     });
     setPageTextPreview(text);
     appendLog(setActivityLog, text ? "Extracted visible page text from the current browser session." : "No readable browser text was found on the current page.");
+  }
+
+  async function downloadCurrentHtml() {
+    const webview = webviewRef.current;
+    if (!webview) {
+      appendLog(setActivityLog, "The embedded browser is not ready for HTML download.");
+      return;
+    }
+    setCaptureStatus({ message: "Downloading HTML from #main", state: "working" });
+    const snapshot = await extractRenderedPageSnapshot(webview).catch(() => undefined);
+    if (!snapshot?.html) {
+      setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML" });
+      appendLog(setActivityLog, "Could not download readable HTML from this page. Complete login/verification or reload the target page.");
+      return;
+    }
+    const blob = new Blob([snapshot.html], { type: "text/html;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${project.keyword.replace(/[^a-z0-9]+/giu, "-").replace(/^-|-$/gu, "") || "marketplace-page"}-${Date.now()}.html`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+    setCaptureStatus({ message: "HTML download done", state: "done" });
+    appendLog(setActivityLog, "Downloaded the current #main HTML snapshot.");
   }
 
   async function openTikTokAndroidFromShopeeStep() {
@@ -1101,17 +1248,18 @@ function GuidedBrowserCollector({
           ref={(node) => {
             webviewRef.current = node as WebviewElement | null;
           }}
-          src={browserUrl}
-          partition={`persist:mio-${project.id}`}
+          src={initialUrl}
+          partition={`persist:mio-${platform.toLowerCase()}`}
           allowpopups
           useragent={userAgent}
           webpreferences="contextIsolation=yes, sandbox=yes"
         />
+        <BrowserCaptureStatusPill status={captureStatus} onAction={() => void downloadCurrentHtml()} />
         <FloatingStepController
           step={activeStep}
           stepNumber={activeStepIndex + 1}
           stepTotal={steps.length}
-          collectedCount={collectedCount}
+          stageCollectedCount={stageCollectedCount}
           targetUrl={activeStep.targetUrl}
           captured={Boolean(collectedSteps[activeStep.id])}
           saving={saveEvidence.isPending}
@@ -1157,7 +1305,26 @@ function GuidedBrowserCollector({
           </Panel>
 
           <Panel title="Collection Progress" icon={ListChecks}>
-            <ProgressBar value={(collectedCount / steps.length) * 100} />
+            <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-white">{collectionStageLabel(activeStage)}</div>
+                  <div className="text-[11px] text-ink-500">{stageCollectedCount}/{steps.length} steps in this part · {collectedCount}/{allSteps.length} total</div>
+                </div>
+                <span className="rounded-full bg-signal-blue/12 px-2 py-1 text-xs text-signal-blue">{collectionProgressPercent}%</span>
+              </div>
+              <ProgressBar value={collectionProgressPercent} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button className="secondary-button h-9 px-2 text-xs" type="button" onClick={saveProgress} disabled={saveCollectionState.isPending}>
+                <Archive size={14} />
+                Save
+              </button>
+              <button className="primary-button h-9 px-2 text-xs" type="button" onClick={completeCurrentStage} disabled={saveCollectionState.isPending}>
+                <CheckCircle2 size={14} />
+                {stageCompletionButtonLabel(activeStage)}
+              </button>
+            </div>
             <div className="mt-4 max-h-[420px] space-y-2 overflow-auto pr-1">
               {steps.map((step, index) => (
                 <button
@@ -1196,11 +1363,42 @@ function GuidedBrowserCollector({
   );
 }
 
+function BrowserCaptureStatusPill({
+  status,
+  onAction
+}: {
+  status: BrowserCaptureStatus;
+  onAction: () => void;
+}) {
+  if (status.state === "idle") {
+    return null;
+  }
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2">
+      <div
+        className={[
+          "pointer-events-auto flex items-center gap-2 rounded-full border px-3 py-2 text-xs shadow-glow backdrop-blur-2xl",
+          status.state === "failed" ? "border-signal-rose/35 bg-signal-rose/15 text-signal-rose" : "",
+          status.state === "done" ? "border-signal-green/35 bg-signal-green/15 text-signal-green" : "",
+          status.state === "working" ? "border-signal-blue/35 bg-signal-blue/15 text-signal-blue" : ""
+        ].join(" ")}
+      >
+        <span>{status.message}</span>
+        {status.actionLabel && (
+          <button className="rounded-full border border-current/30 px-2 py-1 text-[11px] font-semibold" type="button" onClick={onAction}>
+            {status.actionLabel}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FloatingStepController({
   step,
   stepNumber,
   stepTotal,
-  collectedCount,
+  stageCollectedCount,
   targetUrl,
   captured,
   saving,
@@ -1214,7 +1412,7 @@ function FloatingStepController({
   step: CollectionStep;
   stepNumber: number;
   stepTotal: number;
-  collectedCount: number;
+  stageCollectedCount: number;
   targetUrl?: string;
   captured: boolean;
   saving: boolean;
@@ -1270,7 +1468,7 @@ function FloatingStepController({
           <Minimize2 size={13} />
         </button>
       </div>
-      <ProgressBar value={(collectedCount / stepTotal) * 100} />
+      <ProgressBar value={(stageCollectedCount / Math.max(stepTotal, 1)) * 100} />
       <div className="mt-2 rounded-2xl border border-white/8 bg-white/6 p-3 text-xs leading-5 text-ink-300">
         <div className="mb-1 flex items-center justify-between gap-2">
           <span className="font-medium text-white">{step.section}</span>
@@ -1512,28 +1710,38 @@ function ProjectsView() {
 
       <Panel title="Projects" icon={Table2}>
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {projects.map((project) => (
-            <button
-              key={project.id}
-              type="button"
-              className="w-full rounded-md border border-white/8 bg-white/5 p-4 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
-              onClick={() => setInspectingProjectId(project.id)}
-            >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-base font-semibold text-white">{project.name}</div>
-                  <div className="mt-1 text-xs text-ink-500">{formatDateTime(project.createdAt)}</div>
+          {projects.map((project) => {
+            const collectionState = projectCollectionState(project);
+            return (
+              <button
+                key={project.id}
+                type="button"
+                className="w-full rounded-md border border-white/8 bg-white/5 p-4 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
+                onClick={() => setInspectingProjectId(project.id)}
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-semibold text-white">{project.name}</div>
+                    <div className="mt-1 text-xs text-ink-500">{formatDateTime(project.createdAt)}</div>
+                  </div>
+                  <StatusPill status={project.status} />
                 </div>
-                <StatusPill status={project.status} />
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-xs text-ink-400 lg:grid-cols-4">
-                <InfoLine label="Keyword" value={project.keyword} />
-                <InfoLine label="Category" value={project.productCategory ?? "-"} />
-                <InfoLine label="Marketplace" value={project.marketplace} />
-                <InfoLine label="Evidence" value={`${project.counts.products} products · ${project.counts.stores} stores`} />
-              </div>
-            </button>
-          ))}
+                <div className="grid grid-cols-2 gap-3 text-xs text-ink-400 lg:grid-cols-4">
+                  <InfoLine label="Keyword" value={project.keyword} />
+                  <InfoLine label="Category" value={project.productCategory ?? "-"} />
+                  <InfoLine label="Marketplace" value={project.marketplace} />
+                  <InfoLine label="Evidence" value={`${project.counts.products} products · ${project.counts.stores} stores`} />
+                </div>
+                <div className="mt-3">
+                  <div className="mb-1 flex items-center justify-between gap-3 text-[11px] text-ink-500">
+                    <span>{collectionState.stageLabel}</span>
+                    <span>{collectionState.progressPercent}%</span>
+                  </div>
+                  <ProgressBar value={collectionState.progressPercent} />
+                </div>
+              </button>
+            );
+          })}
           {projects.length === 0 && <EmptyState label="No projects yet. Create an analysis from New Research." />}
         </div>
       </Panel>
@@ -2470,6 +2678,65 @@ function ProgressBar({ value }: { value: number }) {
   );
 }
 
+function collectionStageLabel(stage: CollectionStage): string {
+  switch (stage) {
+    case "PRODUCT_DETAILS":
+      return "Part 2 - Product Details";
+    case "EVALUATION_KEY_STORE":
+      return "Part 3 - Evaluation and Key Store";
+    case "KEYWORD_GENERAL":
+    default:
+      return "Part 1 - Keyword General";
+  }
+}
+
+function defaultCollectionState(): CollectionState {
+  return {
+    stage: "KEYWORD_GENERAL",
+    stageLabel: "Part 1 - Keyword General",
+    progressPercent: 0,
+    completedStepIds: [],
+    stepAssetPaths: {},
+    stageCompleted: {}
+  };
+}
+
+function projectCollectionState(project: ProjectSummary): CollectionState {
+  return (project as ProjectSummary & { collectionState?: CollectionState }).collectionState ?? defaultCollectionState();
+}
+
+function stageCompletionButtonLabel(stage: CollectionStage): string {
+  switch (stage) {
+    case "KEYWORD_GENERAL":
+      return "Done";
+    case "PRODUCT_DETAILS":
+      return "Collection Complete";
+    case "EVALUATION_KEY_STORE":
+    default:
+      return "Finish";
+  }
+}
+
+function nextCollectionStage(stage: CollectionStage): CollectionStage | null {
+  switch (stage) {
+    case "KEYWORD_GENERAL":
+      return "PRODUCT_DETAILS";
+    case "PRODUCT_DETAILS":
+      return "EVALUATION_KEY_STORE";
+    case "EVALUATION_KEY_STORE":
+    default:
+      return null;
+  }
+}
+
+function collectionProgress(steps: CollectionStep[], stepAssetPaths: Record<string, string>): number {
+  if (steps.length === 0) {
+    return 0;
+  }
+  const completed = steps.filter((step) => stepAssetPaths[step.id]).length;
+  return Math.round((completed / steps.length) * 100);
+}
+
 function buildCollectionSteps(
   project: ProjectSummary,
   platform: ResearchPlatform,
@@ -2487,6 +2754,7 @@ function buildAndroidTikTokSteps(project: ProjectSummary, status: AndroidToolSta
   return [
     {
       id: "android-tiktok-launch",
+      stage: "EVALUATION_KEY_STORE",
       section: "Android TikTok Setup",
       label: "TikTok app launch evidence",
       kind: "SOCIAL_ACCOUNT",
@@ -2495,6 +2763,7 @@ function buildAndroidTikTokSteps(project: ProjectSummary, status: AndroidToolSta
     },
     {
       id: "android-tiktok-keyword-search",
+      stage: "EVALUATION_KEY_STORE",
       section: "TikTok Shop Search",
       label: `TikTok keyword search: ${keyword}`,
       kind: "SEARCH_RESULT",
@@ -2503,6 +2772,7 @@ function buildAndroidTikTokSteps(project: ProjectSummary, status: AndroidToolSta
     },
     {
       id: "android-tiktok-product-detail",
+      stage: "PRODUCT_DETAILS",
       section: "TikTok Shop Product",
       label: "TikTok product detail evidence",
       kind: "PRODUCT_PAGE",
@@ -2511,6 +2781,7 @@ function buildAndroidTikTokSteps(project: ProjectSummary, status: AndroidToolSta
     },
     {
       id: "android-tiktok-store-detail",
+      stage: "EVALUATION_KEY_STORE",
       section: "TikTok Shop Store",
       label: "TikTok store detail evidence",
       kind: "STORE_HOME",
@@ -2519,6 +2790,7 @@ function buildAndroidTikTokSteps(project: ProjectSummary, status: AndroidToolSta
     },
     {
       id: "android-tiktok-brand-search",
+      stage: "EVALUATION_KEY_STORE",
       section: "Cross Platform Evidence",
       label: "TikTok brand/store search evidence",
       kind: "SOCIAL_ACCOUNT",
@@ -2545,6 +2817,7 @@ function buildShopeeSteps(
   const discoverySteps: CollectionStep[] = [
     {
       id: "keyword-relevance",
+      stage: "KEYWORD_GENERAL",
       section: "Keyword as Title",
       label: "Relevance first page screenshot",
       kind: "SEARCH_RESULT",
@@ -2554,6 +2827,7 @@ function buildShopeeSteps(
     },
     {
       id: "keyword-top-sales",
+      stage: "KEYWORD_GENERAL",
       section: "Keyword as Title",
       label: "Top sales first page screenshot",
       kind: "TOP_SALES",
@@ -2563,6 +2837,7 @@ function buildShopeeSteps(
     },
     {
       id: "key-product-table",
+      stage: "KEYWORD_GENERAL",
       section: "Key Product",
       label: "Key product source evidence",
       kind: "SEARCH_RESULT",
@@ -2578,6 +2853,7 @@ function buildShopeeSteps(
     return [
       {
         id: `product-${product.id}-first-page`,
+        stage: "PRODUCT_DETAILS",
         section: `Product ${productIndex + 1}`,
         label: "First page screenshot",
         kind: "PRODUCT_PAGE",
@@ -2589,6 +2865,7 @@ function buildShopeeSteps(
       },
       {
         id: `product-${product.id}-slides`,
+        stage: "PRODUCT_DETAILS",
         section: `Product ${productIndex + 1}`,
         label: "Slides and product images",
         kind: "PRODUCT_IMAGE",
@@ -2600,6 +2877,7 @@ function buildShopeeSteps(
       },
       {
         id: `product-${product.id}-description`,
+        stage: "PRODUCT_DETAILS",
         section: `Product ${productIndex + 1}`,
         label: "Description",
         kind: "PRODUCT_DESCRIPTION",
@@ -2611,6 +2889,7 @@ function buildShopeeSteps(
       },
       {
         id: `product-${product.id}-reviews`,
+        stage: "PRODUCT_DETAILS",
         section: `Product ${productIndex + 1}`,
         label: "Reviews: 3 positive and 2 negative",
         kind: "REVIEW_SECTION",
@@ -2622,6 +2901,7 @@ function buildShopeeSteps(
       },
       {
         id: `product-${product.id}-review-media`,
+        stage: "PRODUCT_DETAILS",
         section: `Product ${productIndex + 1}`,
         label: "Media in user reviews",
         kind: "REVIEW_IMAGE",
@@ -2633,6 +2913,7 @@ function buildShopeeSteps(
       },
       {
         id: `product-${product.id}-shop-home`,
+        stage: "PRODUCT_DETAILS",
         section: `Product ${productIndex + 1}`,
         label: "Shop homepage from product",
         kind: "STORE_HOME",
@@ -2648,6 +2929,7 @@ function buildShopeeSteps(
   const genericProductSteps: CollectionStep[] = products.length > 0 ? [] : [
     {
       id: "product-detail-first-page",
+      stage: "PRODUCT_DETAILS",
       section: "Product Detailed Qualified",
       label: "Product page first viewport",
       kind: "PRODUCT_PAGE",
@@ -2659,6 +2941,7 @@ function buildShopeeSteps(
   const storeSteps: CollectionStep[] = [
     {
       id: "store-homepage",
+      stage: "EVALUATION_KEY_STORE",
       section: "Key Store",
       label: "Store homepage",
       kind: "STORE_HOME",
@@ -2667,6 +2950,7 @@ function buildShopeeSteps(
     },
     {
       id: "store-products",
+      stage: "EVALUATION_KEY_STORE",
       section: "Key Store",
       label: "Store products popular page",
       kind: "STORE_FEATURED_PRODUCTS",
@@ -2676,6 +2960,7 @@ function buildShopeeSteps(
     },
     {
       id: "store-best-seller",
+      stage: "EVALUATION_KEY_STORE",
       section: "Key Store",
       label: "Store best-seller page",
       kind: "STORE_BEST_SELLER",
@@ -2685,6 +2970,7 @@ function buildShopeeSteps(
     },
     {
       id: "store-visual-style",
+      stage: "EVALUATION_KEY_STORE",
       section: "Key Store",
       label: "Store visual style and banners",
       kind: "STORE_BANNER",
@@ -2693,6 +2979,7 @@ function buildShopeeSteps(
     },
     {
       id: "tiktok-brand-search",
+      stage: "EVALUATION_KEY_STORE",
       section: "Cross Platform Evidence",
       label: "TikTok Android brand/store screenshot",
       kind: "SOCIAL_ACCOUNT",
@@ -2710,6 +2997,7 @@ function buildTikTokSteps(project: ProjectSummary, currentUrl: string): Collecti
   return [
     {
       id: "tiktok-shop-search",
+      stage: "KEYWORD_GENERAL",
       section: "TikTok Shop Manual Evidence",
       label: "TikTok Shop keyword search",
       kind: "SEARCH_RESULT",
@@ -2719,6 +3007,7 @@ function buildTikTokSteps(project: ProjectSummary, currentUrl: string): Collecti
     },
     {
       id: "tiktok-product-detail",
+      stage: "PRODUCT_DETAILS",
       section: "TikTok Shop Manual Evidence",
       label: "TikTok product detail",
       kind: "PRODUCT_PAGE",
@@ -2727,6 +3016,7 @@ function buildTikTokSteps(project: ProjectSummary, currentUrl: string): Collecti
     },
     {
       id: "tiktok-store-detail",
+      stage: "EVALUATION_KEY_STORE",
       section: "TikTok Shop Manual Evidence",
       label: "TikTok store detail",
       kind: "STORE_HOME",
@@ -2735,6 +3025,7 @@ function buildTikTokSteps(project: ProjectSummary, currentUrl: string): Collecti
     },
     {
       id: "tiktok-cross-platform",
+      stage: "EVALUATION_KEY_STORE",
       section: "Cross Platform Evidence",
       label: "TikTok brand/search screenshot",
       kind: "SOCIAL_ACCOUNT",
@@ -3158,6 +3449,12 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         try { return new URL(href, location.href).toString(); } catch { return href || ""; }
       };
       const compact = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+      const htmlRoot = document.querySelector("#main") || document.querySelector("main") || document.body || document.documentElement;
+      const prettyHtml = (value) => String(value || "")
+        .replace(/></g, ">\\n<")
+        .replace(/\\n\\s+/g, "\\n")
+        .replace(/\\n{3,}/g, "\\n\\n")
+        .trim();
       const meaningfulTitle = (text, imageAlt) => {
         const lines = String(text || "")
           .split(/\\n+/)
@@ -3182,7 +3479,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         }
         return best;
       };
-      const anchors = Array.from(document.querySelectorAll('a[href]'))
+      const anchors = Array.from(htmlRoot.querySelectorAll('a[href]'))
         .filter((anchor) => /(?:-i\\.|\\/product\\/|i\\.)/i.test(anchor.getAttribute("href") || ""))
         .filter((anchor) => !/cart|checkout|help|seller/i.test(anchor.getAttribute("href") || ""));
       const seen = new Set();
@@ -3217,8 +3514,9 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           rawText: compact(text).slice(0, 1200)
         });
       }
-      const html = document.documentElement?.outerHTML || "";
-      const visibleText = [document.title || "", location.href, compact(document.body?.innerText || "").slice(0, 20000)]
+      const html = prettyHtml(htmlRoot.outerHTML || document.documentElement?.outerHTML || "");
+      const visibleTextSource = htmlRoot.innerText || document.body?.innerText || "";
+      const visibleText = [document.title || "", location.href, compact(visibleTextSource).slice(0, 24000)]
         .filter(Boolean)
         .join("\\n");
       return { html, visibleText, products };

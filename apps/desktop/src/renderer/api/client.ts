@@ -6,6 +6,7 @@ import type {
   AndroidStartPayload,
   AndroidToolStatus,
   AndroidVisibleTextResult,
+  CollectionState,
   CreateJobPayload,
   DashboardSnapshot,
   HealthPayload,
@@ -81,6 +82,11 @@ export const apiClient = {
       body: JSON.stringify(payload)
     }),
   projectDetail: (projectId: string) => request<ProjectDetailPayload>(`/projects/${projectId}/detail`),
+  saveCollectionState: (projectId: string, payload: CollectionState) =>
+    request<DashboardSnapshot["projects"][number]>(`/projects/${projectId}/collection-state`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }),
   analyzeProject: (projectId: string) =>
     request<{ ok: true; analysisId: string; provider: string }>(`/projects/${projectId}/analyze`, {
       method: "POST",

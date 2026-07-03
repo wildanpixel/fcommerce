@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type {
+  CollectionState,
   CreateJobPayload,
   JobSummary,
   NewProjectInput,
@@ -53,6 +54,7 @@ export class PrismaProjectRepository implements ProjectRepository {
         marketplace: input.marketplace,
         language: input.language,
         productCategory: input.productCategory,
+        collectionStateJson: JSON.stringify(defaultCollectionState()),
         exportFolder: input.exportFolder,
         screenshotFolder: input.screenshotFolder,
         status: "ACTIVE"
@@ -185,6 +187,20 @@ export class PrismaProjectRepository implements ProjectRepository {
       })),
       reports: reports.map(toReportSummary)
     };
+  }
+
+  async updateCollectionState(id: string, state: CollectionState): Promise<ProjectSummary> {
+    const project = await this.db.project.update({
+      where: { id },
+      data: {
+        collectionStateJson: JSON.stringify({
+          ...state,
+          savedAt: state.savedAt ?? new Date().toISOString()
+        })
+      },
+      include: projectInclude
+    });
+    return toProjectSummary(project);
   }
 
   async delete(id: string): Promise<void> {
@@ -559,6 +575,7 @@ function toProjectSummary(project: ProjectWithCounts): ProjectSummary {
     status: project.status,
     language: project.language,
     productCategory: project.productCategory,
+    collectionState: parseCollectionState(project.collectionStateJson),
     exportFolder: project.exportFolder,
     screenshotFolder: project.screenshotFolder,
     createdAt: project.createdAt.toISOString(),
@@ -570,6 +587,79 @@ function toProjectSummary(project: ProjectWithCounts): ProjectSummary {
       reports: project._count.reports
     }
   };
+}
+
+function defaultCollectionState(): CollectionState {
+  return {
+    stage: "KEYWORD_GENERAL",
+    stageLabel: "Part 1 - Keyword General",
+    progressPercent: 0,
+    completedStepIds: [],
+    stepAssetPaths: {},
+    stageCompleted: {}
+  };
+}
+
+function parseCollectionState(value: string): CollectionState {
+  const parsed = parseJsonObject(value);
+  const rawStage = parsed.stage;
+  const stage = typeof rawStage === "string" && isCollectionStage(rawStage)
+    ? rawStage
+    : "KEYWORD_GENERAL";
+  const completedStepIds = Array.isArray(parsed.completedStepIds)
+    ? parsed.completedStepIds.filter((item): item is string => typeof item === "string")
+    : [];
+  const stepAssetPaths = parseUnknownStringRecord(parsed.stepAssetPaths);
+  const stageCompleted = parseStageCompleted(parsed.stageCompleted);
+  return {
+    stage,
+    stageLabel: typeof parsed.stageLabel === "string" ? parsed.stageLabel : collectionStageLabel(stage),
+    progressPercent: typeof parsed.progressPercent === "number" ? Math.max(0, Math.min(100, Math.round(parsed.progressPercent))) : 0,
+    completedStepIds,
+    stepAssetPaths,
+    stageCompleted,
+    currentStepId: typeof parsed.currentStepId === "string" ? parsed.currentStepId : undefined,
+    browserUrl: typeof parsed.browserUrl === "string" ? parsed.browserUrl : undefined,
+    viewMode: parsed.viewMode === "mobile" || parsed.viewMode === "desktop" ? parsed.viewMode : undefined,
+    savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : undefined
+  };
+}
+
+function isCollectionStage(value: string): value is CollectionState["stage"] {
+  return ["KEYWORD_GENERAL", "PRODUCT_DETAILS", "EVALUATION_KEY_STORE"].includes(value);
+}
+
+function collectionStageLabel(stage: CollectionState["stage"]): string {
+  switch (stage) {
+    case "PRODUCT_DETAILS":
+      return "Part 2 - Product Details";
+    case "EVALUATION_KEY_STORE":
+      return "Part 3 - Evaluation and Key Store";
+    case "KEYWORD_GENERAL":
+    default:
+      return "Part 1 - Keyword General";
+  }
+}
+
+function parseStageCompleted(value: unknown): Partial<Record<CollectionState["stage"], boolean>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    KEYWORD_GENERAL: record.KEYWORD_GENERAL === true,
+    PRODUCT_DETAILS: record.PRODUCT_DETAILS === true,
+    EVALUATION_KEY_STORE: record.EVALUATION_KEY_STORE === true
+  };
+}
+
+function parseUnknownStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
 }
 
 function toAssetSummary(asset: AssetRecord) {

@@ -22,6 +22,20 @@ export type JobStatus =
 
 export type ProjectStatus = "DRAFT" | "ACTIVE" | "COMPLETED" | "ARCHIVED";
 export type BrowserPreference = "chromium" | "chrome" | "edge" | "brave";
+export type CollectionStage = "KEYWORD_GENERAL" | "PRODUCT_DETAILS" | "EVALUATION_KEY_STORE";
+
+export type CollectionState = {
+  stage: CollectionStage;
+  stageLabel: string;
+  progressPercent: number;
+  completedStepIds: string[];
+  stepAssetPaths: Record<string, string>;
+  stageCompleted: Partial<Record<CollectionStage, boolean>>;
+  currentStepId?: string;
+  browserUrl?: string;
+  viewMode?: "desktop" | "mobile";
+  savedAt?: string;
+};
 
 export type NewProjectInput = {
   name: string;
@@ -43,6 +57,7 @@ export type ProjectSummary = {
   productCategory?: string | null;
   exportFolder?: string | null;
   screenshotFolder?: string | null;
+  collectionState: CollectionState;
   createdAt: string;
   updatedAt: string;
   counts: {

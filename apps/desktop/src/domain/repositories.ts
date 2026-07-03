@@ -22,6 +22,7 @@ export interface ProjectRepository {
   list(): Promise<ProjectSummary[]>;
   get(id: string): Promise<ProjectSummary | null>;
   getDetail(id: string): Promise<ProjectDetailPayload | null>;
+  updateCollectionState(id: string, state: ProjectSummary["collectionState"]): Promise<ProjectSummary>;
   delete(id: string): Promise<void>;
 }
 

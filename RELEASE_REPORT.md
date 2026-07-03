@@ -3,23 +3,22 @@
 Release date: 2026-07-03
 Version: 1.0.0
 Local platform: Windows
-Release task: M2/M3 guided Shopee evidence completion, dedicated Projects vault, and packaged UI validation
+Release task: staged guided collection, persistent browser session, HTML capture status, and collection resume
 
 ## Summary
 
-This release removes the Home tab, makes Projects a dedicated vault-first page, and opens selected projects in a full-page inspector shaped like the final consulting report. M2 and M3 now use the guided evidence model consistently: product and store captures enrich local records from browser-visible HTML/text, screenshots remain the source of truth, and the report/inspector hierarchy follows the attached PDF workflow.
+This release improves the guided evidence collection workflow. Collection is now split into three user-controlled phases, browser HTML capture is visible instead of silent, Shopee browser login/cache state is persistent across projects, and project cards show saved collection progress so unfinished work can be resumed.
 
 ## Completed
 
-- Removed the Home navigation tab.
-- Projects tab now shows Vault Metrics first, then the project list.
-- Clicking a project opens a dedicated Project Inspector page with no split-layout clutter.
-- Project Inspector now renders collapsible report sections: Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, and TikTok Evidence.
-- Product-specific captures now enrich stored records with PDP fields where visible: price range, original price, discount, rating, review count, total sold, stock, voucher/shipping text, variants, specifications, description, and image URLs.
-- Product dossiers now show first-page evidence, slides, description, variants, specifications, review table, review media, and shop-homepage evidence.
-- Store evidence now renders homepage, product matrix, bestseller, visual style, TikTok account evidence, theme signals, and GMV ETA.
-- HTML/PDF report rendering now follows the same M2/M3 workflow and keeps product/store links available.
-- Implementation status, roadmap, and changelog were updated.
+- Added three collection phases: Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store.
+- Added Save/Pause collection state on projects, including stage, completed steps, browser URL, view mode, and percentage.
+- Added project-list progress display showing saved collection stage and completion percentage.
+- Added top-center browser status for `targeted page received`, `downloading HTML`, success, failure, and manual `Download HTML`.
+- Changed HTML snapshots to prioritize `div#main`, then `main`, then body, and format output across multiple lines.
+- Changed Shopee browser partition from per-project to persistent marketplace session so login/cache state survives project switches and app restarts.
+- Added best-effort WebP thumbnail conversion to local JPG files during evidence save.
+- Updated implementation status, roadmap, and changelog.
 
 ## Release Checklist
 
@@ -36,7 +35,7 @@ This release removes the Home tab, makes Projects a dedicated vault-first page, 
 | Generate macOS App | Not run locally on Windows; configured for GitHub Actions macOS runner |
 | Generate macOS DMG | Not run locally on Windows; configured for GitHub Actions macOS runner |
 | Launch packaged application automatically | Completed from `apps/desktop/release/win-unpacked/Marketplace Intelligence OS.exe` |
-| Verify UI reflects latest implementation | Completed through packaged UI screenshots |
+| Verify UI reflects latest implementation | Completed through packaged UI screenshot and dev Playwright flow |
 | Verify packaged application version | Completed: `/api/health` returned version `1.0.0` |
 | Update changelog | Completed |
 | Commit | Pending at report generation time |
@@ -45,17 +44,15 @@ This release removes the Home tab, makes Projects a dedicated vault-first page, 
 
 ## Local Validation
 
+- `pnpm prisma:generate`: passed.
 - `pnpm typecheck`: passed.
 - `pnpm lint`: passed.
 - `pnpm test`: passed, 5 files and 12 tests.
 - `pnpm test:e2e`: passed, 2 Playwright tests.
-- `pnpm prisma:generate`: passed.
 - `pnpm build`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64`: passed.
 - Packaged app launched from `win-unpacked` and responded on `/api/health` with `{"ok":true,"product":"Marketplace Intelligence OS","version":"1.0.0"}`.
-- Packaged UI screenshot verified Home tab removal and New Research default shell.
-- Packaged UI screenshot verified Projects page shows Vault Metrics first and project list below.
-- Packaged UI screenshot verified selected project opens a dedicated Project Inspector page with report-shaped collapsible sections.
+- Packaged UI screenshot verified the app shell renders after packaging.
 
 ## Generated Artifacts
 
@@ -68,6 +65,6 @@ This release removes the Home tab, makes Projects a dedicated vault-first page, 
 
 - macOS artifacts must be verified on the GitHub Actions macOS runner.
 - Shopee and TikTok anti-bot/login/verification flows remain user-controlled by design; the app does not bypass marketplace protections.
-- Product slide/video extraction is still heuristic when Shopee hides media from browser-readable HTML.
-- Voucher normalization and high-confidence AI narrative quality depend on complete captured evidence.
+- WebP-to-JPG thumbnail conversion is best-effort and falls back to original URLs when the marketplace CDN blocks image fetching.
+- Product slide/video extraction remains heuristic when Shopee hides media from browser-readable HTML.
 - TikTok Shop adapter remains stubbed; Android evidence capture exists, but TikTok Shop navigation is user-controlled.

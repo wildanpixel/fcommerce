@@ -1,7 +1,9 @@
 import http from "node:http";
 import { copyFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
+import sharp from "sharp";
 import { z } from "zod";
 import { DEFAULT_REPORT_SECTIONS } from "../shared/reportSections.js";
 import type {
@@ -11,6 +13,7 @@ import type {
   AndroidInstallPayload,
   AndroidStartPayload,
   AndroidVisibleTextResult,
+  CollectionState,
   CreateJobPayload,
   ExtractedPageProduct,
   ManualEvidencePayload,
@@ -138,6 +141,7 @@ const manualEvidenceKindSchema = z.enum([
 ]);
 
 const evidenceOwnerTypeSchema = z.enum(["MANUAL_STEP", "PRODUCT", "STORE", "PROJECT"]);
+const collectionStageSchema = z.enum(["KEYWORD_GENERAL", "PRODUCT_DETAILS", "EVALUATION_KEY_STORE"]);
 
 const extractedPageProductSchema = z.object({
   rank: z.number().int().positive(),
@@ -176,6 +180,19 @@ const manualEvidenceSchema = z.object({
   pagePdfDataUrl: z.string().optional(),
   extractedProducts: z.array(extractedPageProductSchema).optional(),
   metadata: z.record(z.unknown()).optional()
+});
+
+const collectionStateSchema = z.object({
+  stage: collectionStageSchema,
+  stageLabel: z.string().min(2),
+  progressPercent: z.number().min(0).max(100),
+  completedStepIds: z.array(z.string()),
+  stepAssetPaths: z.record(z.string()),
+  stageCompleted: z.record(z.boolean()).optional(),
+  currentStepId: z.string().optional(),
+  browserUrl: z.string().optional(),
+  viewMode: z.enum(["desktop", "mobile"]).optional(),
+  savedAt: z.string().optional()
 });
 
 const manualFileEvidenceSchema = z.object({
@@ -327,6 +344,33 @@ export function createApp(): Express {
     response.json(detail);
   }));
 
+  app.put("/api/projects/:id/collection-state", asyncRoute(async (request, response) => {
+    const params = z.object({ id: z.string().uuid() }).parse(request.params);
+    const input = collectionStateSchema.parse(request.body);
+    const existing = await dependencies.projectRepository.get(params.id);
+    if (!existing) {
+      response.status(404).json({ error: "Project not found" });
+      return;
+    }
+    const state: CollectionState = {
+      stage: input.stage,
+      stageLabel: input.stageLabel,
+      progressPercent: input.progressPercent,
+      completedStepIds: input.completedStepIds,
+      stepAssetPaths: input.stepAssetPaths,
+      stageCompleted: {
+        KEYWORD_GENERAL: input.stageCompleted?.KEYWORD_GENERAL === true,
+        PRODUCT_DETAILS: input.stageCompleted?.PRODUCT_DETAILS === true,
+        EVALUATION_KEY_STORE: input.stageCompleted?.EVALUATION_KEY_STORE === true
+      },
+      currentStepId: input.currentStepId,
+      browserUrl: input.browserUrl,
+      viewMode: input.viewMode,
+      savedAt: input.savedAt ?? new Date().toISOString()
+    };
+    response.json(await dependencies.projectRepository.updateCollectionState(params.id, state));
+  }));
+
   app.post("/api/projects/:id/analyze", asyncRoute(async (request, response) => {
     const input = z.object({ id: z.string().uuid() }).parse(request.params);
     const project = await dependencies.projectRepository.get(input.id);
@@ -384,46 +428,47 @@ export function createApp(): Express {
     await mkdir(evidenceFolder, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const baseName = `${timestamp}-${slug(input.stepId)}`;
+    const processedInput = await localizeManualEvidenceImages(input, evidenceFolder, baseName);
     const assetPath = resolve(evidenceFolder, `${baseName}.png`);
     await writeFile(assetPath, image.buffer);
-    const htmlPath = input.pageHtml ? resolve(evidenceFolder, `${baseName}.html`) : undefined;
-    const textPath = input.visibleText ? resolve(evidenceFolder, `${baseName}.txt`) : undefined;
-    const pdfPath = input.pagePdfDataUrl ? resolve(evidenceFolder, `${baseName}.pdf`) : undefined;
-    if (htmlPath && input.pageHtml) {
-      await writeFile(htmlPath, input.pageHtml, "utf8");
+    const htmlPath = processedInput.pageHtml ? resolve(evidenceFolder, `${baseName}.html`) : undefined;
+    const textPath = processedInput.visibleText ? resolve(evidenceFolder, `${baseName}.txt`) : undefined;
+    const pdfPath = processedInput.pagePdfDataUrl ? resolve(evidenceFolder, `${baseName}.pdf`) : undefined;
+    if (htmlPath && processedInput.pageHtml) {
+      await writeFile(htmlPath, processedInput.pageHtml, "utf8");
     }
-    if (textPath && input.visibleText) {
-      await writeFile(textPath, input.visibleText, "utf8");
+    if (textPath && processedInput.visibleText) {
+      await writeFile(textPath, processedInput.visibleText, "utf8");
     }
-    if (pdfPath && input.pagePdfDataUrl) {
-      const pdf = decodeDataUrl(input.pagePdfDataUrl);
+    if (pdfPath && processedInput.pagePdfDataUrl) {
+      const pdf = decodeDataUrl(processedInput.pagePdfDataUrl);
       await writeFile(pdfPath, pdf.buffer);
     }
     const normalizedEvidence = await persistCapturedPageData(
       dependencies.intelligenceRepository,
       project.id,
-      input,
+      processedInput,
       {
         htmlPath,
         textPath,
         pdfPath
       }
     );
-    const evidenceOwnerType = normalizedEvidence.ownerType ?? input.ownerType ?? "MANUAL_STEP";
-    const evidenceOwnerId = normalizedEvidence.ownerId ?? input.ownerId ?? input.stepId;
+    const evidenceOwnerType = normalizedEvidence.ownerType ?? processedInput.ownerType ?? "MANUAL_STEP";
+    const evidenceOwnerId = normalizedEvidence.ownerId ?? processedInput.ownerId ?? processedInput.stepId;
 
     await dependencies.intelligenceRepository.saveScreenshots(project.id, evidenceOwnerType, evidenceOwnerId, [
       {
-        kind: input.kind,
-        label: input.label,
+        kind: processedInput.kind,
+        label: processedInput.label,
         path: assetPath,
-        sourceUrl: input.sourceUrl,
-        width: input.width,
-        height: input.height,
+        sourceUrl: processedInput.sourceUrl,
+        width: processedInput.width,
+        height: processedInput.height,
         metadata: {
           source: "guided-manual-collector",
-          stepId: input.stepId,
-          note: input.note,
+          stepId: processedInput.stepId,
+          note: processedInput.note,
           mimeType: image.mimeType,
           htmlPath,
           textPath,
@@ -432,7 +477,7 @@ export function createApp(): Express {
           normalizedRecordCount: normalizedEvidence.normalizedRecordCount,
           reviewCount: normalizedEvidence.reviewCount,
           storeId: normalizedEvidence.storeId,
-          ...(input.metadata ?? {})
+          ...(processedInput.metadata ?? {})
         }
       }
     ]);
@@ -440,17 +485,17 @@ export function createApp(): Express {
     await dependencies.logRepository.write({
       projectId: project.id,
       level: "INFO",
-      message: `Manual evidence captured: ${input.label}`,
+      message: `Manual evidence captured: ${processedInput.label}`,
       context: {
-        stepId: input.stepId,
-        sourceUrl: input.sourceUrl,
+        stepId: processedInput.stepId,
+        sourceUrl: processedInput.sourceUrl,
         assetPath
       }
     });
 
     response.status(201).json({
       ok: true,
-      stepId: input.stepId,
+      stepId: processedInput.stepId,
       assetPath,
       htmlPath,
       textPath,
@@ -766,6 +811,74 @@ function safeParseJson<T>(value: string, fallback: T): T {
     return JSON.parse(value) as T;
   } catch {
     return fallback;
+  }
+}
+
+async function localizeManualEvidenceImages(
+  input: ManualEvidencePayload,
+  evidenceFolder: string,
+  baseName: string
+): Promise<ManualEvidencePayload> {
+  if (!input.extractedProducts?.length) {
+    return input;
+  }
+  const imageFolder = resolve(evidenceFolder, `${baseName}-images`);
+  const products: ExtractedPageProduct[] = [];
+  let localizedImageCount = 0;
+  for (const [index, product] of input.extractedProducts.entries()) {
+    if (!product.imageUrl || index >= 80 || !shouldLocalizeImageUrl(product.imageUrl)) {
+      products.push(product);
+      continue;
+    }
+    const localImageUrl = await downloadImageAsJpeg(product.imageUrl, imageFolder, `${String(index + 1).padStart(2, "0")}-${slug(product.title).slice(0, 48)}`);
+    if (localImageUrl) {
+      localizedImageCount += 1;
+      products.push({
+        ...product,
+        imageUrl: localImageUrl,
+        rawText: [product.rawText, `Original thumbnail: ${product.imageUrl}`].filter(Boolean).join("\n")
+      });
+    } else {
+      products.push(product);
+    }
+  }
+  return {
+    ...input,
+    extractedProducts: products,
+    metadata: {
+      ...(input.metadata ?? {}),
+      localizedImageCount
+    }
+  };
+}
+
+function shouldLocalizeImageUrl(value: string): boolean {
+  return /^https?:\/\//iu.test(value) && /\.webp(?:$|[?#])/iu.test(value);
+}
+
+async function downloadImageAsJpeg(imageUrl: string, folder: string, fileName: string): Promise<string | undefined> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9000);
+  try {
+    await mkdir(folder, { recursive: true });
+    const response = await fetch(imageUrl, {
+      signal: controller.signal,
+      headers: {
+        accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "user-agent": "Mozilla/5.0 Marketplace Intelligence OS"
+      }
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+    const source = Buffer.from(await response.arrayBuffer());
+    const outputPath = resolve(folder, `${fileName || "thumbnail"}.jpg`);
+    await sharp(source).jpeg({ quality: 88, mozjpeg: true }).toFile(outputPath);
+    return pathToFileURL(outputPath).toString();
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

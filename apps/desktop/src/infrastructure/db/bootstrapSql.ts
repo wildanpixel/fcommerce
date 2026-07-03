@@ -9,6 +9,7 @@ const statements = [
     "status" TEXT NOT NULL DEFAULT 'DRAFT',
     "language" TEXT NOT NULL DEFAULT 'id-ID',
     "productCategory" TEXT,
+    "collectionStateJson" TEXT NOT NULL DEFAULT '{}',
     "exportFolder" TEXT,
     "screenshotFolder" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -184,6 +185,7 @@ export async function ensureDatabaseSchema(db: PrismaClient): Promise<void> {
     await db.$executeRawUnsafe(statement);
   }
   await ensureColumn(db, "Project", "productCategory", "TEXT");
+  await ensureColumn(db, "Project", "collectionStateJson", "TEXT NOT NULL DEFAULT '{}'");
 }
 
 async function ensureColumn(

@@ -88,6 +88,7 @@ model Project {
   status           ProjectStatus @default(DRAFT)
   language         String        @default("id-ID")
   productCategory  String?
+  collectionStateJson String        @default("{}")
   exportFolder     String?
   screenshotFolder String?
   createdAt        DateTime      @default(now())

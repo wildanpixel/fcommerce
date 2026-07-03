@@ -4,6 +4,12 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 ## Unreleased - 2026-07-03
 
+- Split guided collection into three phases: Keyword General, Product Details, and Evaluation/Key Store, each with explicit Done/Collection Complete progression.
+- Added persisted collection pause/resume state per project, including stage, completed steps, browser URL, view mode, and collection percentage in the Projects vault.
+- Added a small top-center browser status overlay for target received, HTML download, success, failure, and manual Download HTML fallback.
+- Changed rendered-page snapshots to prioritize `div#main`, then `main`, then body, and save formatted multi-line HTML instead of one very long line.
+- Changed Shopee webview sessions to use a persistent marketplace partition so login/cache state survives browser close, project switches, and app restarts.
+- Added best-effort WebP thumbnail conversion to local JPG files during evidence save, with safe fallback to original image URLs.
 - Removed the Home navigation tab so the app starts from New Research and Projects remains the primary vault area.
 - Reworked Projects into a dedicated page: Vault Metrics first, project list second, and a full-page project inspector after selecting a project.
 - Extended guided product evidence persistence so product-specific captures enrich product records with PDP fields, variants, specifications, descriptions, reviews, images, and store signals where browser-readable data exists.
