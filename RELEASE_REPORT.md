@@ -3,17 +3,19 @@
 Release date: 2026-07-03
 Version: 1.0.0
 Local platform: Windows
-Release task: staged guided collection, persistent browser session, HTML capture status, and collection resume
+Release task: staged guided collection, persistent browser session, HTML capture status, and project resume actions
 
 ## Summary
 
-This release improves the guided evidence collection workflow. Collection is now split into three user-controlled phases, browser HTML capture is visible instead of silent, Shopee browser login/cache state is persistent across projects, and project cards show saved collection progress so unfinished work can be resumed.
+This release improves the guided evidence collection workflow. Collection is now split into three user-controlled phases, browser HTML capture is visible instead of silent, Shopee browser login/cache state is persistent across projects, and saved projects can reopen the collector directly from their saved stage.
 
 ## Completed
 
 - Added three collection phases: Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store.
 - Added Save/Pause collection state on projects, including stage, completed steps, browser URL, view mode, and percentage.
 - Added project-list progress display showing saved collection stage and completion percentage.
+- Added explicit `Inspect` and `Continue Collection` actions to project cards.
+- Added saved collection progress and `Continue Collection` to the project inspector so users can resume from the current saved state after inspecting data.
 - Added top-center browser status for `targeted page received`, `downloading HTML`, success, failure, and manual `Download HTML`.
 - Changed HTML snapshots to prioritize `div#main`, then `main`, then body, and format output across multiple lines.
 - Changed Shopee browser partition from per-project to persistent marketplace session so login/cache state survives project switches and app restarts.
@@ -35,7 +37,7 @@ This release improves the guided evidence collection workflow. Collection is now
 | Generate macOS App | Not run locally on Windows; configured for GitHub Actions macOS runner |
 | Generate macOS DMG | Not run locally on Windows; configured for GitHub Actions macOS runner |
 | Launch packaged application automatically | Completed from `apps/desktop/release/win-unpacked/Marketplace Intelligence OS.exe` |
-| Verify UI reflects latest implementation | Completed through packaged UI screenshot and dev Playwright flow |
+| Verify UI reflects latest implementation | Completed through packaged `win-unpacked` UI verification; Projects shows Inspect/Continue Collection and inspector resumes into the collector |
 | Verify packaged application version | Completed: `/api/health` returned version `1.0.0` |
 | Update changelog | Completed |
 | Commit | Pending at report generation time |
@@ -52,7 +54,9 @@ This release improves the guided evidence collection workflow. Collection is now
 - `pnpm build`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64`: passed.
 - Packaged app launched from `win-unpacked` and responded on `/api/health` with `{"ok":true,"product":"Marketplace Intelligence OS","version":"1.0.0"}`.
-- Packaged UI screenshot verified the app shell renders after packaging.
+- Packaged `/api/dashboard` returned 27 projects, 211 products, and 2 generated reports, confirming Prisma-backed queries execute in the packaged runtime.
+- Packaged UI verification confirmed Projects shows saved stage/progress plus `Inspect` and `Continue Collection`.
+- Packaged inspector verification confirmed saved collection progress is visible and `Continue Collection` reopens the guided collector from the saved project state.
 
 ## Generated Artifacts
 

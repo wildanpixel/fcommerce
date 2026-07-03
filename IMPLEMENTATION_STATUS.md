@@ -160,6 +160,7 @@ Implemented:
 - Manual collection now saves a rendered-page snapshot: screenshot, full page HTML, visible text, optional print-PDF data, and extracted product rows from the page the user is currently viewing.
 - Manual collection is split into Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store so the user can finish and save each phase without one long collection run.
 - Project cards now show saved collection stage and percentage so unfinished analysis can be resumed from the Projects vault.
+- Project cards now expose separate `Inspect` and `Continue Collection` actions, and the project inspector has its own saved-progress summary plus `Continue Collection` action to resume the collector from the saved stage.
 - Screenshot capture now opens a review modal so the user can crop the evidence area, save the full capture, save only the selected area, or redo before data is stored.
 - Project inspection now mirrors the report hierarchy with collapsible sections for Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, and TikTok Evidence.
 - Shopee cross-platform step 13 now supports opening TikTok in the Android emulator and attaching a manual emulator screenshot to the Shopee project.

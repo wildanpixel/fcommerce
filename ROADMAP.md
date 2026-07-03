@@ -39,6 +39,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-03 | Long Shopee HTML snapshots | Fixed | Browser capture now targets `#main` when available, formats saved HTML across lines, displays capture status, and offers a manual Download HTML fallback. |
 | 2026-07-03 | Collection flow too long | Fixed | Guided collection is now split into Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store with persisted save/resume progress. |
 | 2026-07-03 | Shopee login state lost between projects | Fixed | The embedded browser now uses a persistent marketplace session partition instead of per-project partitions. |
+| 2026-07-03 | Projects could show saved progress but not resume collection | Fixed | Project cards now separate `Inspect` from `Continue Collection`, and project inspector includes saved-progress details plus a resume action that reopens the collector from the saved state. |
 
 ## Sprint Overview
 
@@ -87,6 +88,7 @@ Completed: 2026-06-29
 | Add rendered-page snapshot persistence | Project workspace, Prisma assets | Done | Completed: capture saves screenshot, HTML, visible text, optional print-PDF data, and extracted product rows. |
 | Add three-part guided flow | Evidence step map, project state | Done | Completed: collection is split into Keyword General, Product Details, and Evaluation/Key Store phases. |
 | Add collection pause/resume state | Prisma project state | Done | Completed: Projects list shows saved stage/progress and the collector restores stage, completed steps, URL, and view mode. |
+| Add collection resume from inspector | Prisma project state, project inspector | Done | Completed: project cards and the inspector expose Continue Collection, which reopens the Shopee collector or TikTok Android workspace from the saved project state. |
 | Add screenshot review crop | React renderer | Done | Completed: user can crop, save full, save selected, or redo before evidence is stored. |
 | Add manual screenshot attachment | Project workspace, Prisma assets | Done | Completed: user-selected screenshot files can be attached to guided evidence steps. |
 | Add floating step controller | Evidence step map | Done | Completed: the active collection point floats over the browser and reveals the collect button only on matching target pages. |

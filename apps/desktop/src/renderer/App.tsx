@@ -458,11 +458,13 @@ function AnalysisSetupForm({
 function AndroidTikTokCollector({
   project,
   productCategory,
-  onNewAnalysis
+  onNewAnalysis,
+  exitLabel = "New Analysis"
 }: {
   project: ProjectSummary;
   productCategory: string;
   onNewAnalysis: () => void;
+  exitLabel?: string;
 }) {
   const queryClient = useQueryClient();
   const androidStatus = useQuery({
@@ -594,7 +596,7 @@ function AndroidTikTokCollector({
           </div>
           <button className="secondary-button mt-5" type="button" onClick={onNewAnalysis}>
             <ClipboardCheck size={16} />
-            New Analysis
+            {exitLabel}
           </button>
         </Panel>
 
@@ -782,13 +784,15 @@ function GuidedBrowserCollector({
   productCategory,
   browserUrl,
   onBrowserUrlChange,
-  onNewAnalysis
+  onNewAnalysis,
+  exitLabel = "New Analysis"
 }: {
   project: ProjectSummary;
   productCategory: string;
   browserUrl: string;
   onBrowserUrlChange: (url: string) => void;
   onNewAnalysis: () => void;
+  exitLabel?: string;
 }) {
   const webviewRef = useRef<WebviewElement | null>(null);
   const queryClient = useQueryClient();
@@ -1300,7 +1304,7 @@ function GuidedBrowserCollector({
             </div>
             <button className="secondary-button mt-5" type="button" onClick={onNewAnalysis}>
               <ClipboardCheck size={16} />
-              New Analysis
+              {exitLabel}
             </button>
           </Panel>
 
@@ -1643,6 +1647,8 @@ function ProjectsView() {
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
   const projects = dashboard.data?.projects ?? [];
   const [inspectingProjectId, setInspectingProjectId] = useState("");
+  const [collectingProject, setCollectingProject] = useState<ProjectSummary | null>(null);
+  const [collectionBrowserUrl, setCollectionBrowserUrl] = useState(SHOPEE_HOME_URL);
   const inspectingProject = projects.find((project) => project.id === inspectingProjectId);
   const detail = useQuery({
     queryKey: ["project-detail", inspectingProjectId],
@@ -1667,6 +1673,46 @@ function ProjectsView() {
     }
   }
 
+  function startProjectCollection(project: ProjectSummary) {
+    const collectionState = projectCollectionState(project);
+    const platform: ResearchPlatform = project.marketplace === "TIKTOK_SHOP" ? "TIKTOK_SHOP" : "SHOPEE_ID";
+    setInspectingProjectId("");
+    setCollectingProject(project);
+    setCollectionBrowserUrl(collectionState.browserUrl ?? initialPlatformUrl(platform, project.keyword));
+  }
+
+  function closeProjectCollection() {
+    setCollectingProject(null);
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["project-detail"] })
+    ]);
+  }
+
+  if (collectingProject) {
+    if (collectingProject.marketplace === "TIKTOK_SHOP") {
+      return (
+        <AndroidTikTokCollector
+          project={collectingProject}
+          productCategory={collectingProject.productCategory ?? ""}
+          onNewAnalysis={closeProjectCollection}
+          exitLabel="Back to Projects"
+        />
+      );
+    }
+
+    return (
+      <GuidedBrowserCollector
+        project={collectingProject}
+        productCategory={collectingProject.productCategory ?? ""}
+        browserUrl={collectionBrowserUrl}
+        onBrowserUrlChange={setCollectionBrowserUrl}
+        onNewAnalysis={closeProjectCollection}
+        exitLabel="Back to Projects"
+      />
+    );
+  }
+
   if (inspectingProjectId) {
     return (
       <section className="space-y-5">
@@ -1687,6 +1733,7 @@ function ProjectsView() {
             detail={detail.data}
             deleting={deleteProject.isPending}
             onDelete={() => confirmDeleteProject(detail.data.project)}
+            onContinueCollection={() => startProjectCollection(detail.data.project)}
           />
         ) : (
           <Panel title="Project Inspector" icon={Search}>
@@ -1713,11 +1760,9 @@ function ProjectsView() {
           {projects.map((project) => {
             const collectionState = projectCollectionState(project);
             return (
-              <button
+              <div
                 key={project.id}
-                type="button"
                 className="w-full rounded-md border border-white/8 bg-white/5 p-4 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
-                onClick={() => setInspectingProjectId(project.id)}
               >
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -1739,7 +1784,17 @@ function ProjectsView() {
                   </div>
                   <ProgressBar value={collectionState.progressPercent} />
                 </div>
-              </button>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => setInspectingProjectId(project.id)}>
+                    <Search size={14} />
+                    Inspect
+                  </button>
+                  <button className="primary-button h-9 w-auto px-3" type="button" onClick={() => startProjectCollection(project)}>
+                    <ClipboardCheck size={14} />
+                    Continue Collection
+                  </button>
+                </div>
+              </div>
             );
           })}
           {projects.length === 0 && <EmptyState label="No projects yet. Create an analysis from New Research." />}
@@ -1752,14 +1807,17 @@ function ProjectsView() {
 function ProjectInspectionPanel({
   detail,
   deleting,
-  onDelete
+  onDelete,
+  onContinueCollection
 }: {
   detail: ProjectDetailPayload;
   deleting: boolean;
   onDelete: () => void;
+  onContinueCollection: () => void;
 }) {
   const queryClient = useQueryClient();
   const evidenceCount = detail.assets.length;
+  const collectionState = projectCollectionState(detail.project);
   const runAnalysis = useMutation({
     mutationFn: () => apiClient.analyzeProject(detail.project.id),
     onSuccess: async () => {
@@ -1772,6 +1830,10 @@ function ProjectInspectionPanel({
       icon={Search}
       action={
         <div className="flex items-center gap-2">
+          <button className="primary-button h-9 w-auto px-3" type="button" onClick={onContinueCollection}>
+            <ClipboardCheck size={15} />
+            Continue Collection
+          </button>
           <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => runAnalysis.mutate()} disabled={runAnalysis.isPending}>
             <Brain size={15} />
             {runAnalysis.isPending ? "Scoring" : "Run AI"}
@@ -1790,6 +1852,24 @@ function ProjectInspectionPanel({
         <Metric icon={ListChecks} label="Reviews" value={detail.reviews.length} />
         <Metric icon={FileDown} label="Reports" value={detail.reports.length} />
         <Metric icon={CheckCircle2} label="Ready" value={projectReadinessScore(detail)} />
+      </div>
+
+      <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-white">Saved Collection Progress</div>
+            <div className="mt-1 text-xs text-ink-500">{collectionState.stageLabel}</div>
+          </div>
+          <span className="rounded-full bg-signal-blue/12 px-3 py-1 text-xs font-semibold text-signal-blue">
+            {collectionState.progressPercent}%
+          </span>
+        </div>
+        <ProgressBar value={collectionState.progressPercent} />
+        <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-ink-400 md:grid-cols-3">
+          <InfoLine label="Current Step" value={collectionState.currentStepId ?? "Not selected"} />
+          <InfoLine label="Saved URL" value={collectionState.browserUrl ?? "No browser URL saved"} />
+          <InfoLine label="View Mode" value={collectionState.viewMode ?? "Default"} />
+        </div>
       </div>
 
       {runAnalysis.data && (

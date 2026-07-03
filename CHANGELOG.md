@@ -6,6 +6,7 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 - Split guided collection into three phases: Keyword General, Product Details, and Evaluation/Key Store, each with explicit Done/Collection Complete progression.
 - Added persisted collection pause/resume state per project, including stage, completed steps, browser URL, view mode, and collection percentage in the Projects vault.
+- Added explicit `Inspect` and `Continue Collection` actions to project cards, plus a `Continue Collection` action and saved-progress summary inside the project inspector.
 - Added a small top-center browser status overlay for target received, HTML download, success, failure, and manual Download HTML fallback.
 - Changed rendered-page snapshots to prioritize `div#main`, then `main`, then body, and save formatted multi-line HTML instead of one very long line.
 - Changed Shopee webview sessions to use a persistent marketplace partition so login/cache state survives browser close, project switches, and app restarts.
