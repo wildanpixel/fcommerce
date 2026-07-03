@@ -29,6 +29,7 @@ export type ProductCard = {
   url: string;
   imageUrl?: string;
   price: MoneyRange;
+  discount?: string;
   rating?: number;
   reviewCount?: number;
   monthlySold?: number;

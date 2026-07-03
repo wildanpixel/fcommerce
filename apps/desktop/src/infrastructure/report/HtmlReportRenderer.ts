@@ -202,10 +202,12 @@ function productDossiers(data: ReportData): string {
       const productAssets = data.assets.filter(
         (asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id
       );
+      const productReviews = data.reviews.filter((review) => review.productId === product.id);
+      const storeAssets = data.assets.filter((asset) => assetMatchesStore(asset, product.storeUrl));
       const variants = safeJson<string[]>(product.variantsJson, []);
       const specs = safeJson<Record<string, string>>(product.specificationsJson, {});
-      const raw = safeJson<{ evidencePlan?: { productImages?: string[]; productVideos?: string[] } }>(product.rawJson, {});
-      const productImages = raw.evidencePlan?.productImages ?? [];
+      const raw = safeJson<{ imageUrl?: string; images?: string[]; evidencePlan?: { productImages?: string[]; productVideos?: string[] } }>(product.rawJson, {});
+      const productImages = uniqueStrings([...(raw.evidencePlan?.productImages ?? []), ...(raw.images ?? []), raw.imageUrl].filter(Boolean));
       return `<details class="page report-section" open>
         <summary>Product ${index + 1}</summary>
         <div class="report-body">
@@ -216,11 +218,14 @@ function productDossiers(data: ReportData): string {
           <div class="metric">Price<b>${formatCurrency(product.priceAverage)}</b></div>
           <div class="metric">Total sold<b>${formatNumber(product.totalSold)}</b></div>
         </div>
-        ${assetGrid(productAssets)}
+        <h3>First Page</h3>
+        ${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_PAGE"))}
         <h3>Product Images</h3>
         ${remoteImageGrid(productImages.slice(0, 9))}
+        ${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_IMAGE"))}
         <h3>Description</h3>
         <p>${escapeHtml(product.description ?? "No browser-readable description captured. Screenshot evidence is retained.")}</p>
+        ${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_DESCRIPTION"))}
         <h3>Variants</h3>
         <p>${escapeHtml(variants.slice(0, 12).join(", ") || "No variants detected")}</p>
         <h3>Specifications</h3>
@@ -228,6 +233,13 @@ function productDossiers(data: ReportData): string {
           .slice(0, 12)
           .map(([key, value]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(value)}</td></tr>`)
           .join("")}</tbody></table>
+        <h3>Reviews</h3>
+        ${reviewTable(productReviews)}
+        ${assetGrid(productAssets.filter((asset) => asset.kind === "REVIEW_SECTION"))}
+        <h3>Media in user</h3>
+        ${assetGrid(productAssets.filter((asset) => asset.kind === "REVIEW_IMAGE"))}
+        <h3>Shop homepage</h3>
+        ${assetGrid(storeAssets.filter((asset) => asset.kind === "STORE_HOME"))}
         </div>
       </details>`;
     })
@@ -265,6 +277,7 @@ function storeOverview(data: ReportData): string {
     <p class="kicker">Key Stores</p>
     <h2>Store Selection Criteria</h2>
     <ul>
+      <li>店铺首页 / 商品矩阵 / 爆品区 / 视觉风格.</li>
       <li>Top white-label or category brands visible in keyword results.</li>
       <li>Official, mall, star, or high-trust stores.</li>
       <li>Stores with strong visual merchandising and repeated keyword presence.</li>
@@ -305,7 +318,14 @@ function storeDossiers(data: ReportData): string {
           <div class="metric">Products<b>${formatNumber(store.productsCount)}</b></div>
           <div class="metric">Rating<b>${store.rating ?? "-"}</b></div>
         </div>
-        ${assetGrid(assets)}
+        <h3>Store Homepage</h3>
+        ${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"))}
+        <h3>Products</h3>
+        ${assetGrid(assets.filter((asset) => asset.kind === "STORE_FEATURED_PRODUCTS"))}
+        <h3>Bestseller</h3>
+        ${assetGrid(assets.filter((asset) => asset.kind === "STORE_BEST_SELLER"))}
+        <h3>Visual Style</h3>
+        ${assetGrid(assets.filter((asset) => asset.kind === "STORE_BANNER" || asset.kind === "STORE_PROMOTION"))}
         </div>
       </details>`;
     })
@@ -327,6 +347,56 @@ function visualStyle(data: ReportData): string {
     )}
     </div>
   </details>`;
+}
+
+function reviewTable(reviews: ReportData["reviews"]): string {
+  if (reviews.length === 0) {
+    return '<p class="muted">No positive/negative review rows captured for this product yet.</p>';
+  }
+  return `<table>
+    <thead><tr><th>Type</th><th>Star rated</th><th>Comment - Include timestamp</th></tr></thead>
+    <tbody>${reviews
+      .slice(0, 5)
+      .map(
+        (review) => `<tr>
+          <td>${escapeHtml(review.sentiment)}</td>
+          <td>${review.rating ?? "-"}</td>
+          <td>${escapeHtml([review.reviewDate, review.variation, review.comment].filter(Boolean).join(" | "))}</td>
+        </tr>`
+      )
+      .join("")}</tbody>
+  </table>`;
+}
+
+function assetMatchesStore(asset: ReportAsset, storeUrl?: string | null): boolean {
+  if (!storeUrl || !asset.sourceUrl) {
+    return false;
+  }
+  const source = stripUrlNoise(asset.sourceUrl);
+  const target = stripUrlNoise(storeUrl);
+  return source.includes(target) || target.includes(source);
+}
+
+function stripUrlNoise(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/^https?:\/\//u, "")
+    .replace(/^www\./u, "")
+    .replace(/[?#].*$/u, "")
+    .replace(/\/$/u, "");
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    unique.push(value);
+  }
+  return unique;
 }
 
 function remoteImageGrid(urls: string[]): string {

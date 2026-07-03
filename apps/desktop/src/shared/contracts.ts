@@ -75,6 +75,7 @@ export type ProjectDetailPayload = {
     id: string;
     title: string;
     imageUrl?: string | null;
+    productType?: string | null;
     rank?: number | null;
     source?: string | null;
     selectionReason?: string | null;
@@ -85,8 +86,15 @@ export type ProjectDetailPayload = {
     reviewCount?: number | null;
     monthlySold?: number | null;
     totalSold?: number | null;
+    stock?: number | null;
     storeName?: string | null;
     storeUrl?: string | null;
+    voucherText?: string | null;
+    shippingText?: string | null;
+    description?: string | null;
+    variants: string[];
+    specifications: Record<string, string>;
+    images: string[];
     productUrl: string;
     createdAt: string;
   }>;
@@ -95,12 +103,41 @@ export type ProjectDetailPayload = {
     name: string;
     url: string;
     followers?: number | null;
+    following?: number | null;
     productsCount?: number | null;
     rating?: number | null;
+    ratingCount?: number | null;
+    chatResponse?: string | null;
+    joinedDate?: string | null;
+    categories: string[];
     voucherCount?: number | null;
+    voucherTypes: string[];
+    visualTheme: {
+      dominantColors: string[];
+      typographySignals: string[];
+      bannerStyle: string[];
+    };
     createdAt: string;
   }>;
   assets: EvidenceAssetSummary[];
+  reviews: Array<{
+    id: string;
+    productId: string;
+    sentiment: "POSITIVE" | "NEUTRAL" | "NEGATIVE";
+    rating?: number | null;
+    comment: string;
+    variation?: string | null;
+    reviewDate?: string | null;
+    createdAt: string;
+  }>;
+  analyses: Array<{
+    id: string;
+    subjectType: string;
+    subjectId?: string | null;
+    provider: string;
+    resultJson: string;
+    createdAt: string;
+  }>;
   reports: ReportSummary[];
 };
 

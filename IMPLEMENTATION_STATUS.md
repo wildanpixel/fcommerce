@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-02
+Last updated: 2026-07-03
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[###############-----] 76%
+[################----] 80%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -31,8 +31,8 @@ The overall percentage is a weighted product estimate based on foundation readin
 | --- | --- | ---: | --- |
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
-| M2 | Shopee Desktop | [################----] 82% | Partial |
-| M3 | Intelligence | [##########----------] 50% | Partial |
+| M2 | Shopee Desktop | [##################--] 90% | Partial |
+| M3 | Intelligence | [#############-------] 65% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -86,6 +86,7 @@ Release blocker fixes:
 - 2026-06-27: Verified packaged Windows UI renders latest app shell and reports version `1.0.0`.
 - 2026-06-29: Reworked the first-run product experience into the requested two-button Shopee/TikTok research cockpit with a visible marketplace browser surface.
 - 2026-06-29: Pivoted the product from fully automatic marketplace collection to guided manual evidence collection because Shopee/TikTok protected flows cannot be made reliable without official APIs or user-controlled sessions.
+- 2026-07-03: Removed the Home navigation tab; Projects now opens as a dedicated Vault Metrics and project-list page, and individual project inspection opens as a full dedicated page.
 
 ## M1 Product Experience
 
@@ -170,7 +171,7 @@ M1 scope boundary:
 
 ## M2 Shopee Desktop
 
-[################----] 82%
+[##################--] 90%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -184,11 +185,11 @@ M1 scope boundary:
 | Dynamic guided product-detail evidence steps | Completed | Product UI and Evidence API | Extracted product table, embedded browser | Done | P0 |
 | Guided store evidence steps | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
 | Product card extraction | Completed | Product UI and Evidence API | Rendered-page snapshot extraction | Done | P0 |
-| Product detail collection | Partial | Product UI and Evidence API | User-controlled PDP snapshot capture | 2 days | P0 |
+| Product detail collection | Completed | Product UI and Evidence API | User-controlled PDP snapshot capture | Done | P0 |
 | Product images and slides | Partial | Marketplace Automation | Product media parser, screenshots | 2 days | P0 |
 | Product description | Completed | Marketplace Automation | Product page parser | Done | P0 |
 | Product specifications | Completed | Marketplace Automation | Product page parser | Done | P0 |
-| Store collection | Partial | Marketplace Automation | Store page parser | 3 days | P0 |
+| Store collection | Partial | Marketplace Automation | Store page parser, guided screenshots | 2 days | P0 |
 | Store homepage capture | Completed | Marketplace Automation | Store URL discovery, screenshots | Done | P0 |
 | Review collection | Partial | Marketplace Automation | Review section parser | 6 days | P0 |
 | Review images | Partial | Marketplace Automation | Review media parser | 3 days | P1 |
@@ -196,7 +197,7 @@ M1 scope boundary:
 | Voucher collection | Not Started | Marketplace Automation | Voucher section parser | 4 days | P1 |
 | Store decoration | Partial | Marketplace Automation | Store homepage parser, screenshot map | 3 days | P1 |
 | Product matrix | Partial | Marketplace Automation and Intelligence | Store/product normalization | 3 days | P0 |
-| AI evidence packaging | Partial | Marketplace Automation and AI | Screenshots, structured data, analysis service | 4 days | P0 |
+| AI evidence packaging | Completed | Marketplace Automation and AI | Screenshots, structured data, analysis service | Done | P0 |
 
 Implemented:
 
@@ -216,12 +217,16 @@ Implemented:
 - Top-sales result ordering is validated against relevance ordering so ignored sort behavior is visible in job logs.
 - Key-product selection now merges relevance and top-sales products, stores source placement, and assigns reason-for-selection values such as platform recommended, best selling, cheap, mid price, high price, and strong visual.
 - Product page collection exists as user-controlled rendered snapshot capture and stores product-specific assets where the user opens the PDP.
+- Product-specific evidence now enriches stored product records with browser-readable PDP fields including price range, original price, discount, rating, review count, total sold, stock, voucher/shipping text, variants, specifications, description, and image URLs where visible.
 - Product image URLs are collected into product raw evidence for report rendering with a 3-column image grid.
+- Project inspection now renders dynamic product dossiers for every collected product with first-page evidence, slides, description, variants, specifications, reviews, review media, and shop-homepage evidence.
 - Store page collection exists.
 - Store homepage, banner, popular-products, and best-seller screenshots are captured where Shopee allows access.
+- Store evidence now normalizes store profile records from guided captures and renders homepage, product matrix, bestseller, visual style, TikTok account evidence, and theme signals inside the project inspector.
 - Screenshot capture is wired.
 - Review inference now targets three positive 5-star and two negative 1-star browser-readable review signals when available.
 - Basic product and store metric parsing exists.
+- The generated HTML/PDF report renderer now follows the PDF-defined M2 structure: Keyword General, Key Product, repeated Product detail dossiers, review tables, store overview, store dossiers, visual style, TikTok evidence, and AI recommendations.
 
 Incomplete:
 
@@ -245,7 +250,7 @@ Sprint 1 completion evidence:
 
 ## M3 Intelligence
 
-[##########----------] 50%
+[#############-------] 65%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -254,16 +259,16 @@ Sprint 1 completion evidence:
 | OpenAI analysis path | Partial | AI Engineering | API key, screenshot evidence | 3 days | P0 |
 | Gemini analysis path | Partial | AI Engineering | API key, screenshot evidence | 3 days | P1 |
 | Local heuristic fallback | Completed | AI Engineering | Product, store, review inputs | Done | P1 |
-| Executive summary | Partial | Reporting and AI | Analysis records, report renderer | 3 days | P0 |
+| Executive summary | Partial | Reporting and AI | Analysis records, report renderer | 2 days | P0 |
 | SWOT | Partial | Reporting and AI | Analysis records | 3 days | P0 |
 | Pricing analysis | Partial | Intelligence | Product price normalization | 4 days | P0 |
-| Store analysis | Partial | Intelligence | Store collection completeness | 5 days | P0 |
-| Competitor analysis | Partial | Intelligence | Key products, product matrix | 5 days | P0 |
+| Store analysis | Partial | Intelligence | Store collection completeness | 3 days | P0 |
+| Competitor analysis | Partial | Intelligence | Key products, product matrix | 3 days | P0 |
 | Visual analysis | Partial | AI Vision | Screenshot completeness, provider keys | 5 days | P0 |
 | Recommendations | Partial | AI Engineering | Structured analysis output | 3 days | P0 |
-| Key Stores AI ranking | Partial | AI Engineering and Product UI | Store evidence, persisted scoring | 3 days | P0 |
+| Key Stores AI ranking | Partial | AI Engineering and Product UI | Store evidence, persisted scoring | 2 days | P0 |
 | HTML report generation | Completed | Reporting | Report data loader, renderer | Done | P0 |
-| PDF export | Partial | Reporting | Puppeteer PDF, local workspace | 3 days | P0 |
+| PDF export | Partial | Reporting | Puppeteer PDF, local workspace | 2 days | P0 |
 
 Implemented:
 
@@ -272,8 +277,10 @@ Implemented:
 - Local heuristic analysis fallback exists.
 - Project-level AI evaluation can be triggered from Project Inspector and persists a structured analysis record from collected products, stores, reviews, and screenshots.
 - Store Evaluation Phase cards estimate GMV locally from extracted price and monthly sold values, then expose a deterministic candidate score.
+- Project Inspector now displays persisted AI scoring, observations, and recommendations inside the Evaluation Phase so users can review evidence before report export.
 - Report sections are modular.
 - HTML report generation now produces interactive collapsible report sections with embedded CSS and script while remaining printable/PDF-compatible.
+- Report rendering now maps AI output into score cards, recommendation tables, store overall text, and explicit missing-evidence notes instead of hiding incomplete sections.
 - Puppeteer PDF export exists.
 
 Incomplete:
@@ -406,7 +413,6 @@ Stubbed behavior:
 - Shopee desktop product detail collection.
 - Shopee desktop store detail collection.
 - AI analysis workflow.
-- HTML report generation.
 - PDF report generation.
 - TikTok Shop in-app navigation and account login remain manual.
 
@@ -416,7 +422,6 @@ Stubbed behavior:
 
 ### Placeholder
 
-- Key Stores ranking.
 - Project detail tabs.
 - Mobile evidence report section.
 - Export format labels beyond PDF.

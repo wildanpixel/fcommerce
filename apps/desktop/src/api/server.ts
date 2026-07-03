@@ -20,7 +20,7 @@ import type {
   ReportGenerationPayload,
   SaveSettingsPayload
 } from "../shared/contracts.js";
-import type { ProductDetail, StoreProfile } from "../domain/models.js";
+import type { ProductDetail, ReviewEvidence, StoreProfile } from "../domain/models.js";
 import { ProjectService } from "../application/services/ProjectService.js";
 import { JobQueue } from "../application/services/JobQueue.js";
 import { IntelligenceWorkflow } from "../application/services/IntelligenceWorkflow.js";
@@ -399,7 +399,7 @@ export function createApp(): Express {
       const pdf = decodeDataUrl(input.pagePdfDataUrl);
       await writeFile(pdfPath, pdf.buffer);
     }
-    const extractedProductCount = await persistExtractedProducts(
+    const normalizedEvidence = await persistCapturedPageData(
       dependencies.intelligenceRepository,
       project.id,
       input,
@@ -409,8 +409,10 @@ export function createApp(): Express {
         pdfPath
       }
     );
+    const evidenceOwnerType = normalizedEvidence.ownerType ?? input.ownerType ?? "MANUAL_STEP";
+    const evidenceOwnerId = normalizedEvidence.ownerId ?? input.ownerId ?? input.stepId;
 
-    await dependencies.intelligenceRepository.saveScreenshots(project.id, input.ownerType ?? "MANUAL_STEP", input.ownerId ?? input.stepId, [
+    await dependencies.intelligenceRepository.saveScreenshots(project.id, evidenceOwnerType, evidenceOwnerId, [
       {
         kind: input.kind,
         label: input.label,
@@ -426,7 +428,10 @@ export function createApp(): Express {
           htmlPath,
           textPath,
           pdfPath,
-          extractedProductCount,
+          extractedProductCount: normalizedEvidence.extractedProductCount,
+          normalizedRecordCount: normalizedEvidence.normalizedRecordCount,
+          reviewCount: normalizedEvidence.reviewCount,
+          storeId: normalizedEvidence.storeId,
           ...(input.metadata ?? {})
         }
       }
@@ -450,7 +455,7 @@ export function createApp(): Express {
       htmlPath,
       textPath,
       pdfPath,
-      extractedProductCount
+      extractedProductCount: normalizedEvidence.extractedProductCount
     });
   }));
 
@@ -764,6 +769,120 @@ function safeParseJson<T>(value: string, fallback: T): T {
   }
 }
 
+type EvidencePersistenceResult = {
+  extractedProductCount: number;
+  normalizedRecordCount: number;
+  reviewCount?: number;
+  storeId?: string;
+  ownerType?: "PRODUCT" | "STORE";
+  ownerId?: string;
+};
+
+async function persistCapturedPageData(
+  intelligenceRepository: {
+    saveProduct(projectId: string, product: ProductDetail): Promise<string>;
+    saveStore(projectId: string, store: StoreProfile): Promise<string>;
+    saveReviews(productId: string, reviews: ReviewEvidence[]): Promise<void>;
+  },
+  projectId: string,
+  input: ManualEvidencePayload,
+  files: {
+    htmlPath?: string;
+    textPath?: string;
+    pdfPath?: string;
+  }
+): Promise<EvidencePersistenceResult> {
+  const extractedProductCount = await persistExtractedProducts(intelligenceRepository, projectId, input, files);
+  const result: EvidencePersistenceResult = {
+    extractedProductCount,
+    normalizedRecordCount: extractedProductCount
+  };
+
+  if (input.ownerType === "PRODUCT" && input.ownerId && isProductEvidenceKind(input.kind)) {
+    const product = await prisma.product.findFirst({
+      where: {
+        id: input.ownerId,
+        projectId
+      }
+    });
+    if (product) {
+      const enrichment = extractProductEnrichment(input, files, product);
+      const currentRaw = safeParseJson<Record<string, unknown>>(product.rawJson, {});
+      const currentVariants = safeParseJson<string[]>(product.variantsJson, []);
+      const currentSpecifications = safeParseJson<Record<string, string>>(product.specificationsJson, {});
+      const mergedImages = mergeUnique([
+        ...extractRawImages(currentRaw),
+        ...enrichment.images
+      ]).slice(0, 12);
+
+      await prisma.product.update({
+        where: { id: product.id },
+        data: {
+          title: enrichment.title ?? product.title,
+          priceMin: enrichment.priceMin ?? product.priceMin,
+          priceMax: enrichment.priceMax ?? product.priceMax,
+          priceAverage: enrichment.priceAverage ?? product.priceAverage,
+          originalPrice: enrichment.originalPrice ?? product.originalPrice,
+          discount: enrichment.discount ?? product.discount,
+          rating: enrichment.rating ?? product.rating,
+          reviewCount: enrichment.reviewCount ?? product.reviewCount,
+          totalSold: enrichment.totalSold ?? product.totalSold,
+          stock: enrichment.stock ?? product.stock,
+          voucherText: enrichment.voucherText ?? product.voucherText,
+          shippingText: enrichment.shippingText ?? product.shippingText,
+          variantsJson: JSON.stringify(mergeUnique([...currentVariants, ...enrichment.variants])),
+          specificationsJson: JSON.stringify({
+            ...currentSpecifications,
+            ...enrichment.specifications
+          }),
+          description: enrichment.description ?? product.description,
+          rawJson: JSON.stringify({
+            ...currentRaw,
+            images: mergedImages,
+            imageUrl: mergedImages[0] ?? currentRaw.imageUrl,
+            evidencePlan: {
+              ...(isRecord(currentRaw.evidencePlan) ? currentRaw.evidencePlan : {}),
+              latestCaptureKind: input.kind,
+              latestCaptureStepId: input.stepId,
+              htmlPath: files.htmlPath,
+              textPath: files.textPath,
+              pdfPath: files.pdfPath,
+              capturedAt: new Date().toISOString()
+            },
+            capturedDetails: mergeUnique([
+              ...extractStringArray(currentRaw.capturedDetails),
+              input.kind
+            ]),
+            visibleTextPreview: normalizeEvidenceText(input.visibleText).slice(0, 2400)
+          })
+        }
+      });
+
+      if (input.kind === "REVIEW_SECTION") {
+        const reviews = parseReviewEvidence(input.visibleText ?? "");
+        await prisma.review.deleteMany({ where: { productId: product.id } });
+        await intelligenceRepository.saveReviews(product.id, reviews);
+        result.reviewCount = reviews.length;
+      }
+
+      result.normalizedRecordCount += 1;
+      result.ownerType = "PRODUCT";
+      result.ownerId = product.id;
+    }
+  }
+
+  if (isStoreEvidenceKind(input.kind)) {
+    const store = extractStoreProfile(input, projectId);
+    const storeId = await intelligenceRepository.saveStore(projectId, store);
+    result.normalizedRecordCount += 1;
+    result.storeId = storeId;
+    result.ownerType = "STORE";
+    result.ownerId = storeId;
+  }
+
+  return result;
+}
+
 async function persistExtractedProducts(
   intelligenceRepository: {
     saveProduct(projectId: string, product: ProductDetail): Promise<string>;
@@ -855,6 +974,7 @@ function toProductDetail(
       original: product.originalPrice,
       currency: "IDR"
     },
+    discount: product.discount,
     rating: product.rating,
     reviewCount: product.reviewCount,
     monthlySold: context.source === "Top Sales" ? product.soldCount : undefined,
@@ -902,6 +1022,402 @@ function toStoreProfile(product: ExtractedPageProduct): StoreProfile {
       productTitle: product.title
     }
   };
+}
+
+function isProductEvidenceKind(kind: ManualEvidencePayload["kind"]): boolean {
+  return [
+    "PRODUCT_PAGE",
+    "PRODUCT_IMAGE",
+    "PRODUCT_VIDEO",
+    "PRODUCT_DESCRIPTION",
+    "REVIEW_SECTION",
+    "REVIEW_IMAGE"
+  ].includes(kind);
+}
+
+function isStoreEvidenceKind(kind: ManualEvidencePayload["kind"]): boolean {
+  return [
+    "STORE_HOME",
+    "STORE_VOUCHER",
+    "STORE_BANNER",
+    "STORE_FEATURED_PRODUCTS",
+    "STORE_BEST_SELLER",
+    "STORE_PROMOTION"
+  ].includes(kind);
+}
+
+function extractProductEnrichment(
+  input: ManualEvidencePayload,
+  files: {
+    htmlPath?: string;
+    textPath?: string;
+    pdfPath?: string;
+  },
+  product: {
+    title: string;
+    productUrl: string;
+  }
+): {
+  title?: string;
+  priceMin?: number;
+  priceMax?: number;
+  priceAverage?: number;
+  originalPrice?: number;
+  discount?: string;
+  rating?: number;
+  reviewCount?: number;
+  totalSold?: number;
+  stock?: number;
+  voucherText?: string;
+  shippingText?: string;
+  variants: string[];
+  specifications: Record<string, string>;
+  description?: string;
+  images: string[];
+} {
+  const text = normalizeEvidenceText(input.visibleText);
+  const html = input.pageHtml ?? "";
+  const price = extractMoneyRange(text);
+  const images = mergeUnique([...extractImageUrls(html), ...extractImageUrls(text)]).slice(0, 12);
+  return {
+    title: extractHtmlTitle(html) ?? inferTitleFromText(text, product.title),
+    priceMin: price.min,
+    priceMax: price.max,
+    priceAverage: price.average,
+    originalPrice: price.original,
+    discount: extractDiscount(text),
+    rating: extractRating(text),
+    reviewCount: extractCountNear(text, ["ratings", "rating", "reviews", "review", "penilaian", "ulasan"]),
+    totalSold: extractCountNear(text, ["sold", "terjual", "dijual"]),
+    stock: extractCountNear(text, ["in stock", "stok", "tersedia"]),
+    voucherText: findLine(text, ["voucher", "diskon", "gratis ongkir", "cashback"]),
+    shippingText: findLine(text, ["shipping", "pengiriman", "ongkir", "garansi", "cod"]),
+    variants: extractVariants(text),
+    specifications: extractSpecifications(text),
+    description: extractDescription(input.kind, text),
+    images
+  };
+}
+
+function extractStoreProfile(input: ManualEvidencePayload, projectId: string): StoreProfile {
+  const text = normalizeEvidenceText(input.visibleText);
+  const url = normalizeUrl(input.sourceUrl ?? `https://shopee.co.id/store-${projectId}`);
+  const storeName = inferStoreName(text, url, input.label);
+  const voucherLine = findLine(text, ["voucher", "diskon", "cashback"]);
+  return {
+    marketplace: "SHOPEE_ID",
+    name: storeName,
+    url,
+    followers: extractCountNear(text, ["followers", "pengikut"]),
+    following: extractCountNear(text, ["following", "mengikuti"]),
+    productsCount: extractCountNear(text, ["products", "produk"]),
+    rating: extractRating(text),
+    ratingCount: extractCountNear(text, ["ratings", "penilaian"]),
+    chatResponse: findLine(text, ["chat", "response", "respon"]),
+    joinedDate: findLine(text, ["joined", "bergabung"]),
+    categories: extractSectionKeywords(text, ["kategori", "category"], 8),
+    voucherCount: voucherLine ? Math.max(1, countOccurrences(text, /voucher/giu)) : undefined,
+    voucherTypes: voucherLine ? mergeUnique(extractSectionKeywords(text, ["voucher", "diskon", "cashback"], 8)) : [],
+    featuredProducts: [],
+    bestSellers: [],
+    visualTheme: extractVisualTheme(text, input.kind),
+    raw: {
+      source: "guided-manual-collector",
+      sourceStepId: input.stepId,
+      sourceUrl: input.sourceUrl,
+      ownerId: input.ownerId,
+      htmlCaptured: Boolean(input.pageHtml),
+      textCaptured: Boolean(input.visibleText),
+      visibleTextPreview: text.slice(0, 2400)
+    }
+  };
+}
+
+function parseReviewEvidence(text: string): ReviewEvidence[] {
+  const normalized = normalizeEvidenceText(text);
+  const lines = normalized
+    .split(/\n|(?<=[.!?])\s+/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 24 && line.length <= 420)
+    .filter((line) => !/(add to cart|buy now|shipping|voucher|filter|sort|variasi|description)/iu.test(line));
+
+  const positiveWords = /(bagus|suka|sesuai|cepat|mantap|puas|recommended|rekomen|good|love|worth|cantik|rapi|halus|natural)/iu;
+  const negativeWords = /(kecewa|rusak|jelek|kurang|lama|bad|tidak sesuai|gagal|patah|lepas|mahal|tipis|buruk)/iu;
+  const positive = lines.filter((line) => positiveWords.test(line) && !negativeWords.test(line)).slice(0, 3);
+  const negative = lines.filter((line) => negativeWords.test(line)).slice(0, 2);
+  const fallback = positive.length + negative.length === 0 ? lines.slice(0, 3) : [];
+
+  return [
+    ...positive.map((comment) => review("POSITIVE", 5, comment)),
+    ...negative.map((comment) => review("NEGATIVE", 1, comment)),
+    ...fallback.map((comment) => review("NEUTRAL", undefined, comment))
+  ];
+}
+
+function review(sentiment: ReviewEvidence["sentiment"], rating: number | undefined, comment: string): ReviewEvidence {
+  return {
+    sentiment,
+    rating,
+    comment,
+    mediaUrls: [],
+    raw: {
+      source: "browser-visible-review-text",
+      inferredSentiment: true
+    }
+  };
+}
+
+function extractMoneyRange(text: string): {
+  min?: number;
+  max?: number;
+  average?: number;
+  original?: number;
+} {
+  const rangeMatch = /(Rp\s*[\d.]+(?:,\d+)?)\s*[-–]\s*(Rp\s*[\d.]+(?:,\d+)?)/iu.exec(text);
+  if (rangeMatch) {
+    const min = parsePrice(rangeMatch[1]);
+    const max = parsePrice(rangeMatch[2]);
+    const allPrices = extractPriceValues(text);
+    const original = allPrices.find((value) => max && value > max * 1.15);
+    return {
+      min,
+      max,
+      average: min && max ? Math.round((min + max) / 2) : min ?? max,
+      original
+    };
+  }
+  const prices = extractPriceValues(text);
+  if (prices.length === 0) {
+    return {};
+  }
+  const current = prices[0];
+  const original = prices.find((value) => value > current * 1.15);
+  return {
+    min: current,
+    max: current,
+    average: current,
+    original
+  };
+}
+
+function extractPriceValues(text: string): number[] {
+  return (text.match(/Rp\s*[\d.]+(?:,\d+)?/giu) ?? [])
+    .map((value) => parsePrice(value))
+    .filter(isFiniteNumber);
+}
+
+function extractDiscount(text: string): string | undefined {
+  return text.match(/\b\d{1,2}%\s*(?:off|diskon)?\b/iu)?.[0];
+}
+
+function extractRating(text: string): number | undefined {
+  const ratingMatch = /(?:^|\s)([1-5](?:[.,]\d)?)\s*(?:★|star|stars|rating|ratings|penilaian)?/iu.exec(text);
+  if (!ratingMatch) {
+    return undefined;
+  }
+  const rating = Number(ratingMatch[1].replace(",", "."));
+  return rating >= 1 && rating <= 5 ? rating : undefined;
+}
+
+function extractCountNear(text: string, labels: string[]): number | undefined {
+  for (const label of labels) {
+    const after = new RegExp(`([\\d.,]+\\s*(?:rb|k|jt|m)?\\+?)\\s*(?:${escapeRegex(label)})`, "iu").exec(text);
+    if (after) {
+      return parseMarketplaceCount(after[1]);
+    }
+    const before = new RegExp(`(?:${escapeRegex(label)})\\s*:?\\s*([\\d.,]+\\s*(?:rb|k|jt|m)?\\+?)`, "iu").exec(text);
+    if (before) {
+      return parseMarketplaceCount(before[1]);
+    }
+  }
+  return undefined;
+}
+
+function parseMarketplaceCount(value: string): number | undefined {
+  const normalized = value.toLowerCase().replace(/\+/gu, "").replace(/\s+/gu, "");
+  const numeric = Number((normalized.match(/[\d.,]+/u)?.[0] ?? "").replace(/\./gu, "").replace(",", "."));
+  if (!Number.isFinite(numeric)) {
+    return undefined;
+  }
+  if (normalized.includes("rb") || normalized.includes("k")) {
+    return Math.round(numeric * 1000);
+  }
+  if (normalized.includes("jt") || normalized.includes("m")) {
+    return Math.round(numeric * 1000000);
+  }
+  return Math.round(numeric);
+}
+
+function extractHtmlTitle(html: string): string | undefined {
+  const title = /<title[^>]*>(?<title>[^<]+)<\/title>/iu.exec(html)?.groups?.title;
+  return title ? cleanText(title).replace(/\s*\|\s*Shopee.*$/iu, "") : undefined;
+}
+
+function inferTitleFromText(text: string, fallback: string): string | undefined {
+  const line = text
+    .split("\n")
+    .map((value) => value.trim())
+    .find((value) => value.length > 18 && value.length < 180 && !/(shopee|search|voucher|cart|shipping)/iu.test(value));
+  return line && line.length > fallback.length * 0.5 ? line : undefined;
+}
+
+function extractDescription(kind: ManualEvidencePayload["kind"], text: string): string | undefined {
+  if (!text) {
+    return undefined;
+  }
+  if (kind === "PRODUCT_DESCRIPTION") {
+    return text.slice(0, 8000);
+  }
+  const match = /(?:description|deskripsi(?: produk)?)([\s\S]{80,6000}?)(?:reviews?|ulasan|penilaian|media in user|shop homepage|$)/iu.exec(text);
+  return match ? cleanText(match[1]).slice(0, 8000) : undefined;
+}
+
+function extractVariants(text: string): string[] {
+  const lines = text
+    .split("\n")
+    .map((line) => cleanText(line))
+    .filter((line) => line.length >= 2 && line.length <= 48)
+    .filter((line) => /(?:variant|variasi|type|tipe|warna|color|curl|mm|n\d{1,2}|#\d{1,2})/iu.test(line))
+    .filter((line) => !/(shipping|voucher|sold|rating|review|quantity|stock)/iu.test(line));
+  return mergeUnique(lines).slice(0, 24);
+}
+
+function extractSpecifications(text: string): Record<string, string> {
+  const entries = text
+    .split("\n")
+    .map((line) => cleanText(line))
+    .map((line) => /^([^:：]{2,42})[:：]\s*(.{2,160})$/u.exec(line))
+    .filter((match): match is RegExpExecArray => Boolean(match))
+    .slice(0, 30)
+    .map((match) => [match[1].trim(), match[2].trim()] as const);
+  return Object.fromEntries(entries);
+}
+
+function extractImageUrls(value: string): string[] {
+  const urls = new Set<string>();
+  for (const match of value.matchAll(/(?:src|data-src|content)=["'](?<url>https?:\/\/[^"']+)["']/giu)) {
+    if (match.groups?.url && looksLikeImageUrl(match.groups.url)) {
+      urls.add(match.groups.url.replace(/&amp;/gu, "&"));
+    }
+  }
+  for (const match of value.matchAll(/https?:\/\/[^\s"'<>]+/giu)) {
+    if (looksLikeImageUrl(match[0])) {
+      urls.add(match[0].replace(/&amp;/gu, "&"));
+    }
+  }
+  return Array.from(urls);
+}
+
+function looksLikeImageUrl(url: string): boolean {
+  return /(image|img|susercontent|shopee|cdn|jpg|jpeg|png|webp|file\/)/iu.test(url) && !/(avatar|sprite|logo|favicon)/iu.test(url);
+}
+
+function inferStoreName(text: string, url: string, fallback: string): string {
+  const line = text
+    .split("\n")
+    .map((value) => cleanText(value))
+    .find((value) => value.length >= 3 && value.length <= 80 && !/(shopee|search|voucher|produk|followers|pengikut|rating)/iu.test(value));
+  if (line) {
+    return line;
+  }
+  try {
+    const firstPath = new URL(url).pathname.split("/").filter(Boolean)[0];
+    if (firstPath) {
+      return decodeURIComponent(firstPath).replace(/[-_]/gu, " ");
+    }
+  } catch {
+    // keep fallback below
+  }
+  return fallback.replace(/store|homepage|products|best-seller|visual|banner/giu, "").trim() || "Shopee Store";
+}
+
+function extractSectionKeywords(text: string, labels: string[], limit: number): string[] {
+  const lines = text
+    .split("\n")
+    .map((line) => cleanText(line))
+    .filter((line) => line.length >= 3 && line.length <= 80)
+    .filter((line) => labels.some((label) => line.toLowerCase().includes(label.toLowerCase())));
+  return mergeUnique(lines).slice(0, limit);
+}
+
+function extractVisualTheme(text: string, kind: ManualEvidencePayload["kind"]): StoreProfile["visualTheme"] {
+  const colorWords = ["pink", "rose", "red", "orange", "yellow", "green", "blue", "purple", "black", "white", "gold", "pastel", "merah", "hijau", "biru", "ungu"];
+  const normalized = text.toLowerCase();
+  const dominantColors = colorWords.filter((color) => normalized.includes(color)).slice(0, 6);
+  return {
+    dominantColors,
+    typographySignals: extractSectionKeywords(text, ["official", "mall", "star", "promo", "sale", "brand"], 6),
+    bannerStyle: [
+      kind === "STORE_BANNER" ? "captured store banner" : undefined,
+      normalized.includes("promo") ? "promotion-led" : undefined,
+      normalized.includes("official") ? "official-store signal" : undefined
+    ].filter((value): value is string => Boolean(value))
+  };
+}
+
+function findLine(text: string, keywords: string[]): string | undefined {
+  return text
+    .split("\n")
+    .map((line) => cleanText(line))
+    .find((line) => keywords.some((keyword) => line.toLowerCase().includes(keyword.toLowerCase())));
+}
+
+function normalizeEvidenceText(value?: string): string {
+  return (value ?? "")
+    .split(String.fromCharCode(0)).join("")
+    .split(String.fromCharCode(1)).join(" ")
+    .replace(/\r\n?/gu, "\n")
+    .replace(/[ \t\f\v]+/gu, " ")
+    .replace(/\s*\|\s*/gu, "\n")
+    .replace(/\n[ \t]+/gu, "\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+}
+
+function cleanText(value: string): string {
+  return value
+    .split(String.fromCharCode(0)).join("")
+    .split(String.fromCharCode(1)).join(" ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+function extractRawImages(raw: Record<string, unknown>): string[] {
+  const images = raw.images;
+  if (Array.isArray(images)) {
+    return images.filter((image): image is string => typeof image === "string");
+  }
+  return typeof raw.imageUrl === "string" ? [raw.imageUrl] : [];
+}
+
+function extractStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function mergeUnique(values: Array<string | undefined | null>): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function countOccurrences(text: string, pattern: RegExp): number {
+  return Array.from(text.matchAll(pattern)).length;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function selectionReason(

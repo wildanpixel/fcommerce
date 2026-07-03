@@ -17,7 +17,6 @@ import {
   Globe2,
   ImagePlus,
   KeyRound,
-  LayoutDashboard,
   ListChecks,
   Maximize2,
   Minimize2,
@@ -63,7 +62,6 @@ const SHOPEE_HOME_URL = "https://shopee.co.id/";
 const TIKTOK_SHOP_URL = "https://www.tiktok.com/shop";
 
 const navItems: Array<{ id: AppView; label: string; icon: LucideIcon }> = [
-  { id: "home", label: "Home", icon: LayoutDashboard },
   { id: "research", label: "New Research", icon: Search },
   { id: "projects", label: "Projects", icon: Table2 },
   { id: "keyStores", label: "Key Stores", icon: Store },
@@ -162,7 +160,7 @@ export default function App() {
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.18 }}
               >
-                {(activeView === "home" || activeView === "research") && <ManualResearchExperience />}
+                {activeView === "research" && <ManualResearchExperience />}
                 {activeView === "projects" && <ProjectsView />}
                 {activeView === "keyStores" && <KeyStoresView />}
                 {activeView === "reports" && <ReportsView />}
@@ -1446,17 +1444,17 @@ function ProjectsView() {
   const queryClient = useQueryClient();
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
   const projects = dashboard.data?.projects ?? [];
-  const [selectedProjectId, setSelectedProjectId] = useState("");
-  const activeProjectId = selectedProjectId || projects[0]?.id || "";
+  const [inspectingProjectId, setInspectingProjectId] = useState("");
+  const inspectingProject = projects.find((project) => project.id === inspectingProjectId);
   const detail = useQuery({
-    queryKey: ["project-detail", activeProjectId],
-    queryFn: () => apiClient.projectDetail(activeProjectId),
-    enabled: Boolean(activeProjectId)
+    queryKey: ["project-detail", inspectingProjectId],
+    queryFn: () => apiClient.projectDetail(inspectingProjectId),
+    enabled: Boolean(inspectingProjectId)
   });
   const deleteProject = useMutation({
     mutationFn: apiClient.deleteProject,
     onSuccess: async () => {
-      setSelectedProjectId("");
+      setInspectingProjectId("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
@@ -1471,44 +1469,21 @@ function ProjectsView() {
     }
   }
 
-  return (
-    <section className="grid grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)] gap-5">
-      <Panel title="Projects" icon={Table2}>
-        <div className="space-y-3">
-          {projects.map((project) => (
-            <button
-              key={project.id}
-              type="button"
-              className={[
-                "w-full rounded-md border p-4 text-left transition",
-                activeProjectId === project.id ? "border-signal-blue/35 bg-signal-blue/10" : "border-white/8 bg-white/5 hover:bg-white/8"
-              ].join(" ")}
-              onClick={() => setSelectedProjectId(project.id)}
-            >
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="text-base font-semibold text-white">{project.name}</div>
-                <StatusPill status={project.status} />
-              </div>
-              <div className="grid grid-cols-4 gap-3 text-xs text-ink-400">
-                <InfoLine label="Keyword" value={project.keyword} />
-                <InfoLine label="Category" value={project.productCategory ?? "-"} />
-                <InfoLine label="Marketplace" value={project.marketplace} />
-                <InfoLine label="Updated" value={formatDate(project.updatedAt)} />
-              </div>
-            </button>
-          ))}
-          {projects.length === 0 && <EmptyState label="No projects yet. Create an analysis from Home." />}
+  if (inspectingProjectId) {
+    return (
+      <section className="space-y-5">
+        <div className="flex items-center justify-between gap-4">
+          <button className="secondary-button w-auto px-4" type="button" onClick={() => setInspectingProjectId("")}>
+            <ChevronLeft size={16} />
+            Back to Projects
+          </button>
+          {inspectingProject && (
+            <div className="min-w-0 text-right">
+              <div className="truncate text-lg font-semibold text-white">{inspectingProject.name}</div>
+              <div className="text-xs text-ink-500">{inspectingProject.marketplace} · {formatDateTime(inspectingProject.createdAt)}</div>
+            </div>
+          )}
         </div>
-      </Panel>
-      <div className="space-y-5">
-        <Panel title="Vault Metrics" icon={Gauge}>
-          <div className="grid grid-cols-4 gap-3">
-            <Metric icon={Archive} label="Projects" value={projects.length} />
-            <Metric icon={FileDown} label="Reports" value={dashboard.data?.metrics.completedReports ?? 0} />
-            <Metric icon={ShoppingBag} label="Products" value={dashboard.data?.metrics.collectedProducts ?? 0} />
-            <Metric icon={Gauge} label="Running" value={dashboard.data?.metrics.runningJobs ?? 0} />
-          </div>
-        </Panel>
         {detail.data ? (
           <ProjectInspectionPanel
             detail={detail.data}
@@ -1517,10 +1492,51 @@ function ProjectsView() {
           />
         ) : (
           <Panel title="Project Inspector" icon={Search}>
-            <EmptyState label={activeProjectId ? "Loading project evidence..." : "Select a project to inspect evidence readiness."} />
+            <EmptyState label="Loading project evidence..." />
           </Panel>
         )}
-      </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-5">
+      <Panel title="Vault Metrics" icon={Gauge}>
+        <div className="grid grid-cols-4 gap-3">
+          <Metric icon={Archive} label="Projects" value={projects.length} />
+          <Metric icon={FileDown} label="Reports" value={dashboard.data?.metrics.completedReports ?? 0} />
+          <Metric icon={ShoppingBag} label="Products" value={dashboard.data?.metrics.collectedProducts ?? 0} />
+          <Metric icon={Gauge} label="Running" value={dashboard.data?.metrics.runningJobs ?? 0} />
+        </div>
+      </Panel>
+
+      <Panel title="Projects" icon={Table2}>
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          {projects.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              className="w-full rounded-md border border-white/8 bg-white/5 p-4 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
+              onClick={() => setInspectingProjectId(project.id)}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-base font-semibold text-white">{project.name}</div>
+                  <div className="mt-1 text-xs text-ink-500">{formatDateTime(project.createdAt)}</div>
+                </div>
+                <StatusPill status={project.status} />
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs text-ink-400 lg:grid-cols-4">
+                <InfoLine label="Keyword" value={project.keyword} />
+                <InfoLine label="Category" value={project.productCategory ?? "-"} />
+                <InfoLine label="Marketplace" value={project.marketplace} />
+                <InfoLine label="Evidence" value={`${project.counts.products} products · ${project.counts.stores} stores`} />
+              </div>
+            </button>
+          ))}
+          {projects.length === 0 && <EmptyState label="No projects yet. Create an analysis from New Research." />}
+        </div>
+      </Panel>
     </section>
   );
 }
@@ -1559,10 +1575,11 @@ function ProjectInspectionPanel({
         </div>
       }
     >
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         <Metric icon={ImagePlus} label="Evidence" value={evidenceCount} />
         <Metric icon={ShoppingBag} label="Products" value={detail.products.length} />
         <Metric icon={Store} label="Stores" value={detail.stores.length} />
+        <Metric icon={ListChecks} label="Reviews" value={detail.reviews.length} />
         <Metric icon={FileDown} label="Reports" value={detail.reports.length} />
         <Metric icon={CheckCircle2} label="Ready" value={projectReadinessScore(detail)} />
       </div>
@@ -1605,6 +1622,10 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
         <div className="space-y-3">
           {detail.products.map((product, index) => (
             <NestedReportSection key={product.id} title={`Product ${index + 1}: ${product.title}`}>
+              <ProductDossierSummary
+                product={product}
+                reviews={detail.reviews.filter((review) => review.productId === product.id)}
+              />
               <AssetList assets={detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id)} />
             </NestedReportSection>
           ))}
@@ -1614,9 +1635,14 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
 
       <ReportOutlineSection title="Evaluation Phase">
         <EvaluationCards detail={detail} />
+        <AnalysisSummary detail={detail} />
       </ReportOutlineSection>
 
       <ReportOutlineSection title="Key Store">
+        <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
+          Key stores are evaluated by store homepage, product matrix, bestseller area, visual style, official/mall/star signals, and repeated appearance across keyword evidence.
+        </div>
+        <StoreDetailCards detail={detail} />
         <AssetList assets={detail.assets.filter((asset) => ["STORE_HOME", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER", "STORE_PROMOTION", "STORE_VOUCHER"].includes(asset.kind))} />
       </ReportOutlineSection>
 
@@ -1718,11 +1744,122 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
               <td className="px-3 py-2">{product.title}</td>
               <td className="px-3 py-2">{formatOptionalNumber(product.monthlySold)}</td>
               <td className="px-3 py-2">{product.storeName ?? "-"}</td>
-              <td className="px-3 py-2">Marketplace</td>
+              <td className="px-3 py-2">{product.productType ?? storeTypeLabel(product)}</td>
               <td className="px-3 py-2">{formatCurrency(product.priceAverage)}</td>
               <td className="px-3 py-2">{product.rating ?? "-"}</td>
               <td className="px-3 py-2">{formatOptionalNumber(product.reviewCount)}</td>
               <td className="px-3 py-2">{formatOptionalNumber(product.totalSold)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductDossierSummary({
+  product,
+  reviews
+}: {
+  product: ProjectProductEvidence;
+  reviews: ProjectDetailPayload["reviews"];
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <InfoLine label="Price" value={formatCurrency(product.priceAverage)} />
+        <InfoLine label="Discount" value={product.discount ?? "-"} />
+        <InfoLine label="Rating" value={product.rating ? product.rating.toString() : "-"} />
+        <InfoLine label="Total Sold" value={formatOptionalNumber(product.totalSold)} />
+        <InfoLine label="Reviews" value={formatOptionalNumber(product.reviewCount)} />
+        <InfoLine label="Stock" value={formatOptionalNumber(product.stock)} />
+        <InfoLine label="Voucher" value={product.voucherText ?? "-"} />
+        <InfoLine label="Shipping" value={product.shippingText ?? "-"} />
+      </div>
+
+      <div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Slides</div>
+        <ProductImageGrid images={product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []} />
+      </div>
+
+      <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Description</div>
+        <p className="line-clamp-6 text-sm leading-6 text-ink-300">
+          {product.description ?? "No browser-readable product description captured yet. Save Product Description evidence from the guided collector."}
+        </p>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Variants</div>
+          <div className="flex flex-wrap gap-2">
+            {product.variants.slice(0, 16).map((variant) => (
+              <span key={variant} className="rounded-full border border-white/8 bg-white/5 px-2 py-1 text-xs text-ink-300">
+                {variant}
+              </span>
+            ))}
+            {product.variants.length === 0 && <span className="text-sm text-ink-500">No variants detected.</span>}
+          </div>
+        </div>
+        <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Specifications</div>
+          <div className="space-y-1 text-xs text-ink-300">
+            {Object.entries(product.specifications).slice(0, 10).map(([key, value]) => (
+              <div key={key} className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+                <span className="text-ink-500">{key}</span>
+                <span>{value}</span>
+              </div>
+            ))}
+            {Object.keys(product.specifications).length === 0 && <span className="text-sm text-ink-500">No specifications detected.</span>}
+          </div>
+        </div>
+      </div>
+
+      <ReviewEvidenceTable reviews={reviews} />
+    </div>
+  );
+}
+
+function ProductImageGrid({ images }: { images: string[] }) {
+  if (images.length === 0) {
+    return <EmptyState label="No product image URLs captured yet." />;
+  }
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      {images.slice(0, 9).map((image, index) => (
+        <button key={`${image}-${index}`} type="button" className="overflow-hidden rounded-md border border-white/8 bg-white/5" onClick={() => void apiClient.openUrl(image)}>
+          <div className="aspect-square bg-white/10">
+            <img src={image} alt={`Product slide ${index + 1}`} className="h-full w-full object-cover" />
+          </div>
+          <div className="px-2 py-1 text-left text-[11px] text-ink-500">Slide {index + 1}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["reviews"] }) {
+  if (reviews.length === 0) {
+    return <EmptyState label="No review text collected yet. Capture the review section with 3 positive and 2 negative examples visible." />;
+  }
+  return (
+    <div className="overflow-auto rounded-md border border-white/8">
+      <table className="min-w-[680px] text-left text-xs">
+        <thead className="bg-white/8 text-ink-500">
+          <tr>
+            <th className="px-3 py-2">Type</th>
+            <th className="px-3 py-2">Star Rated</th>
+            <th className="px-3 py-2">Comment - Include timestamp</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reviews.map((review) => (
+            <tr key={review.id} className="border-t border-white/8">
+              <td className="px-3 py-2">{review.sentiment}</td>
+              <td className="px-3 py-2">{review.rating ?? "-"}</td>
+              <td className="px-3 py-2">
+                {[review.reviewDate, review.variation, review.comment].filter(Boolean).join(" | ")}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -1751,6 +1888,127 @@ function EvaluationCards({ detail }: { detail: ProjectDetailPayload }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function AnalysisSummary({ detail }: { detail: ProjectDetailPayload }) {
+  if (detail.analyses.length === 0) {
+    return (
+      <div className="mt-3">
+        <EmptyState label="No AI scoring saved yet. Run AI after the product and store evidence sections are populated." />
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 space-y-3">
+      {detail.analyses.map((analysis) => {
+        const preview = parseAnalysisPreview(analysis.resultJson);
+        return (
+          <div key={analysis.id} className="rounded-md border border-white/8 bg-white/[0.04] p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-white">{analysis.provider} structured scoring</div>
+                <div className="text-xs text-ink-500">{formatDateTime(analysis.createdAt)}</div>
+              </div>
+              <StatusPill status={analysis.subjectType} />
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {preview.scores.map((score) => (
+                <div key={score.label} className="rounded-md border border-white/8 bg-white/5 p-3">
+                  <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{score.label}</div>
+                  <div className="mt-2 text-xl font-semibold text-white">{score.value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Observations</div>
+                <ul className="space-y-1 text-sm leading-6 text-ink-300">
+                  {preview.observations.map((item) => (
+                    <li key={item}>- {item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Recommendations</div>
+                <ul className="space-y-1 text-sm leading-6 text-ink-300">
+                  {preview.recommendations.map((item) => (
+                    <li key={item}>- {item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StoreDetailCards({ detail }: { detail: ProjectDetailPayload }) {
+  if (detail.stores.length === 0) {
+    return <EmptyState label="No normalized store records yet. Capture Store Homepage, Products, Best Seller, and Banner evidence." />;
+  }
+  return (
+    <div className="space-y-3">
+      {detail.stores.map((store) => {
+        const assets = detail.assets.filter((asset) => asset.ownerType === "STORE" && asset.ownerId === store.id);
+        const storeProducts = detail.products.filter((product) => product.storeUrl === store.url || product.storeName === store.name);
+        const gmvEta = storeProducts.reduce((sum, product) => sum + ((product.priceAverage ?? 0) * (product.monthlySold ?? 0)), 0);
+        return (
+          <details key={store.id} className="rounded-md border border-white/8 bg-white/[0.04] p-3" open>
+            <summary className="cursor-pointer select-none text-sm font-semibold text-white">
+              {store.name} <span className="ml-2 text-xs font-normal text-ink-500">{store.url}</span>
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+                <InfoLine label="Followers" value={formatOptionalNumber(store.followers)} />
+                <InfoLine label="Products" value={formatOptionalNumber(store.productsCount)} />
+                <InfoLine label="Rating" value={store.rating ? store.rating.toString() : "-"} />
+                <InfoLine label="Vouchers" value={formatOptionalNumber(store.voucherCount)} />
+                <InfoLine label="GMV ETA" value={formatCurrency(gmvEta)} />
+              </div>
+              <div className="rounded-md border border-white/8 bg-white/5 p-3 text-sm leading-6 text-ink-300">
+                {storeOverallText(store, storeProducts, detail)}
+              </div>
+              <div className="grid gap-3 lg:grid-cols-3">
+                <StoreEvidenceBucket title="Store Homepage" assets={assets.filter((asset) => asset.kind === "STORE_HOME")} />
+                <StoreEvidenceBucket title="Products" assets={assets.filter((asset) => asset.kind === "STORE_FEATURED_PRODUCTS")} />
+                <StoreEvidenceBucket title="Bestseller" assets={assets.filter((asset) => asset.kind === "STORE_BEST_SELLER")} />
+                <StoreEvidenceBucket title="Visual Style" assets={assets.filter((asset) => asset.kind === "STORE_BANNER" || asset.kind === "STORE_PROMOTION")} />
+                <StoreEvidenceBucket title="TikTok Accounts" assets={detail.assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT" && (asset.ownerId === store.id || asset.sourceUrl?.includes("tiktok")))} />
+                <div className="rounded-md border border-white/8 bg-white/5 p-3">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Theme Signals</div>
+                  <div className="space-y-1 text-xs text-ink-300">
+                    <div>Colors: {store.visualTheme.dominantColors.join(", ") || "-"}</div>
+                    <div>Typography: {store.visualTheme.typographySignals.join(", ") || "-"}</div>
+                    <div>Banners: {store.visualTheme.bannerStyle.join(", ") || "-"}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
+function StoreEvidenceBucket({ title, assets }: { title: string; assets: ProjectDetailPayload["assets"] }) {
+  const asset = assets[0];
+  return (
+    <button
+      type="button"
+      className="rounded-md border border-white/8 bg-white/5 p-3 text-left transition hover:bg-white/8"
+      disabled={!asset}
+      onClick={() => asset && void apiClient.openPath(asset.path)}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">{title}</div>
+      <div className="aspect-video overflow-hidden rounded bg-white/10">
+        {asset?.mimeType.startsWith("image/") ? <img src={toFileImageSrc(asset.path)} alt={asset.label} className="h-full w-full object-cover" /> : null}
+      </div>
+      <div className="mt-2 truncate text-xs text-ink-400">{asset?.label ?? "Not collected"}</div>
+    </button>
   );
 }
 
@@ -2588,10 +2846,6 @@ function withStoreSort(value: string, sortBy: "pop" | "sales"): string {
   }
 }
 
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("en", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
-}
-
 function formatCurrency(value?: number | null): string {
   if (!value) {
     return "-";
@@ -2621,6 +2875,117 @@ function toFileImageSrc(path: string): string {
   return normalized;
 }
 
+function storeTypeLabel(product: ProjectProductEvidence): string {
+  if (product.productType) {
+    return product.productType;
+  }
+  if (product.source === "Top Sales") {
+    return "Top-sales store";
+  }
+  return "Marketplace";
+}
+
+function storeOverallText(
+  store: ProjectDetailPayload["stores"][number],
+  products: ProjectProductEvidence[],
+  detail: ProjectDetailPayload
+): string {
+  const latestAnalysis = detail.analyses.at(0);
+  const analysis = latestAnalysis ? parseAnalysisPreview(latestAnalysis.resultJson) : undefined;
+  const analysisSignal = analysis?.observations[0];
+  const productCount = products.length;
+  const topSalesCount = products.filter((product) => product.source === "Top Sales").length;
+  const cues = [
+    productCount > 0 ? `${productCount} collected product${productCount === 1 ? "" : "s"}` : undefined,
+    topSalesCount > 0 ? `${topSalesCount} top-sales candidate${topSalesCount === 1 ? "" : "s"}` : undefined,
+    store.followers ? `${formatOptionalNumber(store.followers)} followers` : undefined,
+    store.rating ? `rating ${store.rating}` : undefined,
+    store.visualTheme.dominantColors.length > 0 ? `visual colors: ${store.visualTheme.dominantColors.join(", ")}` : undefined
+  ].filter(Boolean);
+
+  if (analysisSignal) {
+    return `${analysisSignal} Supporting store signals: ${cues.join("; ") || "store evidence is still being collected"}.`;
+  }
+  return cues.length > 0
+    ? `AI-ready store candidate based on ${cues.join("; ")}. Run AI scoring to finalize the Overall judgment.`
+    : "Store candidate is present, but homepage/products/bestseller/banner evidence is still needed for the Overall judgment.";
+}
+
+function parseAnalysisPreview(resultJson: string): {
+  scores: Array<{ label: string; value: number | string }>;
+  observations: string[];
+  recommendations: string[];
+} {
+  const root = parseJsonRecord(resultJson);
+  const scores = [
+    { label: "Brand", value: readNestedScore(root, "branding") },
+    { label: "Visual", value: readNestedScore(root, "visualQuality") },
+    { label: "Voucher", value: readNestedScore(root, "voucherStrategy") },
+    { label: "Position", value: readNestedScore(root, "competitivePosition") },
+    { label: "Trust", value: readNestedScore(root, "customerTrust") }
+  ];
+  const observations = [
+    ...readNestedStringArray(root, "branding", "observations"),
+    ...readNestedStringArray(root, "visualQuality", "observations"),
+    ...readNestedStringArray(root, "competitivePosition", "observations"),
+    ...readStringArray(root, "strengths"),
+    ...readStringArray(root, "weaknesses"),
+    ...readStringArray(root, "painPoints")
+  ].slice(0, 6);
+  const recommendations = readRecommendationLines(root).slice(0, 6);
+  return {
+    scores,
+    observations: observations.length > 0 ? observations : ["Structured AI analysis was saved, but no observation text was available."],
+    recommendations: recommendations.length > 0 ? recommendations : ["Collect missing product/store screenshots and rerun AI scoring before final export."]
+  };
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isUnknownRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function readNestedScore(root: Record<string, unknown>, key: string): number | string {
+  const section = isUnknownRecord(root[key]) ? root[key] : undefined;
+  const score = typeof section?.score === "number" ? section.score : undefined;
+  return score === undefined ? "-" : Math.round(score);
+}
+
+function readNestedStringArray(root: Record<string, unknown>, key: string, childKey: string): string[] {
+  const section = isUnknownRecord(root[key]) ? root[key] : undefined;
+  return section ? readStringArray(section, childKey) : [];
+}
+
+function readStringArray(root: Record<string, unknown>, key: string): string[] {
+  const value = root[key];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function readRecommendationLines(root: Record<string, unknown>): string[] {
+  const recommendations = root.recommendations;
+  if (!Array.isArray(recommendations)) {
+    return [];
+  }
+  return recommendations.flatMap((item) => {
+    if (!isUnknownRecord(item)) {
+      return [];
+    }
+    const priority = typeof item.priority === "string" ? item.priority : "MEDIUM";
+    const action = typeof item.action === "string" ? item.action : "";
+    const rationale = typeof item.rationale === "string" ? item.rationale : "";
+    const line = [priority, action, rationale].filter(Boolean).join(" - ");
+    return line ? [line] : [];
+  });
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function storeEvaluationCandidates(detail: ProjectDetailPayload): Array<{
   key: string;
   name: string;
@@ -2633,6 +2998,7 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): Array<{
     name: string;
     url?: string | null;
     products: ProjectProductEvidence[];
+    store?: ProjectDetailPayload["stores"][number];
   }>();
   for (const product of detail.products) {
     const key = product.storeUrl || product.storeName || product.id;
@@ -2644,20 +3010,35 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): Array<{
     current.products.push(product);
     byStore.set(key, current);
   }
+  for (const store of detail.stores) {
+    const current = byStore.get(store.url) ?? {
+      name: store.name,
+      url: store.url,
+      products: [],
+      store
+    };
+    current.name = store.name;
+    current.store = store;
+    byStore.set(store.url, current);
+  }
   return Array.from(byStore.entries())
     .map(([key, value]) => {
       const gmvEta = value.products.reduce(
         (sum, product) => sum + ((product.priceAverage ?? 0) * (product.monthlySold ?? 0)),
         0
       );
-      const thumbnail = value.products.find((product) => product.imageUrl)?.imageUrl ?? undefined;
+      const storeAsset = value.store
+        ? detail.assets.find((asset) => asset.ownerType === "STORE" && asset.ownerId === value.store?.id && asset.mimeType.startsWith("image/"))
+        : undefined;
+      const thumbnail = value.products.find((product) => product.imageUrl)?.imageUrl ?? (storeAsset ? toFileImageSrc(storeAsset.path) : undefined);
       const ratingScore = Math.max(...value.products.map((product) => product.rating ?? 0), 0) * 12;
-      const evidenceScore = detail.assets.some((asset) => asset.sourceUrl && value.url && asset.sourceUrl.includes(value.url)) ? 20 : 0;
-      const score = Math.min(100, Math.round(Math.log10(Math.max(gmvEta, 1)) * 10 + ratingScore + evidenceScore));
+      const trustScore = (value.store?.rating ?? 0) * 8 + Math.min(18, Math.log10(Math.max(value.store?.followers ?? 1, 1)) * 4);
+      const evidenceScore = detail.assets.some((asset) => asset.sourceUrl && value.url && asset.sourceUrl.includes(value.url)) || storeAsset ? 20 : 0;
+      const score = Math.min(100, Math.round(Math.log10(Math.max(gmvEta, 1)) * 10 + ratingScore + trustScore + evidenceScore));
       return {
         key,
         name: value.name,
-        type: value.products.some((product) => product.source === "Top Sales") ? "Top-sales candidate" : "Relevance candidate",
+        type: value.store ? "Captured key store" : value.products.some((product) => product.source === "Top Sales") ? "Top-sales candidate" : "Relevance candidate",
         thumbnail,
         gmvEta,
         score

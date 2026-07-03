@@ -2,8 +2,15 @@
 
 All notable changes to Marketplace Intelligence OS will be documented in this file.
 
-## Unreleased - 2026-07-02
+## Unreleased - 2026-07-03
 
+- Removed the Home navigation tab so the app starts from New Research and Projects remains the primary vault area.
+- Reworked Projects into a dedicated page: Vault Metrics first, project list second, and a full-page project inspector after selecting a project.
+- Extended guided product evidence persistence so product-specific captures enrich product records with PDP fields, variants, specifications, descriptions, reviews, images, and store signals where browser-readable data exists.
+- Added product dossier, review table, store evidence buckets, and persisted AI analysis summaries to the project inspector.
+- Updated store evaluation cards to include normalized store evidence, store assets, trust signals, and GMV ETA scoring.
+- Updated generated HTML/PDF reports to follow the PDF workflow more closely: Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, Visual Style, TikTok Evidence, and AI Recommendations.
+- Added explicit report subsections for product first page, slides, description, reviews, user media, shop homepage, store homepage, products, bestseller area, and visual style.
 - Reworked M1/M2 collection around user-controlled rendered-page snapshots instead of bot-like scraping: captures screenshot, full HTML, visible text, optional webview print-PDF data, and extracted product cards from the currently visible browser page.
 - Added browser zoom in/out and print controls for the embedded marketplace browser.
 - Added screenshot review before saving evidence, including manual crop selection, save-full, save-selected, and redo controls.

@@ -86,7 +86,7 @@ export class PrismaProjectRepository implements ProjectRepository {
     if (!project) {
       return null;
     }
-    const [products, stores, assets, reports] = await Promise.all([
+    const [products, stores, assets, reviews, analyses, reports] = await Promise.all([
       this.db.product.findMany({
         where: { projectId: id },
         orderBy: [{ rank: "asc" }, { createdAt: "asc" }],
@@ -102,6 +102,16 @@ export class PrismaProjectRepository implements ProjectRepository {
         orderBy: { createdAt: "desc" },
         take: 120
       }),
+      this.db.review.findMany({
+        where: { product: { projectId: id } },
+        orderBy: { createdAt: "desc" },
+        take: 120
+      }),
+      this.db.analysis.findMany({
+        where: { projectId: id },
+        orderBy: { createdAt: "desc" },
+        take: 20
+      }),
       this.db.report.findMany({
         where: { projectId: id },
         orderBy: { updatedAt: "desc" },
@@ -114,6 +124,7 @@ export class PrismaProjectRepository implements ProjectRepository {
         id: product.id,
         title: product.title,
         imageUrl: extractProductImageUrl(product.rawJson),
+        productType: product.productType,
         rank: product.rank,
         source: product.source,
         selectionReason: product.selectionReason,
@@ -124,8 +135,15 @@ export class PrismaProjectRepository implements ProjectRepository {
         reviewCount: product.reviewCount,
         monthlySold: product.monthlySold,
         totalSold: product.totalSold,
+        stock: product.stock,
         storeName: product.storeName,
         storeUrl: product.storeUrl,
+        voucherText: product.voucherText,
+        shippingText: product.shippingText,
+        description: product.description,
+        variants: parseJsonArray(product.variantsJson),
+        specifications: parseStringRecord(product.specificationsJson),
+        images: extractProductImages(product.rawJson),
         productUrl: product.productUrl,
         createdAt: product.createdAt.toISOString()
       })),
@@ -134,12 +152,37 @@ export class PrismaProjectRepository implements ProjectRepository {
         name: store.name,
         url: store.url,
         followers: store.followers,
+        following: store.following,
         productsCount: store.productsCount,
         rating: store.rating,
+        ratingCount: store.ratingCount,
+        chatResponse: store.chatResponse,
+        joinedDate: store.joinedDate,
+        categories: parseJsonArray(store.categoriesJson),
         voucherCount: store.voucherCount,
+        voucherTypes: parseJsonArray(store.voucherTypesJson),
+        visualTheme: parseVisualTheme(store.visualThemeJson),
         createdAt: store.createdAt.toISOString()
       })),
       assets: assets.map(toAssetSummary),
+      reviews: reviews.map((review) => ({
+        id: review.id,
+        productId: review.productId,
+        sentiment: review.sentiment,
+        rating: review.rating,
+        comment: review.comment,
+        variation: review.variation,
+        reviewDate: review.reviewDate,
+        createdAt: review.createdAt.toISOString()
+      })),
+      analyses: analyses.map((analysis) => ({
+        id: analysis.id,
+        subjectType: analysis.subjectType,
+        subjectId: analysis.subjectId,
+        provider: analysis.provider,
+        resultJson: analysis.resultJson,
+        createdAt: analysis.createdAt.toISOString()
+      })),
       reports: reports.map(toReportSummary)
     };
   }
@@ -217,6 +260,7 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
         priceMax: product.price.max,
         priceAverage: product.price.average,
         originalPrice: product.price.original,
+        discount: product.discount,
         rating: product.rating,
         reviewCount: product.reviewCount,
         monthlySold: product.monthlySold,
@@ -596,6 +640,46 @@ function extractProductImageUrl(rawJson: string): string | undefined {
     return images[0];
   }
   return undefined;
+}
+
+function extractProductImages(rawJson: string): string[] {
+  const raw = parseJsonObject(rawJson);
+  const images = raw.images;
+  if (Array.isArray(images)) {
+    return images.filter((image): image is string => typeof image === "string");
+  }
+  const imageUrl = raw.imageUrl;
+  return typeof imageUrl === "string" ? [imageUrl] : [];
+}
+
+function parseJsonArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseStringRecord(value: string): Record<string, string> {
+  const parsed = parseJsonObject(value);
+  return Object.fromEntries(
+    Object.entries(parsed)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
+}
+
+function parseVisualTheme(value: string): {
+  dominantColors: string[];
+  typographySignals: string[];
+  bannerStyle: string[];
+} {
+  const parsed = parseJsonObject(value);
+  return {
+    dominantColors: Array.isArray(parsed.dominantColors) ? parsed.dominantColors.filter((item): item is string => typeof item === "string") : [],
+    typographySignals: Array.isArray(parsed.typographySignals) ? parsed.typographySignals.filter((item): item is string => typeof item === "string") : [],
+    bannerStyle: Array.isArray(parsed.bannerStyle) ? parsed.bannerStyle.filter((item): item is string => typeof item === "string") : []
+  };
 }
 
 function parseJsonObject(value: string): Record<string, unknown> {

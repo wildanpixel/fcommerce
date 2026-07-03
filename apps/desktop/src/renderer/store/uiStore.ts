@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type AppView = "home" | "research" | "projects" | "keyStores" | "reports" | "settings";
+export type AppView = "research" | "projects" | "keyStores" | "reports" | "settings";
 
 type UiStore = {
   activeView: AppView;
@@ -8,6 +8,6 @@ type UiStore = {
 };
 
 export const useUiStore = create<UiStore>((set) => ({
-  activeView: "home",
+  activeView: "research",
   setActiveView: (activeView) => set({ activeView })
 }));

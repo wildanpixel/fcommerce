@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-02
+Last updated: 2026-07-03
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -34,6 +34,8 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-02 | M1 light-mode UI readability | Fixed | The app now uses stronger light-mode contrast, solid panels, readable sidebar/navigation states, compact collector-first behavior, balanced browser controls, and an explicit manual-action notice for Shopee protected pages. |
 | 2026-07-02 | Product extraction from protected marketplace pages | Re-scoped | Collection now captures the user-visible rendered page as screenshot, full HTML, visible text, optional print-PDF, and offline product rows from the current webview instead of launching a separate bot crawler. |
 | 2026-07-02 | Portable Android tooling expectation | Clarified | The app cannot bundle Google Play system images or TikTok by default; Android tooling can now be discovered from sidecar SDK folders beside the executable or packaged resources when legally supplied. |
+| 2026-07-03 | Projects split-view inspection | Fixed | Projects now opens as a dedicated Vault Metrics and project-list page; selecting a project opens a full-page inspector shaped like the final report. |
+| 2026-07-03 | Report hierarchy mismatch | Fixed for guided evidence scope | Project inspection and generated reports now render Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, and TikTok Evidence in the PRD/PDF workflow order. |
 
 ## Sprint Overview
 
@@ -41,10 +43,10 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | --- | --- | --- | --- | --- | --- |
 | Foundation and Experience | M0/M1 Complete Desktop Product Experience | v0.1.1 | Guided manual evidence collector | 1 week | Completed |
 | Sprint 1 | M2.1 Complete Shopee Desktop Search | v0.2.0 | Complete Shopee Desktop | 1 week | Completed |
-| Sprint 2 | M2.2 Complete Product Detail | v0.3.0 | Complete Product Detail | 1 week | Next |
-| Sprint 3 | M2.3 Complete Store Detail | v0.4.0 | Complete Store Detail | 1 week | Not Started |
-| Sprint 4 | M3.1 Complete Key Stores AI | v0.5.0 | Key Stores AI | 1 week | Not Started |
-| Sprint 5 | M3.2 Complete Reports | v0.6.0 | Report completeness | 1 week | Not Started |
+| Sprint 2 | M2.2 Complete Product Detail | v0.3.0 | Complete Product Detail | 1 week | Completed for guided evidence scope |
+| Sprint 3 | M2.3 Complete Store Detail | v0.4.0 | Complete Store Detail | 1 week | Partial |
+| Sprint 4 | M3.1 Complete Key Stores AI | v0.5.0 | Key Stores AI | 1 week | Partial |
+| Sprint 5 | M3.2 Complete Reports | v0.6.0 | Report completeness | 1 week | Partial |
 | Sprint 6 | M4.1 Shopee Mobile Evidence | v0.7.0 | Shopee Mobile | 1 week | Not Started |
 | Sprint 7 | M4.2 Android Manual Evidence | v0.8.0 | Android Emulator evidence workspace | 2 weeks | Completed for manual evidence scope |
 | Sprint 8 | M5.1 TikTok Shop Adapter | v0.9.0 | TikTok Shop | 2 weeks | Not Started |
@@ -168,7 +170,8 @@ Completed: 2026-06-27
 GitHub Milestone Name: M2.2 Complete Product Detail
 Target Version: v0.3.0
 Estimated Time: 1 week
-Status: Next
+Status: Completed for guided evidence scope
+Completed: 2026-07-03
 
 ### Objectives
 
@@ -179,11 +182,11 @@ Status: Next
 
 | Task | Dependencies | Estimated Time | Acceptance Criteria |
 | --- | --- | ---: | --- |
-| Build product detail parser map | Product detail pages | 1 day | Parser extracts title, price, original price, discount, stock, rating, sold counts, and store references. |
-| Collect product variants | Product page DOM | 1 day | Variant names and visible options are stored per product. |
-| Collect description and specifications | Product page DOM | 1 day | Description and specification fields are stored as structured data. |
-| Capture product media slides | Screenshot engine, media collector | 1 day | First image, gallery slides, and video presence are captured or recorded. |
-| Add product detail validation tests | Fixtures or mocked DOM | 1 day | Unit tests cover parser behavior for representative Shopee product pages. |
+| Build product detail parser map | Product detail pages | Done | Completed for guided scope: captured PDP text/HTML enriches title, price range, original price, discount, stock, rating, sold counts, and store signals where visible. |
+| Collect product variants | Product page DOM | Done | Completed for guided scope: visible variant-like lines are stored per product. |
+| Collect description and specifications | Product page DOM | Done | Completed for guided scope: product description and key/value specifications are stored where readable. |
+| Capture product media slides | Screenshot engine, media collector | Partial | Product image URLs and screenshot assets are retained, but guaranteed extraction of every protected Shopee slide remains heuristic. |
+| Add product detail validation tests | Fixtures or mocked DOM | Partial | Existing unit/e2e validation passes; dedicated parser fixtures remain a follow-up. |
 
 ### Dependencies
 
@@ -194,17 +197,18 @@ Status: Next
 
 ### Acceptance Criteria
 
-- Product detail pages populate report-ready product records.
-- Media evidence is organized in project folders.
-- Missing fields are recorded as collection limitations, not silent failures.
-- Product detail rows in `IMPLEMENTATION_STATUS.md` are updated.
+- Passed for guided scope: product detail captures populate report-ready product records where the visible Shopee page exposes text/HTML.
+- Passed: media evidence is organized in project folders and linked to products through owner metadata.
+- Passed: missing fields remain visible as collection limitations in the inspector/report instead of silent failures.
+- Passed: Product detail rows in `IMPLEMENTATION_STATUS.md` are updated.
+- Follow-up: protected slide/video extraction and dedicated parser fixtures remain open.
 
 ## Sprint 3 - Complete Store Detail
 
 GitHub Milestone Name: M2.3 Complete Store Detail
 Target Version: v0.4.0
 Estimated Time: 1 week
-Status: Not Started
+Status: Partial
 
 ### Objectives
 
@@ -230,17 +234,17 @@ Status: Not Started
 
 ### Acceptance Criteria
 
-- Store records include profile metrics and homepage evidence where visible.
-- Voucher and promotion sections are either captured or reported as unavailable.
-- Store detail report sections have real evidence inputs.
-- M2 store-related rows in `IMPLEMENTATION_STATUS.md` are updated.
+- Partial: store records include profile metrics and homepage evidence where visible.
+- Partial: voucher and promotion sections are captured as assets where visible, but voucher normalization is not complete.
+- Passed: store detail report sections have real evidence inputs and explicit empty states.
+- Passed: M2 store-related rows in `IMPLEMENTATION_STATUS.md` are updated.
 
 ## Sprint 4 - Complete Key Stores AI
 
 GitHub Milestone Name: M3.1 Complete Key Stores AI
 Target Version: v0.5.0
 Estimated Time: 1 week
-Status: Not Started
+Status: Partial
 
 ### Objectives
 
@@ -266,17 +270,17 @@ Status: Not Started
 
 ### Acceptance Criteria
 
-- Key Stores UI no longer uses placeholder score logic.
-- Rankings show evidence-backed rationale.
-- AI provider failure falls back to local heuristic analysis with explicit limitations.
-- M1 and M3 Key Stores rows in `IMPLEMENTATION_STATUS.md` are updated.
+- Passed: Project Inspector Evaluation Phase no longer uses placeholder-only scoring; it combines GMV ETA, rating/trust signals, store assets, and persisted AI output where available.
+- Partial: rankings show evidence-backed rationale when product/store evidence exists, but high-confidence narrative scoring still depends on completed store evidence and configured providers.
+- Passed: AI provider failure falls back to local heuristic analysis with explicit limitations.
+- Passed: M1 and M3 Key Stores rows in `IMPLEMENTATION_STATUS.md` are updated.
 
 ## Sprint 5 - Complete Reports
 
 GitHub Milestone Name: M3.2 Complete Reports
 Target Version: v0.6.0
 Estimated Time: 1 week
-Status: Not Started
+Status: Partial
 
 ### Objectives
 
@@ -303,10 +307,11 @@ Status: Not Started
 
 ### Acceptance Criteria
 
-- PDF report can be generated from a completed Shopee desktop job.
-- Missing evidence is explicit in the report.
-- Report sections remain modular and can be enabled or disabled.
-- M3 report rows in `IMPLEMENTATION_STATUS.md` are updated.
+- Passed: HTML/PDF report can be generated from a guided Shopee project.
+- Passed: missing evidence is explicit in the report.
+- Passed: report sections remain modular and can be enabled or disabled.
+- Passed: M3 report rows in `IMPLEMENTATION_STATUS.md` are updated.
+- Follow-up: visual QA against a fully populated real project remains required before marking PDF export complete.
 
 ## Sprint 6 - Shopee Mobile
 
