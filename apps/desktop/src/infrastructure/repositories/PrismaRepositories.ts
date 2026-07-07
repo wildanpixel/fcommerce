@@ -127,6 +127,8 @@ export class PrismaProjectRepository implements ProjectRepository {
         title: product.title,
         imageUrl: extractProductImageUrl(product.rawJson),
         productType: product.productType,
+        storeType: extractProductStoreType(product.rawJson),
+        sourcePlacement: extractProductSourcePlacement(product.rawJson),
         rank: product.rank,
         source: product.source,
         selectionReason: product.selectionReason,
@@ -271,7 +273,9 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
         source: product.source,
         selectionReason: product.selectionReason,
         title: product.title,
-        productType: inferProductType(product.title),
+        productType: typeof product.raw.productType === "string" && product.raw.productType.trim()
+          ? product.raw.productType
+          : inferProductType(product.title),
         priceMin: product.price.min,
         priceMax: product.price.max,
         priceAverage: product.price.average,
@@ -740,6 +744,18 @@ function extractProductImages(rawJson: string): string[] {
   }
   const imageUrl = raw.imageUrl;
   return typeof imageUrl === "string" ? [imageUrl] : [];
+}
+
+function extractProductStoreType(rawJson: string): string | undefined {
+  const raw = parseJsonObject(rawJson);
+  const storeType = raw.storeType;
+  return typeof storeType === "string" && storeType.trim() ? storeType : undefined;
+}
+
+function extractProductSourcePlacement(rawJson: string): string | undefined {
+  const raw = parseJsonObject(rawJson);
+  const sourcePlacement = raw.sourcePlacement;
+  return typeof sourcePlacement === "string" && sourcePlacement.trim() ? sourcePlacement : undefined;
 }
 
 function parseJsonArray(value: string): string[] {

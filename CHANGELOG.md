@@ -2,6 +2,15 @@
 
 All notable changes to Marketplace Intelligence OS will be documented in this file.
 
+## Unreleased - 2026-07-07
+
+- Changed screenshot capture to stitch a full scrollable page and show the complete captured page in a fit-to-screen crop preview instead of a scrollable preview pane.
+- Changed Shopee Step 3 from another evidence capture into a process-only Key Product table review that merges Relevance and Top Sales rows before Product Detail collection starts.
+- Focused Shopee rendered HTML extraction on the inner content `<div>` under `#main` and improved product-card parsing for `picture._displayContents_ img[srcset]` thumbnails.
+- Added source placement, product type, and store badge/store type signals to extracted product rows and Key Product table display.
+- Limited Key Product and Product Detail Qualified flows to an AI-assisted max-10 selected product set, with product-detail steps labeled by product title.
+- Focused the project inspector workflow on Keyword General, Key Product, and Product Detail Qualified sections.
+
 ## Unreleased - 2026-07-03
 
 - Split guided collection into three phases: Keyword General, Product Details, and Evaluation/Key Store, each with explicit Done/Collection Complete progression.

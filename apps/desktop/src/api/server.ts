@@ -1105,8 +1105,12 @@ function toProductDetail(
       source: "rendered-page-snapshot",
       sourceStepId: context.stepId,
       sourceUrl: context.sourceUrl,
+      sourcePlacement: product.sourcePlacement ?? sourcePlacementLabel(product, context.source),
       imageUrl: product.imageUrl,
       images: product.imageUrl ? [product.imageUrl] : [],
+      productType: product.productType,
+      storeType: product.storeType,
+      storeBadgeImageUrl: product.storeBadgeImageUrl,
       htmlPath: context.htmlPath,
       textPath: context.textPath,
       pdfPath: context.pdfPath,
@@ -1114,6 +1118,12 @@ function toProductDetail(
       priceText: product.priceText
     }
   };
+}
+
+function sourcePlacementLabel(product: ExtractedPageProduct, source: string): string {
+  const prefix = source === "Top Sales" ? "Top" : "Relevance";
+  const placement = product.sourcePlacement ?? String(product.rank || 1);
+  return /^(Top|Relevance)\s+/iu.test(placement) ? placement : `${prefix} ${placement}`;
 }
 
 function toStoreProfile(product: ExtractedPageProduct): StoreProfile {

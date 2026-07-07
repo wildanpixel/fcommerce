@@ -91,6 +91,8 @@ export type ProjectDetailPayload = {
     title: string;
     imageUrl?: string | null;
     productType?: string | null;
+    storeType?: string | null;
+    sourcePlacement?: string | null;
     rank?: number | null;
     source?: string | null;
     selectionReason?: string | null;
@@ -336,6 +338,10 @@ export type ExtractedPageProduct = {
   rating?: number;
   reviewCount?: number;
   soldCount?: number;
+  productType?: string;
+  storeType?: string;
+  storeBadgeImageUrl?: string;
+  sourcePlacement?: string;
   storeName?: string;
   storeUrl?: string;
   mallStatus?: boolean;

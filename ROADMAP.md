@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-03
+Last updated: 2026-07-07
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -40,6 +40,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-03 | Collection flow too long | Fixed | Guided collection is now split into Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store with persisted save/resume progress. |
 | 2026-07-03 | Shopee login state lost between projects | Fixed | The embedded browser now uses a persistent marketplace session partition instead of per-project partitions. |
 | 2026-07-03 | Projects could show saved progress but not resume collection | Fixed | Project cards now separate `Inspect` from `Continue Collection`, and project inspector includes saved-progress details plus a resume action that reopens the collector from the saved state. |
+| 2026-07-07 | Screenshot crop preview only showed a scrollable viewport | Fixed | Browser capture now stitches the full scrollable page and the review modal scales the complete capture into a non-scrolling crop preview. |
+| 2026-07-07 | Keyword General Step 3 captured redundant evidence | Fixed | Step 3 now processes Relevance and Top Sales rows into the Key Product table, then starts Product Detail collection from a max-10 selected product set. |
+| 2026-07-07 | Shopee extraction included too much page shell noise | Fixed | Product extraction now targets the inner content `<div>` under `#main` and prioritizes `picture._displayContents_` thumbnails, source placement, product type, and store badge signals. |
 
 ## Sprint Overview
 
@@ -89,6 +92,8 @@ Completed: 2026-06-29
 | Add three-part guided flow | Evidence step map, project state | Done | Completed: collection is split into Keyword General, Product Details, and Evaluation/Key Store phases. |
 | Add collection pause/resume state | Prisma project state | Done | Completed: Projects list shows saved stage/progress and the collector restores stage, completed steps, URL, and view mode. |
 | Add collection resume from inspector | Prisma project state, project inspector | Done | Completed: project cards and the inspector expose Continue Collection, which reopens the Shopee collector or TikTok Android workspace from the saved project state. |
+| Add full-page screenshot crop review | Electron webview capture | Done | Completed: screenshot capture stitches the scrollable page and shows it fully scaled for crop selection without preview scrolling. |
+| Add process-only Key Product table step | Relevance and Top Sales extracted rows | Done | Completed: Step 3 builds the table instead of capturing another page; product detail starts only after the user reviews the table. |
 | Add screenshot review crop | React renderer | Done | Completed: user can crop, save full, save selected, or redo before evidence is stored. |
 | Add manual screenshot attachment | Project workspace, Prisma assets | Done | Completed: user-selected screenshot files can be attached to guided evidence steps. |
 | Add floating step controller | Evidence step map | Done | Completed: the active collection point floats over the browser and reveals the collect button only on matching target pages. |

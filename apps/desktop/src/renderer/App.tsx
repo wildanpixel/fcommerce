@@ -91,6 +91,7 @@ type CollectionStep = {
   section: string;
   label: string;
   kind: ManualEvidenceKind;
+  mode?: "CAPTURE" | "PROCESS";
   ownerType?: ManualEvidencePayload["ownerType"];
   ownerId?: string;
   instruction: string;
@@ -101,6 +102,14 @@ type CollectionStep = {
 type CapturedPageImage = {
   toDataURL: () => string;
   getSize?: () => { width: number; height: number };
+};
+
+type FullPageScreenshot = {
+  imageDataUrl: string;
+  width: number;
+  height: number;
+  mode: "viewport" | "full-page";
+  clipped?: boolean;
 };
 
 type PendingEvidenceCapture = {
@@ -808,6 +817,7 @@ function GuidedBrowserCollector({
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [collectedSteps, setCollectedSteps] = useState<Record<string, string>>(savedCollectionState.stepAssetPaths);
   const [stageCompleted, setStageCompleted] = useState<CollectionState["stageCompleted"]>(savedCollectionState.stageCompleted);
+  const [reviewingKeyProducts, setReviewingKeyProducts] = useState(false);
   const [pageTextPreview, setPageTextPreview] = useState("");
   const [zoomFactor, setZoomFactor] = useState(1);
   const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
@@ -829,6 +839,10 @@ function GuidedBrowserCollector({
   );
   const steps = useMemo(() => allSteps.filter((step) => step.stage === activeStage), [activeStage, allSteps]);
   const activeStep = steps[activeStepIndex] ?? steps[0] ?? allSteps[0];
+  const selectedKeyProducts = useMemo(
+    () => selectKeyProductCandidates(projectDetail.data?.products ?? []),
+    [projectDetail.data?.products]
+  );
   const collectedCount = allSteps.filter((step) => collectedSteps[step.id]).length;
   const stageCollectedCount = steps.filter((step) => collectedSteps[step.id]).length;
   const collectionProgressPercent = allSteps.length > 0 ? Math.round((collectedCount / allSteps.length) * 100) : 0;
@@ -952,6 +966,7 @@ function GuidedBrowserCollector({
 
   useEffect(() => {
     setActiveStepIndex(0);
+    setReviewingKeyProducts(false);
   }, [activeStage]);
 
   useEffect(() => {
@@ -1031,7 +1046,7 @@ function GuidedBrowserCollector({
     appendLog(setActivityLog, "Collection progress saved. You can close the browser and continue from this project later.");
   }
 
-  function completeCurrentStage() {
+  function completeCurrentStage(nextCollectedSteps = collectedSteps) {
     const nextStage = nextCollectionStage(activeStage);
     const nextStageCompleted = {
       ...stageCompleted,
@@ -1045,6 +1060,9 @@ function GuidedBrowserCollector({
         stage: nextStage,
         stageLabel: collectionStageLabel(nextStage),
         stageCompleted: nextStageCompleted,
+        stepAssetPaths: nextCollectedSteps,
+        completedStepIds: Object.keys(nextCollectedSteps),
+        progressPercent: collectionProgress(allSteps, nextCollectedSteps),
         currentStepId: allSteps.find((step) => step.stage === nextStage)?.id
       });
       appendLog(setActivityLog, `${collectionStageLabel(activeStage)} completed. Continue with ${collectionStageLabel(nextStage)}.`);
@@ -1052,10 +1070,36 @@ function GuidedBrowserCollector({
     }
     persistCollectionState({
       stageCompleted: nextStageCompleted,
+      stepAssetPaths: nextCollectedSteps,
+      completedStepIds: Object.keys(nextCollectedSteps),
       progressPercent: 100,
       currentStepId: activeStep?.id
     });
     appendLog(setActivityLog, "Shopee collection flow marked complete. Review the project inspector before generating the report.");
+  }
+
+  function openKeyProductTableReview() {
+    setExpanded(false);
+    setReviewingKeyProducts(true);
+    appendLog(setActivityLog, "Built the AI-assisted Key Product table from Relevance and Top Sales evidence.");
+  }
+
+  function startProductDetailCollection() {
+    const processStep = allSteps.find((step) => step.id === "key-product-table");
+    const nextCollectedSteps = processStep
+      ? { ...collectedSteps, [processStep.id]: "processed:key-product-table" }
+      : collectedSteps;
+    setCollectedSteps(nextCollectedSteps);
+    setReviewingKeyProducts(false);
+    completeCurrentStage(nextCollectedSteps);
+  }
+
+  function runStagePrimaryAction() {
+    if (activeStage === "KEYWORD_GENERAL") {
+      openKeyProductTableReview();
+      return;
+    }
+    completeCurrentStage();
   }
 
   async function captureAndSaveEvidence(step: CollectionStep) {
@@ -1077,12 +1121,8 @@ function GuidedBrowserCollector({
     if (!webview?.capturePage) {
       throw new Error("The embedded browser cannot capture this page in the current runtime.");
     }
-    setCaptureStatus({ message: "Targeted page received", state: "working" });
-    const image = await webview.capturePage();
-    const size = image.getSize?.() ?? {
-      width: Math.round(webview.clientWidth),
-      height: Math.round(webview.clientHeight)
-    };
+    setCaptureStatus({ message: "Capturing full page screenshot", state: "working" });
+    const screenshot = await captureFullPageScreenshot(webview);
     const sourceUrl = webview.getURL?.() ?? currentUrl;
     setCaptureStatus({ message: "Downloading HTML from #main", state: "working" });
     const snapshot = await extractRenderedPageSnapshot(webview)
@@ -1113,9 +1153,9 @@ function GuidedBrowserCollector({
       ownerType: step.ownerType,
       ownerId: step.ownerId,
       sourceUrl: sourceUrl === "about:blank" ? undefined : sourceUrl,
-      imageDataUrl: image.toDataURL(),
-      width: size.width,
-      height: size.height,
+      imageDataUrl: screenshot.imageDataUrl,
+      width: screenshot.width,
+      height: screenshot.height,
       note: step.instruction,
       pageHtml: snapshot.html,
       visibleText: snapshot.visibleText,
@@ -1128,6 +1168,8 @@ function GuidedBrowserCollector({
         marketplace: platform,
         viewMode,
         zoomFactor,
+        screenshotMode: screenshot.mode,
+        screenshotClipped: screenshot.clipped,
         extractedText: snapshot.visibleText,
         extractedProductCount: snapshot.products.length,
         capturedAt: new Date().toISOString()
@@ -1268,7 +1310,7 @@ function GuidedBrowserCollector({
           captured={Boolean(collectedSteps[activeStep.id])}
           saving={saveEvidence.isPending}
           onOpenTarget={() => activeStep.targetUrl && navigateTo(activeStep.targetUrl)}
-          onCollect={() => void captureAndSaveEvidence(activeStep)}
+          onCollect={() => activeStep.mode === "PROCESS" ? openKeyProductTableReview() : void captureAndSaveEvidence(activeStep)}
           onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
           onOpenAndroid={activeStep.id === "tiktok-brand-search" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
           onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
@@ -1289,6 +1331,15 @@ function GuidedBrowserCollector({
         />
       )}
     </Panel>
+  );
+
+  const keyProductTablePanel = (
+    <KeyProductTableReview
+      products={selectedKeyProducts}
+      totalProducts={projectDetail.data?.products.length ?? 0}
+      onBackToBrowser={() => setReviewingKeyProducts(false)}
+      onStartProductDetails={startProductDetailCollection}
+    />
   );
 
   return (
@@ -1324,9 +1375,9 @@ function GuidedBrowserCollector({
                 <Archive size={14} />
                 Save
               </button>
-              <button className="primary-button h-9 px-2 text-xs" type="button" onClick={completeCurrentStage} disabled={saveCollectionState.isPending}>
+              <button className="primary-button h-9 px-2 text-xs" type="button" onClick={runStagePrimaryAction} disabled={saveCollectionState.isPending}>
                 <CheckCircle2 size={14} />
-                {stageCompletionButtonLabel(activeStage)}
+                {activeStage === "KEYWORD_GENERAL" ? "Review Table" : stageCompletionButtonLabel(activeStage)}
               </button>
             </div>
             <div className="mt-4 max-h-[420px] space-y-2 overflow-auto pr-1">
@@ -1362,7 +1413,9 @@ function GuidedBrowserCollector({
         </aside>
       )}
 
-      <div className={expanded ? "mx-auto max-w-[1800px]" : ""}>{browserPanel}</div>
+      <div className={expanded ? "mx-auto max-w-[1800px]" : ""}>
+        {reviewingKeyProducts && activeStage === "KEYWORD_GENERAL" ? keyProductTablePanel : browserPanel}
+      </div>
     </section>
   );
 }
@@ -1447,7 +1500,7 @@ function FloatingStepController({
             <div className="truncate text-xs font-medium text-white">{step.label}</div>
           </div>
           <span className={["shrink-0 rounded-full px-2 py-1 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
-            {captured ? "saved" : step.ready ? "ready" : "wait"}
+            {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "wait"}
           </span>
         </div>
       </motion.div>
@@ -1477,7 +1530,7 @@ function FloatingStepController({
         <div className="mb-1 flex items-center justify-between gap-2">
           <span className="font-medium text-white">{step.section}</span>
           <span className={["rounded-full px-2 py-0.5 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
-            {captured ? "saved" : step.ready ? "ready" : "waiting"}
+            {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "waiting"}
           </span>
         </div>
         {step.instruction}
@@ -1499,11 +1552,15 @@ function FloatingStepController({
       {step.ready ? (
         <button className="primary-button mt-2 h-9" type="button" disabled={saving} onClick={onCollect}>
           <ClipboardCheck size={16} />
-          {saving ? "Saving Evidence" : captured ? "Capture Again" : "Collect This Step"}
+          {step.mode === "PROCESS"
+            ? captured ? "Review Table Again" : "Build Key Product Table"
+            : saving ? "Saving Evidence" : captured ? "Capture Again" : "Collect This Step"}
         </button>
       ) : (
         <div className="mt-2 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
-          Open the target page or complete Shopee login/verification manually. The collect button appears when this step is ready.
+          {step.mode === "PROCESS"
+            ? "Capture both Relevance and Top Sales first. The table builder appears when product rows exist."
+            : "Open the target page or complete Shopee login/verification manually. The collect button appears when this step is ready."}
         </div>
       )}
       {(onAttachFile || onOpenAndroid) && (
@@ -1593,8 +1650,8 @@ function ScreenshotReviewModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
-      <div className="mio-panel w-full max-w-5xl rounded-[18px] border border-white/12 bg-ink-900/95 p-5 shadow-glow">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
+      <div className="mio-panel flex max-h-[calc(100vh-32px)] w-full max-w-[calc(100vw-32px)] flex-col rounded-[18px] border border-white/12 bg-ink-900/95 p-5 shadow-glow">
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
             <div className="text-sm font-semibold text-white">Review Screenshot</div>
@@ -1605,13 +1662,13 @@ function ScreenshotReviewModal({
           </button>
         </div>
         <div
-          className="relative max-h-[64vh] overflow-auto rounded-xl border border-white/12 bg-black/80"
+          className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/12 bg-black/85"
           onPointerDown={startSelection}
           onPointerMove={updateSelection}
           onPointerUp={endSelection}
           onPointerCancel={endSelection}
         >
-          <img ref={imageRef} src={capture.payload.imageDataUrl} alt="Captured evidence preview" className="mx-auto block max-h-[64vh] max-w-full select-none" draggable={false} />
+          <img ref={imageRef} src={capture.payload.imageDataUrl} alt="Captured evidence preview" className="block h-full max-h-[72vh] w-full select-none object-contain" draggable={false} />
           {selection && selection.width > 2 && selection.height > 2 && (
             <div
               className="pointer-events-none absolute border-2 border-signal-blue bg-signal-blue/15"
@@ -1626,7 +1683,7 @@ function ScreenshotReviewModal({
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-ink-400">
-            Drag over the screenshot to save only the needed area. Use Redo if the capture is wrong.
+            The full captured page is scaled to fit this preview. Drag over the focused area to crop; use Redo if the capture is wrong.
           </div>
           <div className="flex items-center gap-2">
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => onSave(capture.payload)} disabled={saving}>
@@ -1885,6 +1942,7 @@ function ProjectInspectionPanel({
 function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
   const relevanceProducts = detail.products.filter((product) => product.source === "Relevance");
   const topSalesProducts = detail.products.filter((product) => product.source === "Top Sales");
+  const keyProducts = selectKeyProductCandidates(detail.products);
   return (
     <div className="mt-5 space-y-3">
       <ReportOutlineSection title="Keyword General" defaultOpen>
@@ -1903,13 +1961,13 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
           Monthly sold only applies to Top Sales result snapshots. Total sold is collected from PDP evidence when visible.
           Rating is the star value; Reviews is the rating/review count. Price ranges are stored as estimated average price.
         </div>
-        <ProductInfoTable products={detail.products} />
+        <ProductInfoTable products={keyProducts} />
       </ReportOutlineSection>
 
       <ReportOutlineSection title="Product Detailed Qualified">
         <div className="space-y-3">
-          {detail.products.map((product, index) => (
-            <NestedReportSection key={product.id} title={`Product ${index + 1}: ${product.title}`}>
+          {keyProducts.map((product) => (
+            <NestedReportSection key={product.id} title={product.title}>
               <ProductDossierSummary
                 product={product}
                 reviews={detail.reviews.filter((review) => review.productId === product.id)}
@@ -1917,25 +1975,8 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
               <AssetList assets={detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id)} />
             </NestedReportSection>
           ))}
-          {detail.products.length === 0 && <EmptyState label="Capture Relevance or Top Sales first to generate dynamic product detail steps." />}
+          {keyProducts.length === 0 && <EmptyState label="Capture Relevance and Top Sales first to generate dynamic product detail steps." />}
         </div>
-      </ReportOutlineSection>
-
-      <ReportOutlineSection title="Evaluation Phase">
-        <EvaluationCards detail={detail} />
-        <AnalysisSummary detail={detail} />
-      </ReportOutlineSection>
-
-      <ReportOutlineSection title="Key Store">
-        <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
-          Key stores are evaluated by store homepage, product matrix, bestseller area, visual style, official/mall/star signals, and repeated appearance across keyword evidence.
-        </div>
-        <StoreDetailCards detail={detail} />
-        <AssetList assets={detail.assets.filter((asset) => ["STORE_HOME", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER", "STORE_PROMOTION", "STORE_VOUCHER"].includes(asset.kind))} />
-      </ReportOutlineSection>
-
-      <ReportOutlineSection title="TikTok Evidence">
-        <AssetList assets={detail.assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT")} />
       </ReportOutlineSection>
     </div>
   );
@@ -1983,13 +2024,13 @@ function ProductCardGrid({ products }: { products: ProjectProductEvidence[] }) {
     return <EmptyState label="No rendered product rows extracted yet." />;
   }
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
       {products.slice(0, 20).map((product) => (
-        <button key={product.id} type="button" className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
-          <div className="h-16 w-16 overflow-hidden rounded bg-white/10">
+        <button key={product.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
+          <div className="aspect-square overflow-hidden rounded bg-white/10">
             {product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover" /> : null}
           </div>
-          <div className="min-w-0">
+          <div className="mt-2 min-w-0">
             <div className="line-clamp-2 text-xs font-medium text-white">{product.title}</div>
             <div className="mt-1 text-[11px] text-ink-500">
               {formatCurrency(product.priceAverage)} · Rating {product.rating ?? "-"} · Sold {formatOptionalNumber(product.monthlySold)}
@@ -2007,16 +2048,17 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
   }
   return (
     <div className="overflow-auto rounded-md border border-white/8">
-      <table className="min-w-[980px] text-left text-xs">
+      <table className="min-w-[1160px] text-left text-xs">
         <thead className="bg-white/8 text-ink-500">
           <tr>
             <th className="px-3 py-2">No</th>
             <th className="px-3 py-2">Source</th>
             <th className="px-3 py-2">Reason</th>
             <th className="px-3 py-2">Product Title</th>
+            <th className="px-3 py-2">Product Type</th>
             <th className="px-3 py-2">Monthly Sold</th>
-            <th className="px-3 py-2">Store</th>
-            <th className="px-3 py-2">Type</th>
+            <th className="px-3 py-2">Store Name</th>
+            <th className="px-3 py-2">Store Type</th>
             <th className="px-3 py-2">Price</th>
             <th className="px-3 py-2">Rating</th>
             <th className="px-3 py-2">Reviews</th>
@@ -2027,12 +2069,13 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
           {products.map((product, index) => (
             <tr key={product.id} className="border-t border-white/8">
               <td className="px-3 py-2">{index + 1}</td>
-              <td className="px-3 py-2">{product.source ?? "-"}</td>
+              <td className="px-3 py-2">{productSourcePlacement(product)}</td>
               <td className="px-3 py-2">{product.selectionReason ?? "-"}</td>
               <td className="px-3 py-2">{product.title}</td>
+              <td className="px-3 py-2">{product.productType ?? inferredProductTypeLabel(product.title)}</td>
               <td className="px-3 py-2">{formatOptionalNumber(product.monthlySold)}</td>
               <td className="px-3 py-2">{product.storeName ?? "-"}</td>
-              <td className="px-3 py-2">{product.productType ?? storeTypeLabel(product)}</td>
+              <td className="px-3 py-2">{product.storeType ?? storeTypeLabel(product)}</td>
               <td className="px-3 py-2">{formatCurrency(product.priceAverage)}</td>
               <td className="px-3 py-2">{product.rating ?? "-"}</td>
               <td className="px-3 py-2">{formatOptionalNumber(product.reviewCount)}</td>
@@ -2042,6 +2085,46 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
         </tbody>
       </table>
     </div>
+  );
+}
+
+function KeyProductTableReview({
+  products,
+  totalProducts,
+  onBackToBrowser,
+  onStartProductDetails
+}: {
+  products: ProjectProductEvidence[];
+  totalProducts: number;
+  onBackToBrowser: () => void;
+  onStartProductDetails: () => void;
+}) {
+  return (
+    <Panel
+      title="Key Product Table"
+      icon={Table2}
+      action={
+        <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onBackToBrowser}>
+          <ChevronLeft size={15} />
+          Browser
+        </button>
+      }
+    >
+      <div className="mb-4 rounded-md border border-signal-blue/20 bg-signal-blue/10 p-4 text-sm leading-6 text-ink-300">
+        AI-assisted local scoring merged Relevance and Top Sales rows, removed duplicates, then prioritized Top Sales placement,
+        monthly sold, reviews, rating, price clarity, and usable thumbnails. Showing {products.length} selected product{products.length === 1 ? "" : "s"} from {totalProducts} extracted row{totalProducts === 1 ? "" : "s"}.
+      </div>
+      <ProductInfoTable products={products} />
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs leading-5 text-ink-500">
+          Store Name, Total Sold, review detail, slides, description, and shop homepage are enriched during Product Detail Qualified collection.
+        </div>
+        <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartProductDetails} disabled={products.length === 0}>
+          <ClipboardCheck size={16} />
+          Start Collect Product Detail
+        </button>
+      </div>
+    </Panel>
   );
 }
 
@@ -2153,150 +2236,6 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
         </tbody>
       </table>
     </div>
-  );
-}
-
-function EvaluationCards({ detail }: { detail: ProjectDetailPayload }) {
-  const candidates = storeEvaluationCandidates(detail);
-  if (candidates.length === 0) {
-    return <EmptyState label="No store candidates yet. Capture product table data first." />;
-  }
-  return (
-    <div className="grid grid-cols-3 gap-3">
-      {candidates.map((candidate) => (
-        <div key={candidate.key} className="rounded-md border border-white/8 bg-white/5 p-3">
-          <div className="mb-2 aspect-video overflow-hidden rounded bg-white/10">
-            {candidate.thumbnail ? <img src={candidate.thumbnail} alt={candidate.name} className="h-full w-full object-cover" /> : null}
-          </div>
-          <div className="text-sm font-semibold text-white">{candidate.name}</div>
-          <div className="mt-1 text-xs text-ink-500">{candidate.type}</div>
-          <div className="mt-3 text-xs text-ink-400">GMV ETA</div>
-          <div className="text-lg font-semibold text-white">{formatCurrency(candidate.gmvEta)}</div>
-          <div className="mt-2 text-xs text-ink-500">Score {candidate.score}/100</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AnalysisSummary({ detail }: { detail: ProjectDetailPayload }) {
-  if (detail.analyses.length === 0) {
-    return (
-      <div className="mt-3">
-        <EmptyState label="No AI scoring saved yet. Run AI after the product and store evidence sections are populated." />
-      </div>
-    );
-  }
-  return (
-    <div className="mt-3 space-y-3">
-      {detail.analyses.map((analysis) => {
-        const preview = parseAnalysisPreview(analysis.resultJson);
-        return (
-          <div key={analysis.id} className="rounded-md border border-white/8 bg-white/[0.04] p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-white">{analysis.provider} structured scoring</div>
-                <div className="text-xs text-ink-500">{formatDateTime(analysis.createdAt)}</div>
-              </div>
-              <StatusPill status={analysis.subjectType} />
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-              {preview.scores.map((score) => (
-                <div key={score.label} className="rounded-md border border-white/8 bg-white/5 p-3">
-                  <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{score.label}</div>
-                  <div className="mt-2 text-xl font-semibold text-white">{score.value}</div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Observations</div>
-                <ul className="space-y-1 text-sm leading-6 text-ink-300">
-                  {preview.observations.map((item) => (
-                    <li key={item}>- {item}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Recommendations</div>
-                <ul className="space-y-1 text-sm leading-6 text-ink-300">
-                  {preview.recommendations.map((item) => (
-                    <li key={item}>- {item}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function StoreDetailCards({ detail }: { detail: ProjectDetailPayload }) {
-  if (detail.stores.length === 0) {
-    return <EmptyState label="No normalized store records yet. Capture Store Homepage, Products, Best Seller, and Banner evidence." />;
-  }
-  return (
-    <div className="space-y-3">
-      {detail.stores.map((store) => {
-        const assets = detail.assets.filter((asset) => asset.ownerType === "STORE" && asset.ownerId === store.id);
-        const storeProducts = detail.products.filter((product) => product.storeUrl === store.url || product.storeName === store.name);
-        const gmvEta = storeProducts.reduce((sum, product) => sum + ((product.priceAverage ?? 0) * (product.monthlySold ?? 0)), 0);
-        return (
-          <details key={store.id} className="rounded-md border border-white/8 bg-white/[0.04] p-3" open>
-            <summary className="cursor-pointer select-none text-sm font-semibold text-white">
-              {store.name} <span className="ml-2 text-xs font-normal text-ink-500">{store.url}</span>
-            </summary>
-            <div className="mt-3 space-y-3">
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-                <InfoLine label="Followers" value={formatOptionalNumber(store.followers)} />
-                <InfoLine label="Products" value={formatOptionalNumber(store.productsCount)} />
-                <InfoLine label="Rating" value={store.rating ? store.rating.toString() : "-"} />
-                <InfoLine label="Vouchers" value={formatOptionalNumber(store.voucherCount)} />
-                <InfoLine label="GMV ETA" value={formatCurrency(gmvEta)} />
-              </div>
-              <div className="rounded-md border border-white/8 bg-white/5 p-3 text-sm leading-6 text-ink-300">
-                {storeOverallText(store, storeProducts, detail)}
-              </div>
-              <div className="grid gap-3 lg:grid-cols-3">
-                <StoreEvidenceBucket title="Store Homepage" assets={assets.filter((asset) => asset.kind === "STORE_HOME")} />
-                <StoreEvidenceBucket title="Products" assets={assets.filter((asset) => asset.kind === "STORE_FEATURED_PRODUCTS")} />
-                <StoreEvidenceBucket title="Bestseller" assets={assets.filter((asset) => asset.kind === "STORE_BEST_SELLER")} />
-                <StoreEvidenceBucket title="Visual Style" assets={assets.filter((asset) => asset.kind === "STORE_BANNER" || asset.kind === "STORE_PROMOTION")} />
-                <StoreEvidenceBucket title="TikTok Accounts" assets={detail.assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT" && (asset.ownerId === store.id || asset.sourceUrl?.includes("tiktok")))} />
-                <div className="rounded-md border border-white/8 bg-white/5 p-3">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Theme Signals</div>
-                  <div className="space-y-1 text-xs text-ink-300">
-                    <div>Colors: {store.visualTheme.dominantColors.join(", ") || "-"}</div>
-                    <div>Typography: {store.visualTheme.typographySignals.join(", ") || "-"}</div>
-                    <div>Banners: {store.visualTheme.bannerStyle.join(", ") || "-"}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </details>
-        );
-      })}
-    </div>
-  );
-}
-
-function StoreEvidenceBucket({ title, assets }: { title: string; assets: ProjectDetailPayload["assets"] }) {
-  const asset = assets[0];
-  return (
-    <button
-      type="button"
-      className="rounded-md border border-white/8 bg-white/5 p-3 text-left transition hover:bg-white/8"
-      disabled={!asset}
-      onClick={() => asset && void apiClient.openPath(asset.path)}
-    >
-      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">{title}</div>
-      <div className="aspect-video overflow-hidden rounded bg-white/10">
-        {asset?.mimeType.startsWith("image/") ? <img src={toFileImageSrc(asset.path)} alt={asset.label} className="h-full w-full object-cover" /> : null}
-      </div>
-      <div className="mt-2 truncate text-xs text-ink-400">{asset?.label ?? "Not collected"}</div>
-    </button>
   );
 }
 
@@ -2891,6 +2830,9 @@ function buildShopeeSteps(
   const searchReady = isShopeeSearchPage(currentUrl);
   const productReady = isShopeeProductPage(currentUrl);
   const storeReady = isShopeeStorePage(currentUrl);
+  const hasRelevanceProducts = products.some((product) => product.source === "Relevance");
+  const hasTopSalesProducts = products.some((product) => product.source === "Top Sales");
+  const keyProducts = selectKeyProductCandidates(products);
   const popularStoreTarget = storeReady ? withStoreSort(currentUrl, "pop") : undefined;
   const bestSellerTarget = storeReady ? withStoreSort(currentUrl, "sales") : undefined;
 
@@ -2919,35 +2861,36 @@ function buildShopeeSteps(
       id: "key-product-table",
       stage: "KEYWORD_GENERAL",
       section: "Key Product",
-      label: "Key product source evidence",
+      label: "Build key product table",
       kind: "SEARCH_RESULT",
-      instruction: "Use the relevance and top-sales pages to decide the candidate products and capture the page used for the table.",
-      targetUrl: relevanceUrl,
-      ready: searchReady
+      mode: "PROCESS",
+      instruction: "Process Relevance and Top Sales product rows into the Key Product table. No extra screenshot is captured in this step.",
+      ready: hasRelevanceProducts && hasTopSalesProducts
     }
   ];
 
-  const productSteps = products.slice(0, 12).flatMap((product, productIndex): CollectionStep[] => {
+  const productSteps = keyProducts.flatMap((product): CollectionStep[] => {
     const productUrl = product.productUrl;
     const productCurrent = productReady && sameProductIntent(currentUrl, productUrl);
+    const productTitle = shortProductTitle(product.title);
     return [
       {
         id: `product-${product.id}-first-page`,
         stage: "PRODUCT_DETAILS",
-        section: `Product ${productIndex + 1}`,
-        label: "First page screenshot",
+        section: product.title,
+        label: `${productTitle} - first page`,
         kind: "PRODUCT_PAGE",
         ownerType: "PRODUCT",
         ownerId: product.id,
         targetUrl: productUrl,
-        instruction: `Open product ${productIndex + 1} from the product info table and capture images, title, ratings, reviews, sold count, price, variants, add-to-cart, and buy buttons.`,
+        instruction: `Open ${product.title} from the product info table and capture images, title, ratings, reviews, sold count, price, variants, add-to-cart, and buy buttons.`,
         ready: productCurrent
       },
       {
         id: `product-${product.id}-slides`,
         stage: "PRODUCT_DETAILS",
-        section: `Product ${productIndex + 1}`,
-        label: "Slides and product images",
+        section: product.title,
+        label: `${productTitle} - slides and images`,
         kind: "PRODUCT_IMAGE",
         ownerType: "PRODUCT",
         ownerId: product.id,
@@ -2958,8 +2901,8 @@ function buildShopeeSteps(
       {
         id: `product-${product.id}-description`,
         stage: "PRODUCT_DETAILS",
-        section: `Product ${productIndex + 1}`,
-        label: "Description",
+        section: product.title,
+        label: `${productTitle} - description`,
         kind: "PRODUCT_DESCRIPTION",
         ownerType: "PRODUCT",
         ownerId: product.id,
@@ -2970,8 +2913,8 @@ function buildShopeeSteps(
       {
         id: `product-${product.id}-reviews`,
         stage: "PRODUCT_DETAILS",
-        section: `Product ${productIndex + 1}`,
-        label: "Reviews: 3 positive and 2 negative",
+        section: product.title,
+        label: `${productTitle} - reviews`,
         kind: "REVIEW_SECTION",
         ownerType: "PRODUCT",
         ownerId: product.id,
@@ -2982,8 +2925,8 @@ function buildShopeeSteps(
       {
         id: `product-${product.id}-review-media`,
         stage: "PRODUCT_DETAILS",
-        section: `Product ${productIndex + 1}`,
-        label: "Media in user reviews",
+        section: product.title,
+        label: `${productTitle} - user media`,
         kind: "REVIEW_IMAGE",
         ownerType: "PRODUCT",
         ownerId: product.id,
@@ -2994,8 +2937,8 @@ function buildShopeeSteps(
       {
         id: `product-${product.id}-shop-home`,
         stage: "PRODUCT_DETAILS",
-        section: `Product ${productIndex + 1}`,
-        label: "Shop homepage from product",
+        section: product.title,
+        label: `${productTitle} - shop homepage`,
         kind: "STORE_HOME",
         ownerType: product.storeUrl ? "STORE" : "PRODUCT",
         ownerId: product.storeUrl ? `${project.id}:${product.storeUrl}` : product.id,
@@ -3006,7 +2949,7 @@ function buildShopeeSteps(
     ];
   });
 
-  const genericProductSteps: CollectionStep[] = products.length > 0 ? [] : [
+  const genericProductSteps: CollectionStep[] = keyProducts.length > 0 ? [] : [
     {
       id: "product-detail-first-page",
       stage: "PRODUCT_DETAILS",
@@ -3217,6 +3160,103 @@ function withStoreSort(value: string, sortBy: "pop" | "sales"): string {
   }
 }
 
+function selectKeyProductCandidates(products: ProjectProductEvidence[]): ProjectProductEvidence[] {
+  const merged = new Map<string, ProjectProductEvidence>();
+  for (const product of products) {
+    const key = normalizeProductKey(product);
+    const current = merged.get(key);
+    if (!current || productQualityScore(product) > productQualityScore(current)) {
+      merged.set(key, mergeProductSignals(current, product));
+    } else {
+      merged.set(key, mergeProductSignals(product, current));
+    }
+  }
+  return Array.from(merged.values())
+    .filter((product) => product.title && product.productUrl)
+    .sort((left, right) => productQualityScore(right) - productQualityScore(left))
+    .slice(0, 10);
+}
+
+function normalizeProductKey(product: ProjectProductEvidence): string {
+  try {
+    const url = new URL(product.productUrl);
+    return url.pathname.replace(/\/$/u, "").toLowerCase();
+  } catch {
+    return product.title.toLowerCase().replace(/\s+/gu, " ").trim();
+  }
+}
+
+function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): ProjectProductEvidence {
+  if (!base) {
+    return preferred;
+  }
+  return {
+    ...preferred,
+    sourcePlacement: mergePlacementLabels([preferred.sourcePlacement, base.sourcePlacement, productSourcePlacement(preferred), productSourcePlacement(base)]),
+    selectionReason: mergeReasonLabels(preferred.selectionReason, base.selectionReason),
+    productType: preferred.productType ?? base.productType,
+    storeType: preferred.storeType ?? base.storeType,
+    monthlySold: preferred.monthlySold ?? base.monthlySold,
+    totalSold: preferred.totalSold ?? base.totalSold,
+    reviewCount: preferred.reviewCount ?? base.reviewCount,
+    rating: preferred.rating ?? base.rating,
+    storeName: preferred.storeName ?? base.storeName,
+    storeUrl: preferred.storeUrl ?? base.storeUrl,
+    imageUrl: preferred.imageUrl ?? base.imageUrl,
+    images: preferred.images.length > 0 ? preferred.images : base.images
+  };
+}
+
+function productQualityScore(product: ProjectProductEvidence): number {
+  const topSalesBoost = product.source === "Top Sales" ? 120 - Math.min(product.rank ?? 99, 99) : 35 - Math.min(product.rank ?? 35, 35);
+  const monthlySoldScore = product.monthlySold ? Math.log10(product.monthlySold + 1) * 18 : 0;
+  const totalSoldScore = product.totalSold ? Math.log10(product.totalSold + 1) * 12 : 0;
+  const reviewScore = product.reviewCount ? Math.log10(product.reviewCount + 1) * 10 : 0;
+  const ratingScore = product.rating ? product.rating * 12 : 0;
+  const priceScore = product.priceAverage ? 8 : 0;
+  const imageScore = product.imageUrl ? 8 : 0;
+  return topSalesBoost + monthlySoldScore + totalSoldScore + reviewScore + ratingScore + priceScore + imageScore;
+}
+
+function productSourcePlacement(product: ProjectProductEvidence): string {
+  if (product.sourcePlacement) {
+    return product.sourcePlacement;
+  }
+  if (product.source === "Top Sales") {
+    return `Top ${product.rank ?? "-"}`;
+  }
+  if (product.source === "Relevance") {
+    return `Relevance ${product.rank ?? "-"}`;
+  }
+  return product.source ?? "-";
+}
+
+function mergePlacementLabels(values: Array<string | null | undefined>): string {
+  return uniqueInlineLabels(values).join(" / ");
+}
+
+function mergeReasonLabels(...values: Array<string | null | undefined>): string {
+  return uniqueInlineLabels(values.flatMap((value) => String(value ?? "").split("/"))).join(" / ");
+}
+
+function uniqueInlineLabels(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = String(value ?? "").trim();
+    if (!normalized || normalized === "-" || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function shortProductTitle(title: string): string {
+  return title.length > 54 ? `${title.slice(0, 51).trim()}...` : title;
+}
+
 function formatCurrency(value?: number | null): string {
   if (!value) {
     return "-";
@@ -3246,176 +3286,34 @@ function toFileImageSrc(path: string): string {
   return normalized;
 }
 
+function inferredProductTypeLabel(title: string): string {
+  const normalized = title.toLowerCase();
+  if (/bulu mata|eyelash|lashes|lash/u.test(normalized)) {
+    return "eyelash";
+  }
+  if (/eye\s*cream|krim mata|mata anti keriput/u.test(normalized)) {
+    return "eye cream";
+  }
+  if (/lotion|body lotion|handbody/u.test(normalized)) {
+    return "body lotion";
+  }
+  if (/lip\s*tint|lipstick|liptint/u.test(normalized)) {
+    return "lip tint";
+  }
+  if (/serum/u.test(normalized)) {
+    return "serum";
+  }
+  return "marketplace product";
+}
+
 function storeTypeLabel(product: ProjectProductEvidence): string {
-  if (product.productType) {
-    return product.productType;
+  if (product.storeType) {
+    return product.storeType;
   }
   if (product.source === "Top Sales") {
     return "Top-sales store";
   }
   return "Marketplace";
-}
-
-function storeOverallText(
-  store: ProjectDetailPayload["stores"][number],
-  products: ProjectProductEvidence[],
-  detail: ProjectDetailPayload
-): string {
-  const latestAnalysis = detail.analyses.at(0);
-  const analysis = latestAnalysis ? parseAnalysisPreview(latestAnalysis.resultJson) : undefined;
-  const analysisSignal = analysis?.observations[0];
-  const productCount = products.length;
-  const topSalesCount = products.filter((product) => product.source === "Top Sales").length;
-  const cues = [
-    productCount > 0 ? `${productCount} collected product${productCount === 1 ? "" : "s"}` : undefined,
-    topSalesCount > 0 ? `${topSalesCount} top-sales candidate${topSalesCount === 1 ? "" : "s"}` : undefined,
-    store.followers ? `${formatOptionalNumber(store.followers)} followers` : undefined,
-    store.rating ? `rating ${store.rating}` : undefined,
-    store.visualTheme.dominantColors.length > 0 ? `visual colors: ${store.visualTheme.dominantColors.join(", ")}` : undefined
-  ].filter(Boolean);
-
-  if (analysisSignal) {
-    return `${analysisSignal} Supporting store signals: ${cues.join("; ") || "store evidence is still being collected"}.`;
-  }
-  return cues.length > 0
-    ? `AI-ready store candidate based on ${cues.join("; ")}. Run AI scoring to finalize the Overall judgment.`
-    : "Store candidate is present, but homepage/products/bestseller/banner evidence is still needed for the Overall judgment.";
-}
-
-function parseAnalysisPreview(resultJson: string): {
-  scores: Array<{ label: string; value: number | string }>;
-  observations: string[];
-  recommendations: string[];
-} {
-  const root = parseJsonRecord(resultJson);
-  const scores = [
-    { label: "Brand", value: readNestedScore(root, "branding") },
-    { label: "Visual", value: readNestedScore(root, "visualQuality") },
-    { label: "Voucher", value: readNestedScore(root, "voucherStrategy") },
-    { label: "Position", value: readNestedScore(root, "competitivePosition") },
-    { label: "Trust", value: readNestedScore(root, "customerTrust") }
-  ];
-  const observations = [
-    ...readNestedStringArray(root, "branding", "observations"),
-    ...readNestedStringArray(root, "visualQuality", "observations"),
-    ...readNestedStringArray(root, "competitivePosition", "observations"),
-    ...readStringArray(root, "strengths"),
-    ...readStringArray(root, "weaknesses"),
-    ...readStringArray(root, "painPoints")
-  ].slice(0, 6);
-  const recommendations = readRecommendationLines(root).slice(0, 6);
-  return {
-    scores,
-    observations: observations.length > 0 ? observations : ["Structured AI analysis was saved, but no observation text was available."],
-    recommendations: recommendations.length > 0 ? recommendations : ["Collect missing product/store screenshots and rerun AI scoring before final export."]
-  };
-}
-
-function parseJsonRecord(value: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return isUnknownRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function readNestedScore(root: Record<string, unknown>, key: string): number | string {
-  const section = isUnknownRecord(root[key]) ? root[key] : undefined;
-  const score = typeof section?.score === "number" ? section.score : undefined;
-  return score === undefined ? "-" : Math.round(score);
-}
-
-function readNestedStringArray(root: Record<string, unknown>, key: string, childKey: string): string[] {
-  const section = isUnknownRecord(root[key]) ? root[key] : undefined;
-  return section ? readStringArray(section, childKey) : [];
-}
-
-function readStringArray(root: Record<string, unknown>, key: string): string[] {
-  const value = root[key];
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
-}
-
-function readRecommendationLines(root: Record<string, unknown>): string[] {
-  const recommendations = root.recommendations;
-  if (!Array.isArray(recommendations)) {
-    return [];
-  }
-  return recommendations.flatMap((item) => {
-    if (!isUnknownRecord(item)) {
-      return [];
-    }
-    const priority = typeof item.priority === "string" ? item.priority : "MEDIUM";
-    const action = typeof item.action === "string" ? item.action : "";
-    const rationale = typeof item.rationale === "string" ? item.rationale : "";
-    const line = [priority, action, rationale].filter(Boolean).join(" - ");
-    return line ? [line] : [];
-  });
-}
-
-function isUnknownRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function storeEvaluationCandidates(detail: ProjectDetailPayload): Array<{
-  key: string;
-  name: string;
-  type: string;
-  thumbnail?: string;
-  gmvEta?: number;
-  score: number;
-}> {
-  const byStore = new Map<string, {
-    name: string;
-    url?: string | null;
-    products: ProjectProductEvidence[];
-    store?: ProjectDetailPayload["stores"][number];
-  }>();
-  for (const product of detail.products) {
-    const key = product.storeUrl || product.storeName || product.id;
-    const current = byStore.get(key) ?? {
-      name: product.storeName || "Unknown Store",
-      url: product.storeUrl,
-      products: []
-    };
-    current.products.push(product);
-    byStore.set(key, current);
-  }
-  for (const store of detail.stores) {
-    const current = byStore.get(store.url) ?? {
-      name: store.name,
-      url: store.url,
-      products: [],
-      store
-    };
-    current.name = store.name;
-    current.store = store;
-    byStore.set(store.url, current);
-  }
-  return Array.from(byStore.entries())
-    .map(([key, value]) => {
-      const gmvEta = value.products.reduce(
-        (sum, product) => sum + ((product.priceAverage ?? 0) * (product.monthlySold ?? 0)),
-        0
-      );
-      const storeAsset = value.store
-        ? detail.assets.find((asset) => asset.ownerType === "STORE" && asset.ownerId === value.store?.id && asset.mimeType.startsWith("image/"))
-        : undefined;
-      const thumbnail = value.products.find((product) => product.imageUrl)?.imageUrl ?? (storeAsset ? toFileImageSrc(storeAsset.path) : undefined);
-      const ratingScore = Math.max(...value.products.map((product) => product.rating ?? 0), 0) * 12;
-      const trustScore = (value.store?.rating ?? 0) * 8 + Math.min(18, Math.log10(Math.max(value.store?.followers ?? 1, 1)) * 4);
-      const evidenceScore = detail.assets.some((asset) => asset.sourceUrl && value.url && asset.sourceUrl.includes(value.url)) || storeAsset ? 20 : 0;
-      const score = Math.min(100, Math.round(Math.log10(Math.max(gmvEta, 1)) * 10 + ratingScore + trustScore + evidenceScore));
-      return {
-        key,
-        name: value.name,
-        type: value.store ? "Captured key store" : value.products.some((product) => product.source === "Top Sales") ? "Top-sales candidate" : "Relevance candidate",
-        thumbnail,
-        gmvEta,
-        score
-      };
-    })
-    .sort((left, right) => (right.gmvEta ?? 0) - (left.gmvEta ?? 0));
 }
 
 function formatDateTime(value: string): string {
@@ -3529,7 +3427,44 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         try { return new URL(href, location.href).toString(); } catch { return href || ""; }
       };
       const compact = (value) => String(value || "").replace(/\\s+/g, " ").trim();
-      const htmlRoot = document.querySelector("#main") || document.querySelector("main") || document.body || document.documentElement;
+      const pickShopeeContentRoot = () => {
+        const main = document.querySelector("#main");
+        if (!main) return document.querySelector("main") || document.body || document.documentElement;
+        const shell = Array.from(main.children).find((child) => child instanceof HTMLElement && child.tagName === "DIV");
+        if (!shell) return main;
+        const directContent = Array.from(shell.children).find((child) => child instanceof HTMLElement && child.tagName === "DIV");
+        return directContent || shell || main;
+      };
+      const htmlRoot = pickShopeeContentRoot();
+      const parseSrcSet = (value) => {
+        const candidates = String(value || "")
+          .split(",")
+          .map((item) => item.trim().split(/\\s+/)[0])
+          .filter(Boolean);
+        return candidates.at(-1) || undefined;
+      };
+      const imageUrlFrom = (image) => {
+        if (!image) return undefined;
+        return parseSrcSet(image.getAttribute("srcset")) || image.currentSrc || image.src || undefined;
+      };
+      const inferProductType = (title) => {
+        const normalized = compact(title).toLowerCase();
+        if (/bulu mata|eyelash|lashes|lash/u.test(normalized)) return "eyelash";
+        if (/eye\\s*cream|krim mata|mata anti keriput/u.test(normalized)) return "eye cream";
+        if (/lotion|body lotion|handbody/u.test(normalized)) return "body lotion";
+        if (/lip\\s*tint|lipstick|liptint/u.test(normalized)) return "lip tint";
+        if (/serum/u.test(normalized)) return "serum";
+        return normalized.split(/\\s+/).slice(0, 4).join(" ") || "marketplace product";
+      };
+      const inferStoreType = (text, imageUrl) => {
+        const value = compact([text, imageUrl].filter(Boolean).join(" ")).toLowerCase();
+        if (/mall\\s*ori|mallori|mall-ori/u.test(value)) return "Mall ORI";
+        if (/shopee\\s*mall|mall/u.test(value)) return "Mall";
+        if (/star\\s*\\+|starplus|star-plus/u.test(value)) return "Star+";
+        if (/star/u.test(value)) return "Star";
+        if (/official|resmi/u.test(value)) return "Official";
+        return undefined;
+      };
       const prettyHtml = (value) => String(value || "")
         .replace(/></g, ">\\n<")
         .replace(/\\n\\s+/g, "\\n")
@@ -3553,7 +3488,14 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         for (let depth = 0; depth < 7 && node?.parentElement; depth += 1) {
           node = node.parentElement;
           const text = node.innerText || "";
-          if (text.length > (best.innerText || "").length && node.querySelector("img")) {
+          const productLinks = node.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
+          const hasProductImage = Boolean(node.querySelector('picture._displayContents_ img, picture img, img'));
+          const hasPrice = /Rp\\s*[\\d.]+/i.test(text);
+          if (hasProductImage && hasPrice && productLinks <= 3) {
+            best = node;
+            break;
+          }
+          if (text.length > (best.innerText || "").length && hasProductImage && productLinks <= 6) {
             best = node;
           }
         }
@@ -3570,10 +3512,14 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         if (!url || seen.has(key)) continue;
         const card = findCard(anchor);
         const text = card.innerText || anchor.innerText || "";
-        const image = card.querySelector("img");
+        const image = card.querySelector('picture._displayContents_ img, picture img, img');
         const title = meaningfulTitle(text, image?.alt);
         if (!title) continue;
         seen.add(key);
+        const badgeImage = card.querySelector('div.p-2 div.space-y-1 div.whitespace-normal img, div.p-2 div.space-y-1 div.whitespaces-normal img, div.p-2 div.space-y-1 div[class*="whitespace"] img, img[alt*="Mall" i], img[alt*="Star" i], img[src*="mall" i], img[src*="star" i]');
+        const badgeImageUrl = imageUrlFrom(badgeImage);
+        const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title].filter(Boolean).join(" "));
+        const storeType = inferStoreType(badgeText, badgeImageUrl) || inferStoreType(text, undefined);
         const priceText = compact((text.match(/Rp\\s*[\\d.]+(?:\\s*-\\s*Rp\\s*[\\d.]+)?/i) || [])[0] || "");
         const soldMatch = text.match(/(?:terjual|sold)\\s*([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)|([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)\\s*(?:terjual|sold)/i);
         const reviewMatch = text.match(/([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)\\s*(?:penilaian|ratings?|ulasan|reviews?)/i);
@@ -3582,15 +3528,19 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           rank: products.length + 1,
           title,
           url,
-          imageUrl: image?.currentSrc || image?.src || undefined,
+          imageUrl: imageUrlFrom(image),
           priceText: priceText || undefined,
           priceAverage: parsePrice(priceText),
           rating: ratingMatch ? Number(ratingMatch[1].replace(",", ".")) : undefined,
           reviewCount: reviewMatch ? parseHumanNumber(reviewMatch[1]) : undefined,
           soldCount: soldMatch ? parseHumanNumber(soldMatch[1] || soldMatch[2]) : undefined,
-          mallStatus: /mall/i.test(text),
+          productType: inferProductType(title),
+          storeType,
+          storeBadgeImageUrl: badgeImageUrl,
+          sourcePlacement: String(products.length + 1),
+          mallStatus: /mall/i.test([text, storeType].filter(Boolean).join(" ")),
           officialStatus: /official|resmi/i.test(text),
-          starSeller: /star\\s*seller/i.test(text),
+          starSeller: /star\\s*seller|star\\+?|star plus/i.test([text, storeType].filter(Boolean).join(" ")),
           rawText: compact(text).slice(0, 1200)
         });
       }
@@ -3602,6 +3552,157 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       return { html, visibleText, products };
     })();
   `);
+}
+
+async function captureFullPageScreenshot(webview: WebviewElement): Promise<FullPageScreenshot> {
+  if (!webview.capturePage) {
+    throw new Error("The embedded browser cannot capture this page in the current runtime.");
+  }
+  const metrics = await readScrollablePageMetrics(webview);
+  if (!metrics || metrics.viewportHeight <= 0 || metrics.viewportWidth <= 0) {
+    const image = await webview.capturePage();
+    const size = image.getSize?.() ?? {
+      width: Math.round(webview.clientWidth),
+      height: Math.round(webview.clientHeight)
+    };
+    return {
+      imageDataUrl: image.toDataURL(),
+      width: size.width,
+      height: size.height,
+      mode: "viewport"
+    };
+  }
+
+  const maxCssHeight = 18000;
+  const captureHeight = Math.min(metrics.pageHeight, maxCssHeight);
+  const sliceTops = Array.from(
+    { length: Math.max(1, Math.ceil(captureHeight / metrics.viewportHeight)) },
+    (_item, index) => Math.min(index * metrics.viewportHeight, Math.max(0, captureHeight - metrics.viewportHeight))
+  ).filter((value, index, values) => index === 0 || value !== values[index - 1]);
+
+  if (sliceTops.length <= 1 && captureHeight <= metrics.viewportHeight + 8) {
+    const image = await webview.capturePage();
+    const size = image.getSize?.() ?? {
+      width: Math.round(webview.clientWidth),
+      height: Math.round(webview.clientHeight)
+    };
+    return {
+      imageDataUrl: image.toDataURL(),
+      width: size.width,
+      height: size.height,
+      mode: "viewport"
+    };
+  }
+
+  const slices: Array<{ y: number; height: number; image: HTMLImageElement }> = [];
+  for (const y of sliceTops) {
+    await scrollEmbeddedPage(webview, y);
+    await waitForFramePaint();
+    const image = await webview.capturePage();
+    const element = await loadImageElement(image.toDataURL());
+    slices.push({
+      y,
+      height: Math.min(metrics.viewportHeight, captureHeight - y),
+      image: element
+    });
+  }
+  await scrollEmbeddedPage(webview, metrics.scrollY);
+
+  const scaleX = slices[0]?.image.naturalWidth ? slices[0].image.naturalWidth / metrics.viewportWidth : 1;
+  const scaleY = slices[0]?.image.naturalHeight ? slices[0].image.naturalHeight / metrics.viewportHeight : scaleX;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, slices[0]?.image.naturalWidth ?? Math.round(metrics.viewportWidth * scaleX));
+  canvas.height = Math.max(1, Math.round(captureHeight * scaleY));
+  const context = canvas.getContext("2d");
+  if (!context) {
+    const first = slices[0]?.image;
+    return {
+      imageDataUrl: first?.src ?? "",
+      width: first?.naturalWidth ?? 0,
+      height: first?.naturalHeight ?? 0,
+      mode: "viewport"
+    };
+  }
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  for (const slice of slices) {
+    const sourceHeight = Math.max(1, Math.round(slice.height * scaleY));
+    context.drawImage(
+      slice.image,
+      0,
+      0,
+      slice.image.naturalWidth,
+      Math.min(sourceHeight, slice.image.naturalHeight),
+      0,
+      Math.round(slice.y * scaleY),
+      canvas.width,
+      Math.min(sourceHeight, canvas.height - Math.round(slice.y * scaleY))
+    );
+  }
+
+  return {
+    imageDataUrl: canvas.toDataURL("image/png"),
+    width: canvas.width,
+    height: canvas.height,
+    mode: "full-page",
+    clipped: metrics.pageHeight > maxCssHeight
+  };
+}
+
+async function readScrollablePageMetrics(webview: WebviewElement): Promise<{
+  viewportWidth: number;
+  viewportHeight: number;
+  pageWidth: number;
+  pageHeight: number;
+  scrollY: number;
+} | undefined> {
+  if (!webview.executeJavaScript) {
+    return undefined;
+  }
+  return webview.executeJavaScript(`
+    (() => {
+      const root = document.scrollingElement || document.documentElement || document.body;
+      const body = document.body || root;
+      const viewportWidth = Math.max(1, window.innerWidth || root.clientWidth || ${Math.max(1, Math.round(webview.clientWidth))});
+      const viewportHeight = Math.max(1, window.innerHeight || root.clientHeight || ${Math.max(1, Math.round(webview.clientHeight))});
+      const pageWidth = Math.max(viewportWidth, root.scrollWidth || 0, body.scrollWidth || 0, root.clientWidth || 0);
+      const pageHeight = Math.max(viewportHeight, root.scrollHeight || 0, body.scrollHeight || 0, root.clientHeight || 0);
+      return {
+        viewportWidth,
+        viewportHeight,
+        pageWidth,
+        pageHeight,
+        scrollY: window.scrollY || root.scrollTop || 0
+      };
+    })();
+  `);
+}
+
+async function scrollEmbeddedPage(webview: WebviewElement, y: number): Promise<void> {
+  if (!webview.executeJavaScript) {
+    return;
+  }
+  await webview.executeJavaScript(`
+    (() => {
+      const root = document.scrollingElement || document.documentElement || document.body;
+      root.scrollTo(0, ${Math.max(0, Math.round(y))});
+      window.scrollTo(0, ${Math.max(0, Math.round(y))});
+    })();
+  `).catch(() => undefined);
+}
+
+function waitForFramePaint(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 180));
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Could not load captured screenshot slice."));
+    image.src = src;
+  });
 }
 
 function uint8ArrayToBase64(data: Uint8Array): string {

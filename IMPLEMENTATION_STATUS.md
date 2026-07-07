@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-03
+Last updated: 2026-07-07
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -108,7 +108,7 @@ Release blocker fixes:
 | Persistent marketplace browser session | Completed | Product UI | Electron persistent partition | Done | P0 |
 | Browser zoom and print controls | Completed | Product UI | Electron webview | Done | P1 |
 | Rendered-page snapshot capture | Completed | Product UI and Evidence API | Electron webview, project workspace | Done | P0 |
-| Screenshot crop and redo review | Completed | Product UI | Manual evidence capture | Done | P0 |
+| Full-page screenshot crop and redo review | Completed | Product UI | Manual evidence capture | Done | P0 |
 | Floating guided collection controller | Completed | Product UI | Evidence step map, Electron webview | Done | P0 |
 | Manual evidence capture API | Completed | API and Database | Project workspace, Prisma assets | Done | P0 |
 | Manual screenshot attachment API | Completed | API and Database | Project workspace, Prisma assets | Done | P0 |
@@ -158,6 +158,7 @@ Implemented:
 - Shopee browser sessions now use a persistent marketplace partition so login/cache state can survive browser close, project switches, and app restarts.
 - The browser toolbar now supports zoom in, zoom out, and native print for the current embedded page.
 - Manual collection now saves a rendered-page snapshot: screenshot, full page HTML, visible text, optional print-PDF data, and extracted product rows from the page the user is currently viewing.
+- Screenshot capture now stitches the scrollable embedded page into one full-page image and shows the entire captured page in a non-scrolling fit-to-screen crop preview.
 - Manual collection is split into Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store so the user can finish and save each phase without one long collection run.
 - Project cards now show saved collection stage and percentage so unfinished analysis can be resumed from the Projects vault.
 - Project cards now expose separate `Inspect` and `Continue Collection` actions, and the project inspector has its own saved-progress summary plus `Continue Collection` action to resume the collector from the saved stage.
@@ -191,8 +192,9 @@ M1 scope boundary:
 | Guided relevance/top-sales capture | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
 | Rendered relevance/top-sales product extraction | Completed | Product UI and Evidence API | Electron webview DOM snapshot, Prisma products | Done | P0 |
 | `#main` HTML snapshot formatting | Completed | Product UI and Evidence API | Electron webview DOM snapshot | Done | P1 |
+| Focused inner `#main` product extraction | Completed | Product UI and Evidence API | Shopee rendered DOM snapshot | Done | P0 |
 | WebP thumbnail JPG localization | Partial | Evidence API | Network image fetch, Sharp conversion | 1 day | P1 |
-| Guided key-product evidence step | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
+| Guided key-product table processing step | Completed | Product UI and Evidence API | Relevance and Top Sales extracted rows | Done | P0 |
 | Dynamic guided product-detail evidence steps | Completed | Product UI and Evidence API | Extracted product table, embedded browser | Done | P0 |
 | Guided store evidence steps | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
 | Product card extraction | Completed | Product UI and Evidence API | Rendered-page snapshot extraction | Done | P0 |
@@ -217,6 +219,11 @@ Implemented:
 - The primary Shopee workflow is now guided/manual: users open target pages inside the app and capture each report-required evidence step themselves.
 - Manual evidence capture saves browser screenshots, full rendered HTML, visible text, optional print-PDF output, and Prisma asset records with step metadata.
 - Manual evidence capture now targets `div#main`/`main`/body content and formats saved HTML across multiple lines to avoid unusable single-line snapshots.
+- Shopee product extraction now narrows from `#main` into the inner content `<div>` below the marketplace header and before the footer, reducing header/footer/sidebar distraction in saved HTML and product parsing.
+- Relevance and Top Sales cards now prioritize `picture._displayContents_ img[srcset]` thumbnails and persist source placement, product type, and store badge/store type signals where available.
+- Step 3 in Keyword General is now process-only: it builds an AI-assisted Key Product table from Relevance and Top Sales rows instead of capturing another screenshot.
+- Key Product selection now deduplicates products, prioritizes Top Sales placement, monthly sold, review count, rating, price signal, and thumbnail availability, and caps the Product Detail Qualified flow to 10 products.
+- Product Detail Qualified collection steps now use product titles as section/step labels instead of generic Product 1/Product 2 labels.
 - Browser capture status is visible to the user with `targeted page received`, `downloading HTML`, done, and failed states plus a manual `Download HTML` fallback action.
 - Relevance and top-sales snapshots extract rendered product cards from the visible browser page and persist product rows with thumbnail, product URL, price estimate, rating, sold count, source, and selection reason.
 - WebP product thumbnails from rendered result pages are converted to local JPG files where the backend can fetch them; failed conversions safely fall back to original URLs.
