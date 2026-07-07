@@ -31,8 +31,8 @@ The overall percentage is a weighted product estimate based on foundation readin
 | --- | --- | ---: | --- |
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
-| M2 | Shopee Desktop | [##################--] 92% | Partial |
-| M3 | Intelligence | [#############-------] 65% | Partial |
+| M2 | Shopee Desktop | [###################-] 94% | Partial |
+| M3 | Intelligence | [##############------] 68% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -157,6 +157,9 @@ Implemented:
 - The browser shows a small top-center background status while it receives the target page, downloads `#main` HTML, completes, or needs manual HTML download.
 - Shopee browser sessions now use a persistent marketplace partition so login/cache state can survive browser close, project switches, and app restarts.
 - The browser toolbar now supports zoom in, zoom out, and native print for the current embedded page.
+- The browser toolbar keeps Desktop/Mobile controls inline with navigation, zoom, print, and extraction controls to maximize the webview surface.
+- Manual Shopee login/verification states now appear as a transient warning toast and can be reopened from a persistent warning icon.
+- Browser fullscreen now fills the viewport end to end while keeping controls and the compact guided collector as overlays.
 - Manual collection now saves a rendered-page snapshot: screenshot, full page HTML, visible text, optional print-PDF data, and extracted product rows from the page the user is currently viewing.
 - Screenshot capture now stitches the scrollable embedded page into one full-page image and shows the entire captured page in a non-scrolling fit-to-screen crop preview.
 - Manual collection is split into Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store so the user can finish and save each phase without one long collection run.
@@ -181,7 +184,7 @@ M1 scope boundary:
 
 ## M2 Shopee Desktop
 
-[##################--] 92%
+[###################-] 94%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -199,14 +202,14 @@ M1 scope boundary:
 | Guided store evidence steps | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
 | Product card extraction | Completed | Product UI and Evidence API | Rendered-page snapshot extraction | Done | P0 |
 | Product detail collection | Completed | Product UI and Evidence API | User-controlled PDP snapshot capture | Done | P0 |
-| Product images and slides | Partial | Marketplace Automation | Product media parser, screenshots | 2 days | P0 |
+| Product images and slides | Partial | Marketplace Automation | Product media parser, screenshots | 1 day | P0 |
 | Product description | Completed | Marketplace Automation | Product page parser | Done | P0 |
 | Product specifications | Completed | Marketplace Automation | Product page parser | Done | P0 |
 | Store collection | Partial | Marketplace Automation | Store page parser, guided screenshots | 2 days | P0 |
 | Store homepage capture | Completed | Marketplace Automation | Store URL discovery, screenshots | Done | P0 |
-| Review collection | Partial | Marketplace Automation | Review section parser | 6 days | P0 |
-| Review images | Partial | Marketplace Automation | Review media parser | 3 days | P1 |
-| User media | Partial | Marketplace Automation | Review media parser, asset storage | 3 days | P1 |
+| Review collection | Partial | Marketplace Automation | Review section parser | 4 days | P0 |
+| Review images | Partial | Marketplace Automation | Review media parser | 2 days | P1 |
+| User media | Partial | Marketplace Automation | Review media parser, asset storage | 2 days | P1 |
 | Voucher collection | Not Started | Marketplace Automation | Voucher section parser | 4 days | P1 |
 | Store decoration | Partial | Marketplace Automation | Store homepage parser, screenshot map | 3 days | P1 |
 | Product matrix | Partial | Marketplace Automation and Intelligence | Store/product normalization | 3 days | P0 |
@@ -223,7 +226,10 @@ Implemented:
 - Relevance and Top Sales cards now prioritize `picture._displayContents_ img[srcset]` thumbnails and persist source placement, product type, and store badge/store type signals where available.
 - Step 3 in Keyword General is now process-only: it builds an AI-assisted Key Product table from Relevance and Top Sales rows instead of capturing another screenshot.
 - Key Product selection now deduplicates products, prioritizes Top Sales placement, monthly sold, review count, rating, price signal, and thumbnail availability, and caps the Product Detail Qualified flow to 10 products.
+- Key Product table display now preserves raw Shopee rating/sold strings, infers Product Type from title, normalizes Store Type to Mall ORI/Star+/Star, and leaves Reviews pending until PDP capture.
 - Product Detail Qualified collection steps now use product titles as section/step labels instead of generic Product 1/Product 2 labels.
+- Product Detail Qualified collection now captures only the visible first viewport and syncs structured PDP evidence in the background: slides/images, videos, description, review rows, and review media.
+- Product dossiers now show collected videos plus Media in User image/video evidence when browser-readable Shopee HTML exposes it.
 - Browser capture status is visible to the user with `targeted page received`, `downloading HTML`, done, and failed states plus a manual `Download HTML` fallback action.
 - Relevance and top-sales snapshots extract rendered product cards from the visible browser page and persist product rows with thumbnail, product URL, price estimate, rating, sold count, source, and selection reason.
 - WebP product thumbnails from rendered result pages are converted to local JPG files where the backend can fetch them; failed conversions safely fall back to original URLs.
@@ -271,7 +277,7 @@ Sprint 1 completion evidence:
 
 ## M3 Intelligence
 
-[#############-------] 65%
+[##############------] 68%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -298,6 +304,7 @@ Implemented:
 - Local heuristic analysis fallback exists.
 - Project-level AI evaluation can be triggered from Project Inspector and persists a structured analysis record from collected products, stores, reviews, and screenshots.
 - Store Evaluation Phase cards estimate GMV locally from extracted price and monthly sold values, then expose a deterministic candidate score.
+- Key Product processing now receives richer normalized product signals from M2, including source placement, inferred product type, raw rating/sold text, PDP review rows, videos, and review media pointers.
 - Project Inspector now displays persisted AI scoring, observations, and recommendations inside the Evaluation Phase so users can review evidence before report export.
 - Report sections are modular.
 - HTML report generation now produces interactive collapsible report sections with embedded CSS and script while remaining printable/PDF-compatible.

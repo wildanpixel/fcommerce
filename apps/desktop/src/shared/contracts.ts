@@ -93,6 +93,10 @@ export type ProjectDetailPayload = {
     productType?: string | null;
     storeType?: string | null;
     sourcePlacement?: string | null;
+    ratingText?: string | null;
+    reviewText?: string | null;
+    monthlySoldText?: string | null;
+    totalSoldText?: string | null;
     rank?: number | null;
     source?: string | null;
     selectionReason?: string | null;
@@ -112,6 +116,9 @@ export type ProjectDetailPayload = {
     variants: string[];
     specifications: Record<string, string>;
     images: string[];
+    videos: string[];
+    reviewMediaImages: string[];
+    reviewMediaVideos: string[];
     productUrl: string;
     createdAt: string;
   }>;
@@ -342,6 +349,9 @@ export type ExtractedPageProduct = {
   storeType?: string;
   storeBadgeImageUrl?: string;
   sourcePlacement?: string;
+  ratingText?: string;
+  reviewText?: string;
+  soldText?: string;
   storeName?: string;
   storeUrl?: string;
   mallStatus?: boolean;

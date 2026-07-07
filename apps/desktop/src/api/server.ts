@@ -155,6 +155,13 @@ const extractedPageProductSchema = z.object({
   rating: z.number().optional(),
   reviewCount: z.number().int().optional(),
   soldCount: z.number().int().optional(),
+  ratingText: z.string().optional(),
+  reviewText: z.string().optional(),
+  soldText: z.string().optional(),
+  productType: z.string().optional(),
+  storeType: z.string().optional(),
+  storeBadgeImageUrl: z.string().optional(),
+  sourcePlacement: z.string().optional(),
   storeName: z.string().optional(),
   storeUrl: z.string().optional(),
   mallStatus: z.boolean().optional(),
@@ -771,7 +778,7 @@ function toAnalysisInput(data: ReportData): AnalysisInput {
       description: product.description ?? undefined,
       specifications: safeParseJson<Record<string, string>>(product.specificationsJson, {}),
       images: safeParseJson<{ images?: string[]; imageUrl?: string }>(product.rawJson, {}).images ?? [],
-      videos: [],
+      videos: safeParseJson<{ videos?: string[] }>(product.rawJson, {}).videos ?? [],
       raw: safeParseJson<Record<string, unknown>>(product.rawJson, {})
     })),
     stores: data.stores.map((store) => ({
@@ -819,37 +826,62 @@ async function localizeManualEvidenceImages(
   evidenceFolder: string,
   baseName: string
 ): Promise<ManualEvidencePayload> {
-  if (!input.extractedProducts?.length) {
-    return input;
-  }
   const imageFolder = resolve(evidenceFolder, `${baseName}-images`);
   const products: ExtractedPageProduct[] = [];
   let localizedImageCount = 0;
-  for (const [index, product] of input.extractedProducts.entries()) {
-    if (!product.imageUrl || index >= 80 || !shouldLocalizeImageUrl(product.imageUrl)) {
-      products.push(product);
-      continue;
+
+  for (const [index, product] of (input.extractedProducts ?? []).entries()) {
+    if (product.imageUrl && index < 80 && shouldLocalizeImageUrl(product.imageUrl)) {
+      const localImageUrl = await downloadImageAsJpeg(product.imageUrl, imageFolder, `${String(index + 1).padStart(2, "0")}-${slug(product.title).slice(0, 48)}`);
+      if (localImageUrl) {
+        localizedImageCount += 1;
+        products.push({
+          ...product,
+          imageUrl: localImageUrl,
+          rawText: [product.rawText, `Original thumbnail: ${product.imageUrl}`].filter(Boolean).join("\n")
+        });
+        continue;
+      }
     }
-    const localImageUrl = await downloadImageAsJpeg(product.imageUrl, imageFolder, `${String(index + 1).padStart(2, "0")}-${slug(product.title).slice(0, 48)}`);
-    if (localImageUrl) {
-      localizedImageCount += 1;
-      products.push({
-        ...product,
-        imageUrl: localImageUrl,
-        rawText: [product.rawText, `Original thumbnail: ${product.imageUrl}`].filter(Boolean).join("\n")
-      });
-    } else {
-      products.push(product);
-    }
+    products.push(product);
   }
+
+  const structured = readStructuredProductDetail(input.metadata);
+  const localizedStructured = structured
+    ? {
+        ...structured,
+        images: await localizeImageArray(structured.images, imageFolder, "product-slide", 24),
+        reviewMediaImages: await localizeImageArray(structured.reviewMediaImages, imageFolder, "review-media", 30)
+      }
+    : undefined;
+  if (structured && localizedStructured) {
+    localizedImageCount +=
+      localizedStructured.images.filter((image, index) => image !== structured.images[index]).length +
+      localizedStructured.reviewMediaImages.filter((image, index) => image !== structured.reviewMediaImages[index]).length;
+  }
+
   return {
     ...input,
-    extractedProducts: products,
+    extractedProducts: products.length > 0 ? products : input.extractedProducts,
     metadata: {
       ...(input.metadata ?? {}),
+      ...(localizedStructured ? { structuredProductDetail: localizedStructured } : {}),
       localizedImageCount
     }
   };
+}
+
+async function localizeImageArray(values: string[], folder: string, prefix: string, limit: number): Promise<string[]> {
+  const output: string[] = [];
+  for (const [index, value] of values.entries()) {
+    if (index >= limit || !shouldLocalizeImageUrl(value)) {
+      output.push(value);
+      continue;
+    }
+    const localImageUrl = await downloadImageAsJpeg(value, folder, `${prefix}-${String(index + 1).padStart(2, "0")}`);
+    output.push(localImageUrl ?? value);
+  }
+  return output;
 }
 
 function shouldLocalizeImageUrl(value: string): boolean {
@@ -891,6 +923,22 @@ type EvidencePersistenceResult = {
   ownerId?: string;
 };
 
+type StructuredProductDetail = {
+  images: string[];
+  videos: string[];
+  description?: string;
+  reviews: Array<{
+    type: "Positive Reviews" | "Negative Reviews";
+    rating: number;
+    ratingLabel?: string;
+    comment: string;
+    reviewDate?: string;
+    variation?: string;
+  }>;
+  reviewMediaImages: string[];
+  reviewMediaVideos: string[];
+};
+
 async function persistCapturedPageData(
   intelligenceRepository: {
     saveProduct(projectId: string, product: ProductDetail): Promise<string>;
@@ -927,6 +975,18 @@ async function persistCapturedPageData(
         ...extractRawImages(currentRaw),
         ...enrichment.images
       ]).slice(0, 12);
+      const mergedVideos = mergeUnique([
+        ...extractStringArray(currentRaw.videos),
+        ...enrichment.videos
+      ]).slice(0, 8);
+      const mergedReviewMediaImages = mergeUnique([
+        ...extractStringArray(currentRaw.reviewMediaImages),
+        ...enrichment.reviewMediaImages
+      ]).slice(0, 40);
+      const mergedReviewMediaVideos = mergeUnique([
+        ...extractStringArray(currentRaw.reviewMediaVideos),
+        ...enrichment.reviewMediaVideos
+      ]).slice(0, 16);
 
       await prisma.product.update({
         where: { id: product.id },
@@ -952,7 +1012,14 @@ async function persistCapturedPageData(
           rawJson: JSON.stringify({
             ...currentRaw,
             images: mergedImages,
+            videos: mergedVideos,
+            reviewMediaImages: mergedReviewMediaImages,
+            reviewMediaVideos: mergedReviewMediaVideos,
             imageUrl: mergedImages[0] ?? currentRaw.imageUrl,
+            ratingText: enrichment.ratingText ?? currentRaw.ratingText,
+            reviewText: enrichment.reviewText ?? currentRaw.reviewText,
+            totalSoldText: enrichment.totalSoldText ?? currentRaw.totalSoldText,
+            monthlySoldText: currentRaw.monthlySoldText,
             evidencePlan: {
               ...(isRecord(currentRaw.evidencePlan) ? currentRaw.evidencePlan : {}),
               latestCaptureKind: input.kind,
@@ -971,8 +1038,8 @@ async function persistCapturedPageData(
         }
       });
 
-      if (input.kind === "REVIEW_SECTION") {
-        const reviews = parseReviewEvidence(input.visibleText ?? "");
+      if (input.kind === "REVIEW_SECTION" || metadataFlag(input.metadata, "syncProductDetail")) {
+        const reviews = enrichment.reviews.length > 0 ? enrichment.reviews : parseReviewEvidence(input.visibleText ?? "");
         await prisma.review.deleteMany({ where: { productId: product.id } });
         await intelligenceRepository.saveReviews(product.id, reviews);
         result.reviewCount = reviews.length;
@@ -1091,7 +1158,7 @@ function toProductDetail(
     rating: product.rating,
     reviewCount: product.reviewCount,
     monthlySold: context.source === "Top Sales" ? product.soldCount : undefined,
-    totalSold: undefined,
+    totalSold: product.soldCount,
     storeName: product.storeName,
     storeUrl: product.storeUrl ? normalizeUrl(product.storeUrl) : undefined,
     mallStatus: Boolean(product.mallStatus),
@@ -1111,6 +1178,11 @@ function toProductDetail(
       productType: product.productType,
       storeType: product.storeType,
       storeBadgeImageUrl: product.storeBadgeImageUrl,
+      ratingText: product.ratingText,
+      reviewText: product.reviewText,
+      soldText: product.soldText,
+      monthlySoldText: context.source === "Top Sales" ? product.soldText : undefined,
+      totalSoldText: product.soldText,
       htmlPath: context.htmlPath,
       textPath: context.textPath,
       pdfPath: context.pdfPath,
@@ -1197,11 +1269,32 @@ function extractProductEnrichment(
   specifications: Record<string, string>;
   description?: string;
   images: string[];
+  videos: string[];
+  reviewMediaImages: string[];
+  reviewMediaVideos: string[];
+  reviews: ReviewEvidence[];
+  ratingText?: string;
+  reviewText?: string;
+  totalSoldText?: string;
 } {
   const text = normalizeEvidenceText(input.visibleText);
   const html = input.pageHtml ?? "";
+  const structured = readStructuredProductDetail(input.metadata);
   const price = extractMoneyRange(text);
-  const images = mergeUnique([...extractImageUrls(html), ...extractImageUrls(text)]).slice(0, 12);
+  const images = mergeUnique([
+    ...(structured?.images ?? []),
+    ...extractProductImageUrls(html),
+    ...extractImageUrls(html),
+    ...extractImageUrls(text)
+  ]).slice(0, 12);
+  const videos = mergeUnique([
+    ...(structured?.videos ?? []),
+    ...extractVideoUrls(html),
+    ...extractVideoUrls(text)
+  ]).slice(0, 8);
+  const reviews = structured?.reviews.length
+    ? structured.reviews.map(toReviewEvidence)
+    : [];
   return {
     title: extractHtmlTitle(html) ?? inferTitleFromText(text, product.title),
     priceMin: price.min,
@@ -1217,8 +1310,15 @@ function extractProductEnrichment(
     shippingText: findLine(text, ["shipping", "pengiriman", "ongkir", "garansi", "cod"]),
     variants: extractVariants(text),
     specifications: extractSpecifications(text),
-    description: extractDescription(input.kind, text),
-    images
+    description: structured?.description ?? extractDescription(input.kind, text),
+    images,
+    videos,
+    reviewMediaImages: structured?.reviewMediaImages ?? [],
+    reviewMediaVideos: structured?.reviewMediaVideos ?? [],
+    reviews,
+    ratingText: extractRatingTextValue(text),
+    reviewText: extractReviewTextValue(text),
+    totalSoldText: extractSoldTextValue(text)
   };
 }
 
@@ -1288,6 +1388,93 @@ function review(sentiment: ReviewEvidence["sentiment"], rating: number | undefin
       inferredSentiment: true
     }
   };
+}
+
+function readStructuredProductDetail(metadata?: Record<string, unknown>): StructuredProductDetail | undefined {
+  const raw = metadata?.structuredProductDetail;
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const reviews = Array.isArray(raw.reviews)
+    ? raw.reviews
+        .filter(isRecord)
+        .map((reviewItem) => {
+          const type: StructuredProductDetail["reviews"][number]["type"] =
+            reviewItem.type === "Negative Reviews" ? "Negative Reviews" : "Positive Reviews";
+          const rating = typeof reviewItem.rating === "number" && Number.isFinite(reviewItem.rating)
+            ? reviewItem.rating
+            : type === "Negative Reviews" ? 1 : 5;
+          return {
+            type,
+            rating,
+            ratingLabel: typeof reviewItem.ratingLabel === "string" ? reviewItem.ratingLabel : `${rating} Star`,
+            comment: typeof reviewItem.comment === "string" ? reviewItem.comment : "",
+            reviewDate: typeof reviewItem.reviewDate === "string" ? reviewItem.reviewDate : undefined,
+            variation: typeof reviewItem.variation === "string" ? reviewItem.variation : undefined
+          };
+        })
+        .filter((reviewItem) => reviewItem.comment.trim().length > 0)
+    : [];
+
+  return {
+    images: extractStringArray(raw.images),
+    videos: extractStringArray(raw.videos),
+    description: typeof raw.description === "string" && raw.description.trim() ? raw.description.trim() : undefined,
+    reviews,
+    reviewMediaImages: extractStringArray(raw.reviewMediaImages),
+    reviewMediaVideos: extractStringArray(raw.reviewMediaVideos)
+  };
+}
+
+function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): ReviewEvidence {
+  return {
+    sentiment: input.type === "Negative Reviews" ? "NEGATIVE" : "POSITIVE",
+    rating: input.rating,
+    comment: cleanText(input.comment),
+    variation: input.variation ? cleanText(input.variation) : undefined,
+    reviewDate: input.reviewDate ? cleanText(input.reviewDate) : undefined,
+    mediaUrls: [],
+    raw: {
+      source: "structured-product-detail",
+      type: input.type,
+      ratingLabel: input.ratingLabel
+    }
+  };
+}
+
+function metadataFlag(metadata: Record<string, unknown> | undefined, key: string): boolean {
+  return metadata?.[key] === true;
+}
+
+function extractRatingTextValue(text: string): string | undefined {
+  const normalized = normalizeEvidenceText(text);
+  const candidate = normalized.match(/(?:rating|bintang|star|penilaian)\s*:?\s*([1-5](?:[.,]\d)?)/iu)?.[1] ??
+    normalized.match(/([1-5](?:[.,]\d)?)\s*(?:\/\s*5|★|star|bintang)/iu)?.[1];
+  return candidate ? candidate.replace(".", ",") : undefined;
+}
+
+function extractReviewTextValue(text: string): string | undefined {
+  const normalized = normalizeEvidenceText(text);
+  const match = normalized.match(/([.\d,]+\s*(?:rb|ribu|k|jt|juta|m)?\+?)\s*(reviews?|ulasan|penilaian|ratings?)/iu) ??
+    normalized.match(/(reviews?|ulasan|penilaian|ratings?)\s*:?\s*([.\d,]+\s*(?:rb|ribu|k|jt|juta|m)?\+?)/iu);
+  if (!match) {
+    return undefined;
+  }
+  const value = match[2] && /reviews?|ulasan|penilaian|ratings?/iu.test(match[1]) ? match[2] : match[1];
+  const label = /reviews?|ulasan|penilaian|ratings?/iu.test(match[1]) ? match[1] : match[2];
+  return cleanText(`${value} ${label}`);
+}
+
+function extractSoldTextValue(text: string): string | undefined {
+  const normalized = normalizeEvidenceText(text);
+  const match = normalized.match(/([.\d,]+\s*(?:rb|ribu|k|jt|juta|m)?\+?)\s*(terjual|sold)/iu) ??
+    normalized.match(/(terjual|sold)\s*:?\s*([.\d,]+\s*(?:rb|ribu|k|jt|juta|m)?\+?)/iu);
+  if (!match) {
+    return undefined;
+  }
+  const value = /terjual|sold/iu.test(match[1]) ? match[2] : match[1];
+  const label = /terjual|sold/iu.test(match[1]) ? match[1] : match[2];
+  return cleanText(`${value} ${label}`);
 }
 
 function extractMoneyRange(text: string): {
@@ -1418,8 +1605,19 @@ function extractSpecifications(text: string): Record<string, string> {
 
 function extractImageUrls(value: string): string[] {
   const urls = new Set<string>();
-  for (const match of value.matchAll(/(?:src|data-src|content)=["'](?<url>https?:\/\/[^"']+)["']/giu)) {
-    if (match.groups?.url && looksLikeImageUrl(match.groups.url)) {
+  for (const match of value.matchAll(/(?<attr>src|data-src|content|srcset|data-srcset)=["'](?<url>https?:\/\/[^"']+)["']/giu)) {
+    if (!match.groups?.url) {
+      continue;
+    }
+    if (/srcset/iu.test(match.groups.attr ?? "")) {
+      for (const srcsetUrl of splitSrcsetUrls(match.groups.url)) {
+        if (looksLikeImageUrl(srcsetUrl)) {
+          urls.add(srcsetUrl.replace(/&amp;/gu, "&"));
+        }
+      }
+      continue;
+    }
+    if (looksLikeImageUrl(match.groups.url)) {
       urls.add(match.groups.url.replace(/&amp;/gu, "&"));
     }
   }
@@ -1429,6 +1627,30 @@ function extractImageUrls(value: string): string[] {
     }
   }
   return Array.from(urls);
+}
+
+function extractProductImageUrls(html: string): string[] {
+  return extractImageUrls(html).filter((url) => !/(avatar|profile|logo|sprite|favicon|icon)/iu.test(url));
+}
+
+function extractVideoUrls(value: string): string[] {
+  const urls = new Set<string>();
+  for (const match of value.matchAll(/(?:src|data-src)=["'](?<url>https?:\/\/[^"']+\.(?:mp4|webm|m3u8)[^"']*)["']/giu)) {
+    if (match.groups?.url) {
+      urls.add(match.groups.url.replace(/&amp;/gu, "&"));
+    }
+  }
+  for (const match of value.matchAll(/https?:\/\/[^\s"'<>]+(?:mp4|webm|m3u8)[^\s"'<>]*/giu)) {
+    urls.add(match[0].replace(/&amp;/gu, "&"));
+  }
+  return Array.from(urls);
+}
+
+function splitSrcsetUrls(value?: string): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((candidate) => candidate.trim().split(/\s+/u)[0])
+    .filter((candidate) => /^https?:\/\//iu.test(candidate));
 }
 
 function looksLikeImageUrl(url: string): boolean {

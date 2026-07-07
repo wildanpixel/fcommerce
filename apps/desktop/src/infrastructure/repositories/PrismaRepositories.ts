@@ -129,6 +129,10 @@ export class PrismaProjectRepository implements ProjectRepository {
         productType: product.productType,
         storeType: extractProductStoreType(product.rawJson),
         sourcePlacement: extractProductSourcePlacement(product.rawJson),
+        ratingText: extractProductString(product.rawJson, "ratingText"),
+        reviewText: extractProductString(product.rawJson, "reviewText"),
+        monthlySoldText: extractProductString(product.rawJson, "monthlySoldText"),
+        totalSoldText: extractProductString(product.rawJson, "totalSoldText"),
         rank: product.rank,
         source: product.source,
         selectionReason: product.selectionReason,
@@ -148,6 +152,9 @@ export class PrismaProjectRepository implements ProjectRepository {
         variants: parseJsonArray(product.variantsJson),
         specifications: parseStringRecord(product.specificationsJson),
         images: extractProductImages(product.rawJson),
+        videos: extractProductVideos(product.rawJson),
+        reviewMediaImages: extractProductStringArray(product.rawJson, "reviewMediaImages"),
+        reviewMediaVideos: extractProductStringArray(product.rawJson, "reviewMediaVideos"),
         productUrl: product.productUrl,
         createdAt: product.createdAt.toISOString()
       })),
@@ -746,10 +753,28 @@ function extractProductImages(rawJson: string): string[] {
   return typeof imageUrl === "string" ? [imageUrl] : [];
 }
 
+function extractProductVideos(rawJson: string): string[] {
+  const raw = parseJsonObject(rawJson);
+  const videos = raw.videos;
+  return Array.isArray(videos) ? videos.filter((video): video is string => typeof video === "string") : [];
+}
+
+function extractProductStringArray(rawJson: string, key: string): string[] {
+  const raw = parseJsonObject(rawJson);
+  const values = raw[key];
+  return Array.isArray(values) ? values.filter((value): value is string => typeof value === "string") : [];
+}
+
 function extractProductStoreType(rawJson: string): string | undefined {
   const raw = parseJsonObject(rawJson);
   const storeType = raw.storeType;
   return typeof storeType === "string" && storeType.trim() ? storeType : undefined;
+}
+
+function extractProductString(rawJson: string, key: string): string | undefined {
+  const raw = parseJsonObject(rawJson);
+  const value = raw[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function extractProductSourcePlacement(rawJson: string): string | undefined {

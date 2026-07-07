@@ -4,12 +4,22 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 ## Unreleased - 2026-07-07
 
+- Reworked the embedded browser toolbar so Desktop/Mobile view selection sits inline with address, zoom, print, reload, and extraction controls.
+- Changed Shopee manual-action messaging into a transient warning toast with a persistent warning icon that can reopen the notice.
+- Changed browser fullscreen into a true viewport overlay: the webview fills the screen while controls and the guided collector float above it.
+- Fixed crop coordinate mapping for object-fit screenshot previews so saved selected screenshots match the user-selected area more accurately.
+- Added cards/list toggles for extracted product evidence under Keyword General.
+- Improved Key Product table fields: product type is inferred from title, Store Type is normalized to Mall ORI/Star+/Star, rating and sold strings are preserved from rendered Shopee rows, and reviews stay pending until PDP capture.
+- Added structured PDP sync during Product Detail Qualified capture: first viewport screenshot plus background extraction for slides/images, videos, description, reviews, and user media from browser-readable HTML.
+- Added review media image/video payloads to project product details and the Project Inspector product dossier.
+- Reduced heavy panel/metric shadows and added a left-side Project Inspector outline navigation matching the report hierarchy.
 - Changed screenshot capture to stitch a full scrollable page and show the complete captured page in a fit-to-screen crop preview instead of a scrollable preview pane.
 - Changed Shopee Step 3 from another evidence capture into a process-only Key Product table review that merges Relevance and Top Sales rows before Product Detail collection starts.
 - Focused Shopee rendered HTML extraction on the inner content `<div>` under `#main` and improved product-card parsing for `picture._displayContents_ img[srcset]` thumbnails.
 - Added source placement, product type, and store badge/store type signals to extracted product rows and Key Product table display.
 - Limited Key Product and Product Detail Qualified flows to an AI-assisted max-10 selected product set, with product-detail steps labeled by product title.
 - Focused the project inspector workflow on Keyword General, Key Product, and Product Detail Qualified sections.
+- Restored Evaluation Phase, Key Store, and TikTok Evidence below the focused collection sections so the full report workflow remains available for later collection passes.
 
 ## Unreleased - 2026-07-03
 

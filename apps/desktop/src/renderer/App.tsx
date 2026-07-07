@@ -17,6 +17,7 @@ import {
   Globe2,
   ImagePlus,
   KeyRound,
+  LayoutGrid,
   ListChecks,
   Maximize2,
   Minimize2,
@@ -36,6 +37,7 @@ import {
   Table2,
   TerminalSquare,
   Trash2,
+  Rows3,
   ZoomIn,
   ZoomOut
 } from "lucide-react";
@@ -92,6 +94,8 @@ type CollectionStep = {
   label: string;
   kind: ManualEvidenceKind;
   mode?: "CAPTURE" | "PROCESS";
+  captureMode?: "viewport" | "full-page";
+  substeps?: string[];
   ownerType?: ManualEvidencePayload["ownerType"];
   ownerId?: string;
   instruction: string;
@@ -121,6 +125,22 @@ type BrowserCaptureStatus = {
   message: string;
   state: "idle" | "working" | "done" | "failed";
   actionLabel?: string;
+};
+
+type RenderedProductDetailSnapshot = {
+  images: string[];
+  videos: string[];
+  description?: string;
+  reviews: Array<{
+    type: "Positive Reviews" | "Negative Reviews";
+    rating: number;
+    ratingLabel: string;
+    comment: string;
+    reviewDate?: string;
+    variation?: string;
+  }>;
+  reviewMediaImages: string[];
+  reviewMediaVideos: string[];
 };
 
 type CropRect = {
@@ -821,6 +841,7 @@ function GuidedBrowserCollector({
   const [pageTextPreview, setPageTextPreview] = useState("");
   const [zoomFactor, setZoomFactor] = useState(1);
   const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
+  const [manualNoticeVisible, setManualNoticeVisible] = useState(false);
   const [captureStatus, setCaptureStatus] = useState<BrowserCaptureStatus>({
     message: "Waiting for target page",
     state: "idle"
@@ -849,6 +870,26 @@ function GuidedBrowserCollector({
   const isManualActionState =
     platform === "SHOPEE_ID" &&
     (isProtectedShopeePage(currentUrl) || isShopeeLoginPage(currentUrl) || loadState === "failed");
+
+  useEffect(() => {
+    if (!isManualActionState) {
+      setManualNoticeVisible(false);
+      return;
+    }
+    setManualNoticeVisible(true);
+    const timer = window.setTimeout(() => setManualNoticeVisible(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [isManualActionState, currentUrl]);
+
+  useEffect(() => {
+    if (captureStatus.state !== "done") {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setCaptureStatus({ message: "Waiting for target page", state: "idle" });
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [captureStatus.message, captureStatus.state]);
 
   const saveCollectionState = useMutation({
     mutationFn: (state: CollectionState) => apiClient.saveCollectionState(project.id, state),
@@ -1121,8 +1162,10 @@ function GuidedBrowserCollector({
     if (!webview?.capturePage) {
       throw new Error("The embedded browser cannot capture this page in the current runtime.");
     }
-    setCaptureStatus({ message: "Capturing full page screenshot", state: "working" });
-    const screenshot = await captureFullPageScreenshot(webview);
+    setCaptureStatus({ message: step.captureMode === "viewport" ? "Capturing visible viewport" : "Capturing full page screenshot", state: "working" });
+    const screenshot = step.captureMode === "viewport"
+      ? await captureViewportScreenshot(webview)
+      : await captureFullPageScreenshot(webview);
     const sourceUrl = webview.getURL?.() ?? currentUrl;
     setCaptureStatus({ message: "Downloading HTML from #main", state: "working" });
     const snapshot = await extractRenderedPageSnapshot(webview)
@@ -1139,7 +1182,14 @@ function GuidedBrowserCollector({
         return {
           html: "",
           visibleText: "",
-          products: [] as ExtractedPageProduct[]
+          products: [] as ExtractedPageProduct[],
+          productDetail: {
+            images: [],
+            videos: [],
+            reviews: [],
+            reviewMediaImages: [],
+            reviewMediaVideos: []
+          }
         };
       });
     const printPdfDataUrl = await webview.printToPDF?.({ printBackground: true })
@@ -1170,6 +1220,9 @@ function GuidedBrowserCollector({
         zoomFactor,
         screenshotMode: screenshot.mode,
         screenshotClipped: screenshot.clipped,
+        productDetailSubsteps: step.substeps,
+        syncProductDetail: step.stage === "PRODUCT_DETAILS",
+        structuredProductDetail: snapshot.productDetail,
         extractedText: snapshot.visibleText,
         extractedProductCount: snapshot.products.length,
         capturedAt: new Date().toISOString()
@@ -1231,13 +1284,28 @@ function GuidedBrowserCollector({
     <Panel
       title="Platform Browser"
       icon={Globe2}
+      className={expanded ? "mio-browser-panel-expanded flex h-screen flex-col rounded-none border-0 p-0" : ""}
       action={
         <button className="secondary-button h-9 w-9 px-0" type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Exit fullscreen" : "Expand browser"} title={expanded ? "Exit fullscreen" : "Expand browser"}>
           {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
         </button>
       }
     >
-      <div className="mio-browser-toolbar mb-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+      <div className="mio-browser-toolbar mb-3 grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2">
+        <div className="flex items-center gap-1 rounded-lg border border-white/8 bg-white/5 p-1">
+          <SegmentButton
+            active={viewMode === "desktop"}
+            icon={Monitor}
+            disabled={platform !== "SHOPEE_ID"}
+            compact
+            onClick={() => platform === "SHOPEE_ID" && setViewMode("desktop")}
+          >
+            Desktop
+          </SegmentButton>
+          <SegmentButton active={viewMode === "mobile"} icon={Smartphone} compact onClick={() => setViewMode("mobile")}>
+            Mobile
+          </SegmentButton>
+        </div>
         <input value={address} onChange={(event) => setAddress(event.target.value)} className="input mio-address-input" aria-label="Browser address" />
         <div className="flex items-center gap-2">
           <button className="secondary-button w-10 px-0" type="button" onClick={goToAddress} aria-label="Go to address" title="Go">
@@ -1259,36 +1327,10 @@ function GuidedBrowserCollector({
             <TerminalSquare size={15} />
           </button>
         </div>
-      </div>
-
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <SegmentButton
-            active={viewMode === "desktop"}
-            icon={Monitor}
-            disabled={platform !== "SHOPEE_ID"}
-            onClick={() => platform === "SHOPEE_ID" && setViewMode("desktop")}
-          >
-            Desktop
-          </SegmentButton>
-          <SegmentButton active={viewMode === "mobile"} icon={Smartphone} onClick={() => setViewMode("mobile")}>
-            Mobile
-          </SegmentButton>
-        </div>
         <LoadStatePill state={loadState} />
       </div>
 
-      {isManualActionState && (
-        <div className="mio-manual-state mb-3 rounded-xl border border-signal-amber/30 bg-signal-amber/10 px-4 py-3 text-sm leading-6 text-ink-300">
-          <div className="mb-1 flex items-center gap-2 font-semibold text-white">
-            <AlertTriangle size={16} className="text-signal-amber" />
-            Manual action required
-          </div>
-          Shopee is showing login, verification, or a protected page. Use the browser manually, then capture evidence after the target page is visible.
-        </div>
-      )}
-
-      <div className={["relative overflow-hidden rounded-[18px] border border-white/12 bg-black", viewMode === "mobile" ? "mx-auto h-[720px] max-w-[430px]" : "h-[720px] w-full"].join(" ")}>
+      <div className={["mio-browser-frame relative min-h-0 overflow-hidden border border-white/12 bg-black", expanded ? "flex-1 rounded-none" : "rounded-[18px]", viewMode === "mobile" && !expanded ? "mx-auto h-[720px] max-w-[430px]" : expanded ? "h-screen w-screen" : "h-[720px] w-full"].join(" ")}>
         <webview
           key={`${project.id}-${viewMode}`}
           ref={(node) => {
@@ -1300,6 +1342,34 @@ function GuidedBrowserCollector({
           useragent={userAgent}
           webpreferences="contextIsolation=yes, sandbox=yes"
         />
+        {isManualActionState && (
+          <button
+            className="mio-warning-dot absolute right-4 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full border border-signal-amber/35 bg-signal-amber/15 text-signal-amber shadow-sm backdrop-blur"
+            type="button"
+            onClick={() => setManualNoticeVisible(true)}
+            aria-label="Show manual action notice"
+            title="Manual action required"
+          >
+            <AlertTriangle size={16} />
+          </button>
+        )}
+        <AnimatePresence>
+          {isManualActionState && manualNoticeVisible && (
+            <motion.div
+              className="mio-manual-toast absolute right-4 top-16 z-30 max-w-[420px] rounded-xl border border-signal-amber/30 bg-signal-amber/12 px-4 py-3 text-sm leading-6 text-ink-200 shadow-sm backdrop-blur-xl"
+              initial={{ opacity: 0, y: -8, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.98 }}
+              transition={{ duration: 0.16 }}
+            >
+              <div className="mb-1 flex items-center gap-2 font-semibold text-white">
+                <AlertTriangle size={16} className="text-signal-amber" />
+                Manual action required
+              </div>
+              Shopee is showing login, verification, captcha, or a protected page. Complete it manually, then capture evidence after the target page is visible.
+            </motion.div>
+          )}
+        </AnimatePresence>
         <BrowserCaptureStatusPill status={captureStatus} onAction={() => void downloadCurrentHtml()} />
         <FloatingStepController
           step={activeStep}
@@ -1343,7 +1413,7 @@ function GuidedBrowserCollector({
   );
 
   return (
-    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-auto bg-ink-950 p-5" : "grid grid-cols-[360px_minmax(0,1fr)] gap-5"}>
+    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : "grid grid-cols-[360px_minmax(0,1fr)] gap-5"}>
       {!expanded && (
         <aside className="space-y-5">
           <Panel title="Analysis Session" icon={ClipboardCheck}>
@@ -1413,7 +1483,7 @@ function GuidedBrowserCollector({
         </aside>
       )}
 
-      <div className={expanded ? "mx-auto max-w-[1800px]" : ""}>
+      <div className={expanded ? "h-screen w-screen" : ""}>
         {reviewingKeyProducts && activeStage === "KEYWORD_GENERAL" ? keyProductTablePanel : browserPanel}
       </div>
     </section>
@@ -1534,6 +1604,16 @@ function FloatingStepController({
           </span>
         </div>
         {step.instruction}
+        {step.substeps && step.substeps.length > 0 && (
+          <ul className="mt-2 space-y-1 border-t border-white/8 pt-2">
+            {step.substeps.map((substep) => (
+              <li key={substep} className="flex gap-2 text-[11px] text-ink-400">
+                <CheckCircle2 size={12} className="mt-0.5 shrink-0 text-signal-blue" />
+                <span>{substep}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <div className="mt-2 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-2">
         <button className="secondary-button h-9 w-10 px-0" type="button" onClick={onPrevious} aria-label="Previous step">
@@ -1875,6 +1955,7 @@ function ProjectInspectionPanel({
   const queryClient = useQueryClient();
   const evidenceCount = detail.assets.length;
   const collectionState = projectCollectionState(detail.project);
+  const outlineItems = projectOutlineItems(detail);
   const runAnalysis = useMutation({
     mutationFn: () => apiClient.analyzeProject(detail.project.id),
     onSuccess: async () => {
@@ -1934,7 +2015,10 @@ function ProjectInspectionPanel({
           AI evaluation saved with {runAnalysis.data.provider}.
         </div>
       )}
-      <ProjectReportOutline detail={detail} />
+      <div className="mt-5 grid grid-cols-[240px_minmax(0,1fr)] gap-5">
+        <ProjectOutlineNav title={detail.project.name} items={outlineItems} />
+        <ProjectReportOutline detail={detail} />
+      </div>
     </Panel>
   );
 }
@@ -1944,8 +2028,8 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
   const topSalesProducts = detail.products.filter((product) => product.source === "Top Sales");
   const keyProducts = selectKeyProductCandidates(detail.products);
   return (
-    <div className="mt-5 space-y-3">
-      <ReportOutlineSection title="Keyword General" defaultOpen>
+    <div className="space-y-3">
+      <ReportOutlineSection id="keyword-general" title="Keyword General" defaultOpen>
         <NestedReportSection title="Relevance">
           <AssetList assets={detail.assets.filter((asset) => asset.kind === "SEARCH_RESULT")} />
           <ProductCardGrid products={relevanceProducts} />
@@ -1956,7 +2040,7 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
         </NestedReportSection>
       </ReportOutlineSection>
 
-      <ReportOutlineSection title="Key Product">
+      <ReportOutlineSection id="key-product" title="Key Product">
         <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
           Monthly sold only applies to Top Sales result snapshots. Total sold is collected from PDP evidence when visible.
           Rating is the star value; Reviews is the rating/review count. Price ranges are stored as estimated average price.
@@ -1964,7 +2048,7 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
         <ProductInfoTable products={keyProducts} />
       </ReportOutlineSection>
 
-      <ReportOutlineSection title="Product Detailed Qualified">
+      <ReportOutlineSection id="product-detail-qualified" title="Product Detailed Qualified">
         <div className="space-y-3">
           {keyProducts.map((product) => (
             <NestedReportSection key={product.id} title={product.title}>
@@ -1978,13 +2062,194 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
           {keyProducts.length === 0 && <EmptyState label="Capture Relevance and Top Sales first to generate dynamic product detail steps." />}
         </div>
       </ReportOutlineSection>
+
+      <ReportOutlineSection id="evaluation-phase" title="Evaluation Phase">
+        <EvaluationCards detail={detail} />
+        <AnalysisSummary detail={detail} />
+      </ReportOutlineSection>
+
+      <ReportOutlineSection id="key-store" title="Key Store">
+        <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
+          Key stores remain part of the report workflow. They are evaluated by store homepage, product matrix,
+          bestseller area, visual style, official/mall/star signals, and repeated appearance across keyword evidence.
+        </div>
+        <StoreDetailCards detail={detail} />
+        <AssetList assets={detail.assets.filter((asset) => ["STORE_HOME", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER", "STORE_PROMOTION", "STORE_VOUCHER"].includes(asset.kind))} />
+      </ReportOutlineSection>
+
+      <ReportOutlineSection id="tiktok-evidence" title="TikTok Evidence">
+        <AssetList assets={detail.assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT")} />
+      </ReportOutlineSection>
     </div>
   );
 }
 
-function ReportOutlineSection({ title, defaultOpen, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
+function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; label: string; depth: number }> {
+  const keyProducts = selectKeyProductCandidates(detail.products);
+  return [
+    { id: "keyword-general", label: "Keyword General", depth: 0 },
+    { id: "keyword-general", label: "Relevance", depth: 1 },
+    { id: "keyword-general", label: "Top sales", depth: 1 },
+    { id: "key-product", label: "Key Product", depth: 0 },
+    { id: "key-product", label: "Product info", depth: 1 },
+    { id: "product-detail-qualified", label: "Product Detail Qualified", depth: 0 },
+    ...keyProducts.flatMap((product, index) => [
+      { id: "product-detail-qualified", label: product.title || `Product ${index + 1}`, depth: 1 },
+      { id: "product-detail-qualified", label: "First page", depth: 2 },
+      { id: "product-detail-qualified", label: "Slides and images", depth: 2 },
+      { id: "product-detail-qualified", label: "Reviews", depth: 2 },
+      { id: "product-detail-qualified", label: "Media in user", depth: 2 },
+      { id: "product-detail-qualified", label: "Shop homepage", depth: 2 }
+    ]),
+    { id: "evaluation-phase", label: "Evaluation Phase", depth: 0 },
+    { id: "key-store", label: "Key Store", depth: 0 },
+    { id: "tiktok-evidence", label: "TikTok Evidence", depth: 0 }
+  ];
+}
+
+function EvaluationCards({ detail }: { detail: ProjectDetailPayload }) {
+  const candidates = storeEvaluationCandidates(detail);
+  if (candidates.length === 0) {
+    return <EmptyState label="No store candidates yet. Capture Key Product data and Product Detail Qualified evidence first." />;
+  }
   return (
-    <details className="mio-report-section rounded-md border border-white/8 bg-white/5 p-4" open={defaultOpen}>
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {candidates.map((candidate, index) => (
+        <button key={candidate.key} type="button" className="rounded-md border border-white/8 bg-white/5 p-3 text-left hover:bg-white/8" onClick={() => candidate.url && void apiClient.openUrl(candidate.url)}>
+          <div className="aspect-video overflow-hidden rounded bg-white/10">
+            {candidate.thumbnail ? <img src={imageSource(candidate.thumbnail)} alt={candidate.name} className="h-full w-full object-cover" /> : null}
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Candidate {index + 1}</div>
+              <div className="mt-1 line-clamp-1 text-sm font-semibold text-white">{candidate.name}</div>
+            </div>
+            <div className="rounded-full border border-signal-blue/25 bg-signal-blue/10 px-2 py-1 text-xs font-semibold text-signal-blue">
+              {candidate.score}
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-400">
+            <InfoLine label="Store Type" value={candidate.type} />
+            <InfoLine label="Products" value={candidate.productCount.toString()} />
+            <InfoLine label="GMV ETA" value={formatCurrency(candidate.gmvEstimate)} />
+            <InfoLine label="Evidence" value={candidate.hasStoreEvidence ? "Store evidence" : "Product evidence"} />
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AnalysisSummary({ detail }: { detail: ProjectDetailPayload }) {
+  if (detail.analyses.length === 0) {
+    return (
+      <div className="mt-3">
+        <EmptyState label="No AI evaluation yet. Run AI after collecting Product Detail Qualified and Key Store evidence." />
+      </div>
+    );
+  }
+  const latest = [...detail.analyses].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+  const summary = analysisPreview(latest.resultJson);
+  return (
+    <div className="mt-3 rounded-md border border-white/8 bg-white/[0.04] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Latest AI Evaluation</div>
+          <div className="mt-1 text-sm font-semibold text-white">{latest.provider}</div>
+        </div>
+        <div className="text-xs text-ink-500">{formatDateTime(latest.createdAt)}</div>
+      </div>
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        {summary.map((item) => (
+          <div key={item.label} className="rounded border border-white/8 bg-white/5 p-2">
+            <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{item.label}</div>
+            <div className="mt-1 text-sm text-ink-200">{item.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StoreDetailCards({ detail }: { detail: ProjectDetailPayload }) {
+  const storeAssets = detail.assets.filter((asset) => ["STORE_HOME", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER", "STORE_PROMOTION", "STORE_VOUCHER"].includes(asset.kind));
+  const normalizedStores = detail.stores.map((store) => ({
+    key: store.id,
+    name: store.name,
+    url: store.url,
+    type: store.visualTheme.dominantColors.length > 0 ? store.visualTheme.dominantColors.join(", ") : "Shopee store",
+    score: store.rating ? Math.round(store.rating * 20) : 0,
+    productCount: store.productsCount ?? 0,
+    gmvEstimate: 0,
+    thumbnail: storeAssets.find((asset) => asset.ownerId === store.id || asset.kind === "STORE_HOME")?.path,
+    hasStoreEvidence: storeAssets.length > 0
+  }));
+  const fallbackStores = normalizedStores.length > 0 ? normalizedStores : storeEvaluationCandidates(detail);
+
+  if (fallbackStores.length === 0) {
+    return <EmptyState label="No Key Store data yet. Continue to the Key Store guided collection after Product Detail Qualified." />;
+  }
+
+  return (
+    <div className="mb-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {fallbackStores.map((store) => (
+        <div key={store.key} className="rounded-md border border-white/8 bg-white/5 p-3">
+          <div className="aspect-video overflow-hidden rounded bg-white/10">
+            {store.thumbnail ? <img src={imageSource(store.thumbnail)} alt={store.name} className="h-full w-full object-cover" /> : null}
+          </div>
+          <div className="mt-3 flex items-start justify-between gap-3">
+            <div>
+              <div className="line-clamp-1 text-sm font-semibold text-white">{store.name}</div>
+              <div className="mt-1 text-xs text-ink-500">{store.type}</div>
+            </div>
+            {store.url ? (
+              <button className="icon-button" type="button" aria-label={`Open ${store.name}`} onClick={() => void apiClient.openUrl(store.url ?? "")}>
+                <ExternalLink size={14} />
+              </button>
+            ) : null}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-400">
+            <InfoLine label="Products" value={store.productCount.toString()} />
+            <InfoLine label="GMV ETA" value={formatCurrency(store.gmvEstimate)} />
+            <InfoLine label="Score" value={store.score.toString()} />
+            <InfoLine label="Evidence" value={store.hasStoreEvidence ? "Captured" : "Pending"} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProjectOutlineNav({ title, items }: { title: string; items: Array<{ id: string; label: string; depth: number }> }) {
+  return (
+    <nav className="mio-inspector-nav sticky top-4 self-start rounded-md border border-white/8 bg-white/5 p-3 text-sm">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="line-clamp-2 font-semibold text-white">{title}</div>
+        <span className="text-xs text-ink-500">{items.length}</span>
+      </div>
+      <div className="space-y-1">
+        {items.map((item) => (
+          <a
+            key={`${item.id}-${item.label}`}
+            href={`#${item.id}`}
+            className={[
+              "block rounded px-2 py-1.5 text-ink-300 hover:bg-white/8 hover:text-white",
+              item.depth === 0 ? "font-semibold" : "text-xs",
+              item.depth === 1 ? "ml-3" : "",
+              item.depth === 2 ? "ml-6" : ""
+            ].join(" ")}
+          >
+            {item.label}
+          </a>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function ReportOutlineSection({ id, title, defaultOpen, children }: { id: string; title: string; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <details id={id} className="mio-report-section scroll-mt-4 rounded-md border border-white/8 bg-white/5 p-4" open={defaultOpen}>
       <summary className="cursor-pointer select-none text-sm font-semibold text-white">{title}</summary>
       <div className="mt-4">{children}</div>
     </details>
@@ -2020,24 +2285,64 @@ function AssetList({ assets }: { assets: ProjectDetailPayload["assets"] }) {
 }
 
 function ProductCardGrid({ products }: { products: ProjectProductEvidence[] }) {
+  const [view, setView] = useState<"cards" | "list">("cards");
   if (products.length === 0) {
     return <EmptyState label="No rendered product rows extracted yet." />;
   }
+  if (view === "list") {
+    return (
+      <div>
+        <ProductViewToggle value={view} onChange={setView} />
+        <div className="mt-3 overflow-hidden rounded-md border border-white/8">
+          {products.slice(0, 40).map((product) => (
+            <button key={product.id} type="button" className="grid w-full grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-white/8 bg-white/5 p-2 text-left last:border-b-0 hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
+              <div className="h-16 w-16 overflow-hidden rounded bg-white/10">
+                {product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover" /> : null}
+              </div>
+              <div className="min-w-0">
+                <div className="line-clamp-1 text-sm font-medium text-white">{product.title}</div>
+                <div className="mt-1 text-xs text-ink-500">
+                  {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · Sold {productSoldText(product)}
+                </div>
+              </div>
+              <div className="text-xs text-ink-500">{productSourcePlacement(product)}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-      {products.slice(0, 20).map((product) => (
-        <button key={product.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
-          <div className="aspect-square overflow-hidden rounded bg-white/10">
-            {product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover" /> : null}
-          </div>
-          <div className="mt-2 min-w-0">
-            <div className="line-clamp-2 text-xs font-medium text-white">{product.title}</div>
-            <div className="mt-1 text-[11px] text-ink-500">
-              {formatCurrency(product.priceAverage)} · Rating {product.rating ?? "-"} · Sold {formatOptionalNumber(product.monthlySold)}
+    <div>
+      <ProductViewToggle value={view} onChange={setView} />
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {products.slice(0, 20).map((product) => (
+          <button key={product.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
+            <div className="aspect-square overflow-hidden rounded bg-white/10">
+              {product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover" /> : null}
             </div>
-          </div>
-        </button>
-      ))}
+            <div className="mt-2 min-w-0">
+              <div className="line-clamp-2 text-xs font-medium text-white">{product.title}</div>
+              <div className="mt-1 text-[11px] text-ink-500">
+                {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · Sold {productSoldText(product)}
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProductViewToggle({ value, onChange }: { value: "cards" | "list"; onChange: (value: "cards" | "list") => void }) {
+  return (
+    <div className="flex justify-end gap-1">
+      <button className={["secondary-button h-8 w-8 px-0", value === "cards" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("cards")} aria-label="Card view" title="Card view">
+        <LayoutGrid size={14} />
+      </button>
+      <button className={["secondary-button h-8 w-8 px-0", value === "list" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("list")} aria-label="List view" title="List view">
+        <Rows3 size={14} />
+      </button>
     </div>
   );
 }
@@ -2073,13 +2378,13 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
               <td className="px-3 py-2">{product.selectionReason ?? "-"}</td>
               <td className="px-3 py-2">{product.title}</td>
               <td className="px-3 py-2">{product.productType ?? inferredProductTypeLabel(product.title)}</td>
-              <td className="px-3 py-2">{formatOptionalNumber(product.monthlySold)}</td>
+              <td className="px-3 py-2">{product.monthlySoldText ?? formatOptionalNumber(product.monthlySold)}</td>
               <td className="px-3 py-2">{product.storeName ?? "-"}</td>
               <td className="px-3 py-2">{product.storeType ?? storeTypeLabel(product)}</td>
               <td className="px-3 py-2">{formatCurrency(product.priceAverage)}</td>
-              <td className="px-3 py-2">{product.rating ?? "-"}</td>
-              <td className="px-3 py-2">{formatOptionalNumber(product.reviewCount)}</td>
-              <td className="px-3 py-2">{formatOptionalNumber(product.totalSold)}</td>
+              <td className="px-3 py-2">{productRatingText(product)}</td>
+              <td className="px-3 py-2">{product.reviewText ?? formatOptionalNumber(product.reviewCount)}</td>
+              <td className="px-3 py-2">{product.totalSoldText ?? formatOptionalNumber(product.totalSold)}</td>
             </tr>
           ))}
         </tbody>
@@ -2140,17 +2445,32 @@ function ProductDossierSummary({
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <InfoLine label="Price" value={formatCurrency(product.priceAverage)} />
         <InfoLine label="Discount" value={product.discount ?? "-"} />
-        <InfoLine label="Rating" value={product.rating ? product.rating.toString() : "-"} />
-        <InfoLine label="Total Sold" value={formatOptionalNumber(product.totalSold)} />
-        <InfoLine label="Reviews" value={formatOptionalNumber(product.reviewCount)} />
+        <InfoLine label="Rating" value={productRatingText(product)} />
+        <InfoLine label="Total Sold" value={productSoldText(product)} />
+        <InfoLine label="Reviews" value={product.reviewText ?? formatOptionalNumber(product.reviewCount)} />
         <InfoLine label="Stock" value={formatOptionalNumber(product.stock)} />
         <InfoLine label="Voucher" value={product.voucherText ?? "-"} />
         <InfoLine label="Shipping" value={product.shippingText ?? "-"} />
       </div>
 
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Slides</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Slides and Images</div>
         <ProductImageGrid images={product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []} />
+      </div>
+
+      <div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Videos</div>
+        <ProductVideoGrid videos={product.videos} />
+      </div>
+
+      <div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Media in User</div>
+        <ProductImageGrid images={product.reviewMediaImages} />
+        {product.reviewMediaVideos.length > 0 && (
+          <div className="mt-3">
+            <ProductVideoGrid videos={product.reviewMediaVideos} />
+          </div>
+        )}
       </div>
 
       <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
@@ -2203,6 +2523,24 @@ function ProductImageGrid({ images }: { images: string[] }) {
             <img src={image} alt={`Product slide ${index + 1}`} className="h-full w-full object-cover" />
           </div>
           <div className="px-2 py-1 text-left text-[11px] text-ink-500">Slide {index + 1}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ProductVideoGrid({ videos }: { videos: string[] }) {
+  if (videos.length === 0) {
+    return <EmptyState label="No product video URLs captured yet." />;
+  }
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      {videos.slice(0, 6).map((video, index) => (
+        <button key={`${video}-${index}`} type="button" className="overflow-hidden rounded-md border border-white/8 bg-white/5" onClick={() => void apiClient.openUrl(video)}>
+          <div className="aspect-video bg-black">
+            <video src={video} className="h-full w-full object-cover" muted controls />
+          </div>
+          <div className="px-2 py-1 text-left text-[11px] text-ink-500">Video {index + 1}</div>
         </button>
       ))}
     </div>
@@ -2540,12 +2878,14 @@ function SegmentButton({
   active,
   disabled,
   icon: Icon,
+  compact,
   children,
   onClick
 }: {
   active: boolean;
   disabled?: boolean;
   icon: LucideIcon;
+  compact?: boolean;
   children: ReactNode;
   onClick: () => void;
 }) {
@@ -2553,7 +2893,8 @@ function SegmentButton({
     <button
       type="button"
       className={[
-        "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm transition",
+        "inline-flex h-9 items-center justify-center rounded-md border text-sm transition",
+        compact ? "gap-1.5 px-2" : "gap-2 px-3",
         active ? "border-signal-blue/45 bg-signal-blue/12 text-white" : "border-white/8 bg-white/5 text-ink-400 hover:text-white",
         disabled ? "cursor-not-allowed opacity-45" : ""
       ].join(" ")}
@@ -2568,7 +2909,7 @@ function SegmentButton({
 
 function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
   return (
-    <div className="rounded-md border border-white/8 bg-white/6 p-4 shadow-glow">
+    <div className="mio-metric-card rounded-md border border-white/8 bg-white/6 p-4">
       <div className="mb-4 flex items-center justify-between text-ink-500">
         <span className="text-xs uppercase tracking-[0.14em]">{label}</span>
         <Icon size={17} />
@@ -2582,15 +2923,17 @@ function Panel({
   title,
   icon: Icon,
   action,
+  className,
   children
 }: {
   title: string;
   icon: LucideIcon;
   action?: ReactNode;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="mio-panel rounded-[18px] border border-white/8 bg-ink-900/72 p-5 shadow-glow">
+    <div className={["mio-panel rounded-[18px] border border-white/8 bg-ink-900/72 p-5", className ?? ""].join(" ")}>
       <div className="mb-5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white">
           <Icon size={17} className="text-signal-blue" />
@@ -2869,84 +3212,31 @@ function buildShopeeSteps(
     }
   ];
 
-  const productSteps = keyProducts.flatMap((product): CollectionStep[] => {
+  const productSteps = keyProducts.map((product): CollectionStep => {
     const productUrl = product.productUrl;
     const productCurrent = productReady && sameProductIntent(currentUrl, productUrl);
     const productTitle = shortProductTitle(product.title);
-    return [
-      {
-        id: `product-${product.id}-first-page`,
-        stage: "PRODUCT_DETAILS",
-        section: product.title,
-        label: `${productTitle} - first page`,
-        kind: "PRODUCT_PAGE",
-        ownerType: "PRODUCT",
-        ownerId: product.id,
-        targetUrl: productUrl,
-        instruction: `Open ${product.title} from the product info table and capture images, title, ratings, reviews, sold count, price, variants, add-to-cart, and buy buttons.`,
-        ready: productCurrent
-      },
-      {
-        id: `product-${product.id}-slides`,
-        stage: "PRODUCT_DETAILS",
-        section: product.title,
-        label: `${productTitle} - slides and images`,
-        kind: "PRODUCT_IMAGE",
-        ownerType: "PRODUCT",
-        ownerId: product.id,
-        targetUrl: productUrl,
-        instruction: "Capture product image slides or gallery images. The report renders collected images in rows of no more than three.",
-        ready: productCurrent
-      },
-      {
-        id: `product-${product.id}-description`,
-        stage: "PRODUCT_DETAILS",
-        section: product.title,
-        label: `${productTitle} - description`,
-        kind: "PRODUCT_DESCRIPTION",
-        ownerType: "PRODUCT",
-        ownerId: product.id,
-        targetUrl: productUrl,
-        instruction: "Scroll to the product description/specifications section and capture it. Rendered HTML/text is saved in the background.",
-        ready: productCurrent
-      },
-      {
-        id: `product-${product.id}-reviews`,
-        stage: "PRODUCT_DETAILS",
-        section: product.title,
-        label: `${productTitle} - reviews`,
-        kind: "REVIEW_SECTION",
-        ownerType: "PRODUCT",
-        ownerId: product.id,
-        targetUrl: productUrl,
-        instruction: "Open the review area and display positive and negative reviews before capture.",
-        ready: productCurrent
-      },
-      {
-        id: `product-${product.id}-review-media`,
-        stage: "PRODUCT_DETAILS",
-        section: product.title,
-        label: `${productTitle} - user media`,
-        kind: "REVIEW_IMAGE",
-        ownerType: "PRODUCT",
-        ownerId: product.id,
-        targetUrl: productUrl,
-        instruction: "Filter or scroll to user reviews with attached images, then capture customer media evidence.",
-        ready: productCurrent
-      },
-      {
-        id: `product-${product.id}-shop-home`,
-        stage: "PRODUCT_DETAILS",
-        section: product.title,
-        label: `${productTitle} - shop homepage`,
-        kind: "STORE_HOME",
-        ownerType: product.storeUrl ? "STORE" : "PRODUCT",
-        ownerId: product.storeUrl ? `${project.id}:${product.storeUrl}` : product.id,
-        targetUrl: product.storeUrl ?? productUrl,
-        instruction: "Open the product's shop page and capture the first visible shop homepage evidence.",
-        ready: product.storeUrl ? sameStoreIntent(currentUrl, product.storeUrl) : storeReady
-      }
-    ];
+    return {
+      id: `product-${product.id}-qualified`,
+      stage: "PRODUCT_DETAILS",
+      section: product.title,
+      label: productTitle,
+      kind: "PRODUCT_PAGE",
+      captureMode: "viewport",
+      ownerType: "PRODUCT",
+      ownerId: product.id,
+      targetUrl: productUrl,
+      instruction: `Open ${product.title}. Capture the visible first frame; the app syncs slides, video, description, reviews, and user media from the page HTML in the background.`,
+      substeps: [
+        "First page screenshot: visible viewport only",
+        "Slides and images: sync from page-product picture/source elements",
+        "Description: sync from page-product__content",
+        "Reviews: sync 3 positive 5-star and 2 negative 1-star rows",
+        "Media in user: sync review image/video carousel URLs",
+        "Shop homepage: open the shop page later for full-page store evidence"
+      ],
+      ready: productCurrent
+    };
   });
 
   const genericProductSteps: CollectionStep[] = keyProducts.length > 0 ? [] : [
@@ -2956,6 +3246,7 @@ function buildShopeeSteps(
       section: "Product Detailed Qualified",
       label: "Product page first viewport",
       kind: "PRODUCT_PAGE",
+      captureMode: "viewport",
       instruction: "Capture relevance/top-sales first. Until products are extracted, open any selected product page and capture the first viewport.",
       ready: productReady
     }
@@ -3129,10 +3420,6 @@ function sameProductIntent(current: string, target: string): boolean {
   return samePathIntent(current, target);
 }
 
-function sameStoreIntent(current: string, target: string): boolean {
-  return samePathIntent(current, target);
-}
-
 function samePathIntent(current: string, target: string): boolean {
   try {
     const currentUrl = new URL(current);
@@ -3196,6 +3483,10 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
     selectionReason: mergeReasonLabels(preferred.selectionReason, base.selectionReason),
     productType: preferred.productType ?? base.productType,
     storeType: preferred.storeType ?? base.storeType,
+    ratingText: preferred.ratingText ?? base.ratingText,
+    reviewText: preferred.reviewText ?? base.reviewText,
+    monthlySoldText: preferred.monthlySoldText ?? base.monthlySoldText,
+    totalSoldText: preferred.totalSoldText ?? base.totalSoldText,
     monthlySold: preferred.monthlySold ?? base.monthlySold,
     totalSold: preferred.totalSold ?? base.totalSold,
     reviewCount: preferred.reviewCount ?? base.reviewCount,
@@ -3203,7 +3494,10 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
     storeName: preferred.storeName ?? base.storeName,
     storeUrl: preferred.storeUrl ?? base.storeUrl,
     imageUrl: preferred.imageUrl ?? base.imageUrl,
-    images: preferred.images.length > 0 ? preferred.images : base.images
+    images: preferred.images.length > 0 ? preferred.images : base.images,
+    videos: preferred.videos.length > 0 ? preferred.videos : base.videos,
+    reviewMediaImages: preferred.reviewMediaImages.length > 0 ? preferred.reviewMediaImages : base.reviewMediaImages,
+    reviewMediaVideos: preferred.reviewMediaVideos.length > 0 ? preferred.reviewMediaVideos : base.reviewMediaVideos
   };
 }
 
@@ -3288,8 +3582,14 @@ function toFileImageSrc(path: string): string {
 
 function inferredProductTypeLabel(title: string): string {
   const normalized = title.toLowerCase();
+  if (/iphone\s*15|iphone15/u.test(normalized)) {
+    return "iphone15";
+  }
+  if (/iphone/u.test(normalized)) {
+    return "iPhones";
+  }
   if (/bulu mata|eyelash|lashes|lash/u.test(normalized)) {
-    return "eyelash";
+    return "Eyelash";
   }
   if (/eye\s*cream|krim mata|mata anti keriput/u.test(normalized)) {
     return "eye cream";
@@ -3314,6 +3614,137 @@ function storeTypeLabel(product: ProjectProductEvidence): string {
     return "Top-sales store";
   }
   return "Marketplace";
+}
+
+function productRatingText(product: ProjectProductEvidence): string {
+  if (product.ratingText) {
+    return product.ratingText;
+  }
+  return product.rating === undefined || product.rating === null ? "-" : product.rating.toFixed(1).replace(".", ",");
+}
+
+function productSoldText(product: ProjectProductEvidence): string {
+  return product.totalSoldText ?? product.monthlySoldText ?? formatOptionalNumber(product.totalSold ?? product.monthlySold);
+}
+
+type StoreEvaluationCandidate = {
+  key: string;
+  name: string;
+  url?: string;
+  type: string;
+  score: number;
+  productCount: number;
+  gmvEstimate: number;
+  thumbnail?: string;
+  hasStoreEvidence: boolean;
+};
+
+function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluationCandidate[] {
+  const storeEvidenceKinds: Array<ProjectDetailPayload["assets"][number]["kind"]> = [
+    "STORE_HOME",
+    "STORE_FEATURED_PRODUCTS",
+    "STORE_BEST_SELLER",
+    "STORE_BANNER",
+    "STORE_PROMOTION",
+    "STORE_VOUCHER"
+  ];
+  const hasStoreEvidence = hasAnyAsset(detail, storeEvidenceKinds);
+  const grouped = new Map<string, StoreEvaluationCandidate & { qualityTotal: number }>();
+  for (const product of detail.products) {
+    const key = normalizeStoreKey(product);
+    const existing = grouped.get(key);
+    const monthlySold = product.monthlySold ?? 0;
+    const price = product.priceAverage ?? 0;
+    const candidate = existing ?? {
+      key,
+      name: product.storeName ?? product.storeUrl ?? "Store pending PDP capture",
+      url: product.storeUrl ?? undefined,
+      type: product.storeType ?? storeTypeLabel(product),
+      score: 0,
+      productCount: 0,
+      gmvEstimate: 0,
+      thumbnail: product.imageUrl ?? undefined,
+      hasStoreEvidence,
+      qualityTotal: 0
+    };
+    candidate.productCount += 1;
+    candidate.gmvEstimate += price * monthlySold;
+    candidate.qualityTotal += productQualityScore(product);
+    candidate.score = Math.min(100, Math.round(candidate.qualityTotal / candidate.productCount));
+    if (!candidate.thumbnail && product.imageUrl) {
+      candidate.thumbnail = product.imageUrl;
+    }
+    if (!candidate.url && product.storeUrl) {
+      candidate.url = product.storeUrl;
+    }
+    grouped.set(key, candidate);
+  }
+  return [...grouped.values()]
+    .sort((left, right) => right.gmvEstimate - left.gmvEstimate || right.score - left.score)
+    .slice(0, 10)
+    .map((candidate) => ({
+      key: candidate.key,
+      name: candidate.name,
+      url: candidate.url,
+      type: candidate.type,
+      score: candidate.score,
+      productCount: candidate.productCount,
+      gmvEstimate: candidate.gmvEstimate,
+      thumbnail: candidate.thumbnail,
+      hasStoreEvidence: candidate.hasStoreEvidence
+    }));
+}
+
+function normalizeStoreKey(product: ProjectProductEvidence): string {
+  return (product.storeUrl ?? product.storeName ?? product.title).toLowerCase().replace(/\s+/g, "-");
+}
+
+function analysisPreview(resultJson: string): Array<{ label: string; value: string }> {
+  const parsed = parseRecord(resultJson);
+  if (!parsed) {
+    return [{ label: "Raw Result", value: resultJson.slice(0, 180) || "-" }];
+  }
+  const scoredSections = Object.entries(parsed)
+    .flatMap(([label, value]) => {
+      if (!isRecord(value)) {
+        return [];
+      }
+      const score = value.score;
+      return typeof score === "number" || typeof score === "string" ? [{ label: titleCase(label), value: String(score) }] : [];
+    })
+    .slice(0, 6);
+  if (scoredSections.length > 0) {
+    return scoredSections;
+  }
+  return Object.entries(parsed)
+    .filter(([, value]) => typeof value === "string" || typeof value === "number")
+    .slice(0, 6)
+    .map(([label, value]) => ({ label: titleCase(label), value: String(value).slice(0, 140) }));
+}
+
+function parseRecord(value: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function titleCase(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function imageSource(value: string): string {
+  return /^https?:\/\//i.test(value) || value.startsWith("data:") ? value : toFileImageSrc(value);
 }
 
 function formatDateTime(value: string): string {
@@ -3393,14 +3824,27 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
   html: string;
   visibleText: string;
   products: ExtractedPageProduct[];
+  productDetail: RenderedProductDetailSnapshot;
 }> {
   if (!webview.executeJavaScript) {
-    return { html: "", visibleText: "", products: [] };
+    return {
+      html: "",
+      visibleText: "",
+      products: [],
+      productDetail: {
+        images: [],
+        videos: [],
+        reviews: [],
+        reviewMediaImages: [],
+        reviewMediaVideos: []
+      }
+    };
   }
   return webview.executeJavaScript<{
     html: string;
     visibleText: string;
     products: ExtractedPageProduct[];
+    productDetail: RenderedProductDetailSnapshot;
   }>(`
     (() => {
       const parseHumanNumber = (value) => {
@@ -3427,6 +3871,17 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         try { return new URL(href, location.href).toString(); } catch { return href || ""; }
       };
       const compact = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+      const unique = (values) => {
+        const seen = new Set();
+        return values
+          .map((value) => compact(value))
+          .filter(Boolean)
+          .filter((value) => {
+            if (seen.has(value)) return false;
+            seen.add(value);
+            return true;
+          });
+      };
       const pickShopeeContentRoot = () => {
         const main = document.querySelector("#main");
         if (!main) return document.querySelector("main") || document.body || document.documentElement;
@@ -3443,27 +3898,62 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           .filter(Boolean);
         return candidates.at(-1) || undefined;
       };
-      const imageUrlFrom = (image) => {
-        if (!image) return undefined;
-        return parseSrcSet(image.getAttribute("srcset")) || image.currentSrc || image.src || undefined;
+      const mediaUrlFrom = (element) => {
+        if (!element) return undefined;
+        if (element.tagName === "PICTURE") {
+          return mediaUrlFrom(element.querySelector("source[srcset], img[srcset], img[src], source[src]"));
+        }
+        return parseSrcSet(element.getAttribute("srcset")) ||
+          element.currentSrc ||
+          element.getAttribute("src") ||
+          element.src ||
+          undefined;
+      };
+      const imageUrlFrom = (element) => {
+        const url = mediaUrlFrom(element);
+        return url ? absoluteUrl(url) : undefined;
       };
       const inferProductType = (title) => {
         const normalized = compact(title).toLowerCase();
-        if (/bulu mata|eyelash|lashes|lash/u.test(normalized)) return "eyelash";
+        if (/iphone\\s*15|iphone15/u.test(normalized)) return "iphone15";
+        if (/iphone/u.test(normalized)) return "iPhones";
+        if (/bulu mata|eyelash|lashes|lash/u.test(normalized)) return "Eyelash";
         if (/eye\\s*cream|krim mata|mata anti keriput/u.test(normalized)) return "eye cream";
         if (/lotion|body lotion|handbody/u.test(normalized)) return "body lotion";
         if (/lip\\s*tint|lipstick|liptint/u.test(normalized)) return "lip tint";
         if (/serum/u.test(normalized)) return "serum";
-        return normalized.split(/\\s+/).slice(0, 4).join(" ") || "marketplace product";
+        const firstUseful = normalized
+          .replace(/\\b(ori|original|ready|promo|gratis|free|termurah|murah|new|baru)\\b/giu, " ")
+          .split(/\\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .join(" ");
+        return firstUseful || "marketplace product";
       };
       const inferStoreType = (text, imageUrl) => {
         const value = compact([text, imageUrl].filter(Boolean).join(" ")).toLowerCase();
         if (/mall\\s*ori|mallori|mall-ori/u.test(value)) return "Mall ORI";
-        if (/shopee\\s*mall|mall/u.test(value)) return "Mall";
+        if (/shopee\\s*mall|mall/u.test(value)) return "Mall ORI";
         if (/star\\s*\\+|starplus|star-plus/u.test(value)) return "Star+";
         if (/star/u.test(value)) return "Star";
-        if (/official|resmi/u.test(value)) return "Official";
         return undefined;
+      };
+      const extractSoldText = (text) => {
+        const match = compact(text).match(/(?:terjual|sold)\\s*([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)|([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)\\s*(?:terjual|sold)/i);
+        if (!match) return undefined;
+        const metric = match[1] || match[2];
+        return compact(match[0].match(/terjual|sold/i)?.index === 0 ? \`\${metric} \${match[0].match(/terjual|sold/i)?.[0] || ""}\` : match[0]);
+      };
+      const extractRatingText = (text, soldText) => {
+        const metricText = compact(text);
+        const searchable = soldText && metricText.includes(soldText) ? metricText.slice(0, metricText.indexOf(soldText)) : metricText;
+        const candidates = Array.from(searchable.matchAll(/(?:^|\\s)([1-5](?:[.,]\\d)?)(?=\\s|$|\\||★|\\*)/gi))
+          .map((match) => match[1])
+          .filter((value) => {
+            const numeric = Number(value.replace(",", "."));
+            return numeric >= 1 && numeric <= 5;
+          });
+        return candidates.at(-1);
       };
       const prettyHtml = (value) => String(value || "")
         .replace(/></g, ">\\n<")
@@ -3476,10 +3966,10 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           .map(compact)
           .filter(Boolean)
           .filter((line) => !/^rp\\s*/i.test(line))
-          .filter((line) => !/(terjual|sold|rating|penilaian|gratis ongkir|cashback|mall)$/i.test(line))
+          .filter((line) => !/(shopping cart|cart icon|keranjang|terjual|sold|rating|penilaian|gratis ongkir|cashback|mall)$/i.test(line))
           .filter((line) => line.length >= 8 && line.length <= 180);
         const alt = compact(imageAlt);
-        if (alt && alt.length >= 8 && !/^image/i.test(alt)) return alt;
+        if (alt && alt.length >= 8 && !/(^image|shopping cart|cart icon|keranjang)/i.test(alt)) return alt;
         return lines.sort((left, right) => right.length - left.length)[0] || lines[0] || "";
       };
       const findCard = (anchor) => {
@@ -3511,19 +4001,20 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         const key = url.split("?")[0];
         if (!url || seen.has(key)) continue;
         const card = findCard(anchor);
-        const text = card.innerText || anchor.innerText || "";
-        const image = card.querySelector('picture._displayContents_ img, picture img, img');
-        const title = meaningfulTitle(text, image?.alt);
+        const dataRoot = card.querySelector("div.p-2") || card;
+        const text = dataRoot.innerText || card.innerText || anchor.innerText || "";
+        const cardText = card.innerText || text;
+        const image = card.querySelector('picture._displayContents_, picture, picture._displayContents_ img, picture img, img');
+        const title = meaningfulTitle(text, image?.alt || image?.querySelector?.("img")?.alt);
         if (!title) continue;
         seen.add(key);
         const badgeImage = card.querySelector('div.p-2 div.space-y-1 div.whitespace-normal img, div.p-2 div.space-y-1 div.whitespaces-normal img, div.p-2 div.space-y-1 div[class*="whitespace"] img, img[alt*="Mall" i], img[alt*="Star" i], img[src*="mall" i], img[src*="star" i]');
         const badgeImageUrl = imageUrlFrom(badgeImage);
         const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title].filter(Boolean).join(" "));
-        const storeType = inferStoreType(badgeText, badgeImageUrl) || inferStoreType(text, undefined);
+        const storeType = inferStoreType(badgeText, badgeImageUrl) || inferStoreType(cardText, undefined);
         const priceText = compact((text.match(/Rp\\s*[\\d.]+(?:\\s*-\\s*Rp\\s*[\\d.]+)?/i) || [])[0] || "");
-        const soldMatch = text.match(/(?:terjual|sold)\\s*([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)|([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)\\s*(?:terjual|sold)/i);
-        const reviewMatch = text.match(/([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)\\s*(?:penilaian|ratings?|ulasan|reviews?)/i);
-        const ratingMatch = text.match(/(?:^|\\s)([1-5](?:[.,]\\d)?)\\s*(?:\\/\\s*5|\\||rating|bintang|stars?)?/i);
+        const soldText = extractSoldText(text);
+        const ratingText = extractRatingText(text, soldText);
         products.push({
           rank: products.length + 1,
           title,
@@ -3531,25 +4022,85 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           imageUrl: imageUrlFrom(image),
           priceText: priceText || undefined,
           priceAverage: parsePrice(priceText),
-          rating: ratingMatch ? Number(ratingMatch[1].replace(",", ".")) : undefined,
-          reviewCount: reviewMatch ? parseHumanNumber(reviewMatch[1]) : undefined,
-          soldCount: soldMatch ? parseHumanNumber(soldMatch[1] || soldMatch[2]) : undefined,
+          rating: ratingText ? Number(ratingText.replace(",", ".")) : undefined,
+          ratingText,
+          reviewText: undefined,
+          soldCount: soldText ? parseHumanNumber(soldText) : undefined,
+          soldText,
           productType: inferProductType(title),
           storeType,
           storeBadgeImageUrl: badgeImageUrl,
           sourcePlacement: String(products.length + 1),
-          mallStatus: /mall/i.test([text, storeType].filter(Boolean).join(" ")),
-          officialStatus: /official|resmi/i.test(text),
-          starSeller: /star\\s*seller|star\\+?|star plus/i.test([text, storeType].filter(Boolean).join(" ")),
-          rawText: compact(text).slice(0, 1200)
+          mallStatus: /mall/i.test([cardText, storeType].filter(Boolean).join(" ")),
+          officialStatus: /official|resmi/i.test(cardText),
+          starSeller: /star\\s*seller|star\\+?|star plus/i.test([cardText, storeType].filter(Boolean).join(" ")),
+          rawText: compact(cardText).slice(0, 1200)
         });
       }
+      const textFrom = (element) => compact(element?.innerText || element?.textContent || "");
+      const productPageRoot = document.querySelector(".page-product") || document.querySelector('[role="main"]') || htmlRoot || document.body;
+      const galleryRoot = productPageRoot?.querySelector?.('[role="main"] section section') ||
+        productPageRoot?.querySelector?.("section section") ||
+        productPageRoot;
+      const descriptionRoot = document.querySelector(".page-product__content .page-product__content--left section:nth-of-type(2) div") ||
+        document.querySelector(".page-product__content .page-product__content--left") ||
+        document.querySelector(".page-product__content");
+      const reviewRoot = document.querySelector(".product-ratings");
+      const commentRoot = document.querySelector(".product-comment-list") || reviewRoot;
+      const productImages = unique(Array.from(galleryRoot?.querySelectorAll?.("picture._displayContents_, picture, source[srcset], img[srcset], img[src]") || [])
+        .map(imageUrlFrom));
+      const productVideos = unique(Array.from(galleryRoot?.querySelectorAll?.("video") || [])
+        .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || "")));
+      const mediaRoot = document.querySelector(".rating-media-list-image-carousel__item-list-wrapper") || reviewRoot || document;
+      const reviewMediaImages = unique(Array.from(mediaRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
+        .map(imageUrlFrom));
+      const reviewMediaVideos = unique(Array.from(mediaRoot.querySelectorAll("video"))
+        .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || "")));
+      const reviewBlocks = unique(
+        Array.from(commentRoot?.querySelectorAll?.("[class*='comment'], [class*='rating']") || [])
+          .map(textFrom)
+          .filter((value) => value.length >= 24)
+      ).slice(0, 20);
+      const positiveWords = /(bagus|suka|sesuai|cepat|mantap|puas|recommended|rekomen|good|love|worth|cantik|rapi|halus|natural|baik)/iu;
+      const negativeWords = /(kecewa|rusak|jelek|kurang|lama|bad|tidak sesuai|gagal|patah|lepas|mahal|tipis|buruk)/iu;
+      const toReview = (type, rating, comment) => {
+        const normalized = compact(comment);
+        const dateMatch = normalized.match(/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u);
+        const variationMatch = normalized.match(/(?:Variasi|Variation)\\s*:\\s*([^|\\n]+)/iu);
+        return {
+          type,
+          rating,
+          ratingLabel: \`\${rating} Star\`,
+          comment: normalized.slice(0, 900),
+          reviewDate: dateMatch?.[0],
+          variation: variationMatch?.[1] ? compact(variationMatch[1]).slice(0, 120) : undefined
+        };
+      };
+      const positiveReviews = reviewBlocks
+        .filter((value) => positiveWords.test(value) && !negativeWords.test(value))
+        .slice(0, 3)
+        .map((comment) => toReview("Positive Reviews", 5, comment));
+      const negativeReviews = reviewBlocks
+        .filter((value) => negativeWords.test(value))
+        .slice(0, 2)
+        .map((comment) => toReview("Negative Reviews", 1, comment));
+      const fallbackReviews = positiveReviews.length + negativeReviews.length === 0
+        ? reviewBlocks.slice(0, 3).map((comment) => toReview("Positive Reviews", 5, comment))
+        : [];
+      const productDetail = {
+        images: productImages.slice(0, 12),
+        videos: productVideos.slice(0, 6),
+        description: textFrom(descriptionRoot).slice(0, 8000) || undefined,
+        reviews: [...positiveReviews, ...negativeReviews, ...fallbackReviews],
+        reviewMediaImages: reviewMediaImages.slice(0, 30),
+        reviewMediaVideos: reviewMediaVideos.slice(0, 12)
+      };
       const html = prettyHtml(htmlRoot.outerHTML || document.documentElement?.outerHTML || "");
       const visibleTextSource = htmlRoot.innerText || document.body?.innerText || "";
       const visibleText = [document.title || "", location.href, compact(visibleTextSource).slice(0, 24000)]
         .filter(Boolean)
         .join("\\n");
-      return { html, visibleText, products };
+      return { html, visibleText, products, productDetail };
     })();
   `);
 }
@@ -3650,6 +4201,23 @@ async function captureFullPageScreenshot(webview: WebviewElement): Promise<FullP
   };
 }
 
+async function captureViewportScreenshot(webview: WebviewElement): Promise<FullPageScreenshot> {
+  if (!webview.capturePage) {
+    throw new Error("The embedded browser cannot capture this page in the current runtime.");
+  }
+  const image = await webview.capturePage();
+  const size = image.getSize?.() ?? {
+    width: Math.max(1, Math.round(webview.clientWidth)),
+    height: Math.max(1, Math.round(webview.clientHeight))
+  };
+  return {
+    imageDataUrl: image.toDataURL(),
+    width: size.width,
+    height: size.height,
+    mode: "viewport"
+  };
+}
+
 async function readScrollablePageMetrics(webview: WebviewElement): Promise<{
   viewportWidth: number;
   viewportHeight: number;
@@ -3723,18 +4291,24 @@ async function cropImageDataUrl(
     return { imageDataUrl, width: imageElement.naturalWidth, height: imageElement.naturalHeight };
   }
   const parentRect = imageElement.parentElement?.getBoundingClientRect();
-  const imageRect = imageElement.getBoundingClientRect();
-  const offsetX = parentRect ? imageRect.left - parentRect.left : 0;
-  const offsetY = parentRect ? imageRect.top - parentRect.top : 0;
+  const elementRect = imageElement.getBoundingClientRect();
+  const naturalRatio = imageElement.naturalWidth / imageElement.naturalHeight;
+  const elementRatio = elementRect.width / elementRect.height;
+  const renderedWidth = elementRatio > naturalRatio ? elementRect.height * naturalRatio : elementRect.width;
+  const renderedHeight = elementRatio > naturalRatio ? elementRect.height : elementRect.width / naturalRatio;
+  const contentLeft = elementRect.left + (elementRect.width - renderedWidth) / 2;
+  const contentTop = elementRect.top + (elementRect.height - renderedHeight) / 2;
+  const offsetX = parentRect ? contentLeft - parentRect.left : 0;
+  const offsetY = parentRect ? contentTop - parentRect.top : 0;
   const selectedX = Math.max(0, selection.x - offsetX);
   const selectedY = Math.max(0, selection.y - offsetY);
-  const selectedWidth = Math.min(selection.width, imageRect.width - selectedX);
-  const selectedHeight = Math.min(selection.height, imageRect.height - selectedY);
+  const selectedWidth = Math.min(selection.width, renderedWidth - selectedX);
+  const selectedHeight = Math.min(selection.height, renderedHeight - selectedY);
   if (selectedWidth <= 0 || selectedHeight <= 0) {
     return { imageDataUrl, width: imageElement.naturalWidth, height: imageElement.naturalHeight };
   }
-  const scaleX = imageElement.naturalWidth / imageRect.width;
-  const scaleY = imageElement.naturalHeight / imageRect.height;
+  const scaleX = imageElement.naturalWidth / renderedWidth;
+  const scaleY = imageElement.naturalHeight / renderedHeight;
   const sourceX = Math.round(selectedX * scaleX);
   const sourceY = Math.round(selectedY * scaleY);
   const sourceWidth = Math.round(selectedWidth * scaleX);

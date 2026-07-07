@@ -178,7 +178,7 @@ webview {
   backdrop-filter: blur(28px) saturate(1.3);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 20px 60px rgba(0, 0, 0, 0.28);
+    0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
 .mio-panel:hover {
@@ -219,7 +219,7 @@ webview {
   backdrop-filter: none;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 18px 46px rgba(54, 70, 101, 0.12);
+    0 6px 18px rgba(54, 70, 101, 0.08);
 }
 
 .mio-light .text-white {
@@ -297,7 +297,7 @@ webview {
   backdrop-filter: blur(18px) saturate(1.05);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 16px 42px rgba(50, 65, 90, 0.18);
+    0 8px 24px rgba(50, 65, 90, 0.12);
 }
 
 .mio-light .mio-floating-collector .bg-white\/6,
@@ -342,7 +342,7 @@ webview {
 .mio-light .mio-create-button {
   background: #ffffff;
   border-color: rgba(105, 122, 153, 0.28);
-  box-shadow: 0 22px 58px rgba(54, 70, 101, 0.14);
+  box-shadow: 0 8px 24px rgba(54, 70, 101, 0.1);
 }
 
 .mio-light .mio-create-button:hover {
@@ -428,6 +428,98 @@ webview {
 
 .mio-light .mio-browser-fullscreen {
   background: #f5f7fb;
+}
+
+.mio-browser-panel-expanded {
+  background: #ffffff !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.mio-browser-panel-expanded:hover {
+  transform: none;
+}
+
+.mio-browser-panel-expanded > div:first-child {
+  pointer-events: none;
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 45;
+  margin: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 8px 10px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(16px) saturate(1.05);
+}
+
+.mio-dark .mio-browser-panel-expanded {
+  background: #090b10 !important;
+}
+
+.mio-dark .mio-browser-panel-expanded > div:first-child,
+.mio-dark .mio-browser-panel-expanded .mio-browser-toolbar {
+  background: rgba(9, 11, 16, 0.86);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.24);
+}
+
+.mio-browser-panel-expanded > div:first-child button {
+  pointer-events: auto;
+}
+
+.mio-browser-panel-expanded .mio-browser-toolbar {
+  position: absolute;
+  top: 60px;
+  left: 10px;
+  right: 10px;
+  z-index: 44;
+  margin: 0;
+  border-radius: 14px;
+  border: 1px solid rgba(105, 122, 153, 0.28);
+  background: rgba(255, 255, 255, 0.9);
+  padding: 8px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(16px) saturate(1.05);
+}
+
+.mio-browser-panel-expanded .mio-browser-frame {
+  border: 0;
+  border-radius: 0;
+}
+
+.mio-browser-panel-expanded .mio-floating-collector {
+  top: 116px;
+}
+
+.mio-browser-panel-expanded .mio-warning-dot {
+  top: 116px;
+}
+
+.mio-browser-panel-expanded .mio-manual-toast {
+  top: 160px;
+}
+
+.mio-metric-card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.mio-light .mio-metric-card {
+  background: #ffffff;
+  border-color: rgba(105, 122, 153, 0.24);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+
+.mio-light .mio-inspector-nav {
+  background: #ffffff;
+  border-color: rgba(105, 122, 153, 0.24);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.05);
 }
 
 .mio-floating-collector-compact {

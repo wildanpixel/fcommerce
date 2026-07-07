@@ -43,6 +43,10 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-07 | Screenshot crop preview only showed a scrollable viewport | Fixed | Browser capture now stitches the full scrollable page and the review modal scales the complete capture into a non-scrolling crop preview. |
 | 2026-07-07 | Keyword General Step 3 captured redundant evidence | Fixed | Step 3 now processes Relevance and Top Sales rows into the Key Product table, then starts Product Detail collection from a max-10 selected product set. |
 | 2026-07-07 | Shopee extraction included too much page shell noise | Fixed | Product extraction now targets the inner content `<div>` under `#main` and prioritizes `picture._displayContents_` thumbnails, source placement, product type, and store badge signals. |
+| 2026-07-07 | Project inspector accidentally hid later report stages | Fixed | Evaluation Phase, Key Store, and TikTok Evidence are restored below the focused Keyword General, Key Product, and Product Detailed Qualified sections. |
+| 2026-07-07 | Browser fullscreen still behaved like a framed panel | Fixed | Fullscreen now makes the webview fill the viewport while browser controls, manual-action notice, and guided collector float above it. |
+| 2026-07-07 | Shopee PDP detail sync was too shallow | Improved | Product Detail Qualified capture now saves structured PDP images, videos, description, review rows, and user-media URLs from browser-readable HTML where available. |
+| 2026-07-07 | Key Product table lost rendered Shopee metric strings | Fixed | Duplicate product merging now preserves raw rating/sold text, inferred product type, normalized store type, monthly sold text, and total sold text. |
 
 ## Sprint Overview
 
@@ -94,6 +98,8 @@ Completed: 2026-06-29
 | Add collection resume from inspector | Prisma project state, project inspector | Done | Completed: project cards and the inspector expose Continue Collection, which reopens the Shopee collector or TikTok Android workspace from the saved project state. |
 | Add full-page screenshot crop review | Electron webview capture | Done | Completed: screenshot capture stitches the scrollable page and shows it fully scaled for crop selection without preview scrolling. |
 | Add process-only Key Product table step | Relevance and Top Sales extracted rows | Done | Completed: Step 3 builds the table instead of capturing another page; product detail starts only after the user reviews the table. |
+| Add transient manual-action notices | Embedded browser state | Done | Completed: Shopee protected/login states auto-hide after 5 seconds and can be reopened from a persistent warning icon. |
+| Add true browser fullscreen overlay | Electron webview | Done | Completed: fullscreen webview is end-to-end with controls and collector as overlays. |
 | Add screenshot review crop | React renderer | Done | Completed: user can crop, save full, save selected, or redo before evidence is stored. |
 | Add manual screenshot attachment | Project workspace, Prisma assets | Done | Completed: user-selected screenshot files can be attached to guided evidence steps. |
 | Add floating step controller | Evidence step map | Done | Completed: the active collection point floats over the browser and reveals the collect button only on matching target pages. |
@@ -201,6 +207,7 @@ Completed: 2026-07-03
 | Collect description and specifications | Product page DOM | Done | Completed for guided scope: product description and key/value specifications are stored where readable. |
 | Capture product media slides | Screenshot engine, media collector | Partial | Product image URLs and screenshot assets are retained, but guaranteed extraction of every protected Shopee slide remains heuristic. |
 | Add product detail validation tests | Fixtures or mocked DOM | Partial | Existing unit/e2e validation passes; dedicated parser fixtures remain a follow-up. |
+| Sync PDP structured evidence | User-controlled PDP capture | Done for guided scope | Completed: Product Detail Qualified capture persists visible first viewport, browser-readable images/videos, description, structured review rows, and review media URLs. |
 
 ### Dependencies
 
@@ -217,6 +224,7 @@ Completed: 2026-07-03
 - Passed: Product detail rows in `IMPLEMENTATION_STATUS.md` are updated.
 - Follow-up: protected slide/video extraction and dedicated parser fixtures remain open.
 - 2026-07-03 update: rendered-page capture now targets `#main`, formats HTML snapshots across lines, shows browser capture status, persists collection phase/progress, and localizes WebP thumbnails to JPG where possible.
+- 2026-07-07 update: guided PDP capture now syncs structured media, review, description, and raw Shopee metric text into product records; product dossiers expose videos and Media in User evidence.
 
 ## Sprint 3 - Complete Store Detail
 
