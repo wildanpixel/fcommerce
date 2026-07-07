@@ -1,40 +1,30 @@
 # Marketplace Intelligence OS - Release Report
 
-Release date: 2026-07-07
+Release date: 2026-07-08
 Version: 1.0.0
 Local platform: Windows
-Release task: guided browser polish, structured Shopee PDP sync, and Product Inspector evidence review
+Release task: floating collector dark-mode fix, Product Detail Qualified sync, Evaluation Phase scoring placement, and packaged runtime validation
 
 ## Summary
 
-This release continues the M1/M2 guided-collection refactor. The embedded browser now uses inline controls, transient Shopee manual-action notices, and a true fullscreen overlay. Key Product rows preserve rendered Shopee rating/sold/store-type strings, Product Detail Qualified captures the visible first viewport, and PDP evidence sync now stores browser-readable images, videos, descriptions, review rows, and user-media URLs.
+This release completes the requested corrective pass around the guided browser collector and project inspection workflow. The floating collector is readable in dark mode, compact mode still exposes the target and collect/process actions, Product Detail Qualified steps preserve real product titles, PDP sync records store and promotion signals where visible, and Evaluation Phase now owns Potential Store scoring before promoting the top store into Key Store.
 
 ## Completed
 
-- Added three collection phases: Part 1 Keyword General, Part 2 Product Details, and Part 3 Evaluation/Key Store.
-- Added Save/Pause collection state on projects, including stage, completed steps, browser URL, view mode, and percentage.
-- Added project-list progress display showing saved collection stage and completion percentage.
-- Added explicit `Inspect` and `Continue Collection` actions to project cards.
-- Added saved collection progress and `Continue Collection` to the project inspector so users can resume from the current saved state after inspecting data.
-- Added top-center browser status for `targeted page received`, `downloading HTML`, success, failure, and manual `Download HTML`.
-- Changed HTML snapshots to prioritize `div#main`, then `main`, then body, and format output across multiple lines.
-- Changed Shopee browser partition from per-project to persistent marketplace session so login/cache state survives project switches and app restarts.
-- Added best-effort WebP thumbnail conversion to local JPG files during evidence save.
-- Added full-page stitched screenshot capture with a non-scrolling fit-to-screen crop review modal.
-- Fixed crop coordinate mapping for object-fit screenshot previews so selected screenshots match the focused area more accurately.
-- Changed Shopee protected/login messaging into a transient notice that auto-hides after 5 seconds and can be reopened from a persistent warning icon.
-- Reworked browser fullscreen so the webview fills the viewport while browser controls and the guided collector float above it.
-- Moved Desktop/Mobile view switching inline with the browser address and action controls.
-- Changed Keyword General Step 3 into a process-only Key Product table builder.
-- Added AI-assisted local key-product selection capped at 10 products before Product Detail Qualified collection starts.
-- Improved Shopee product extraction to target the inner content `<div>` below `#main`, prioritize `picture._displayContents_` thumbnails, and persist source placement/product type/store badge signals.
-- Improved Key Product table display for Product Type, Store Type, Rating, Reviews pending state, Monthly Sold, and Total Sold text.
-- Added structured PDP sync for Product Detail Qualified captures: slides/images, videos, description, review rows, review media images, and review media videos.
-- Added product videos and Media in User evidence to Project Inspector product dossiers.
-- Added cards/list toggle for rendered product evidence under Keyword General.
-- Added left-side Project Inspector outline navigation and reduced heavy panel/metric shadows in light mode.
-- Prioritized project inspection around Keyword General, Key Product, and Product Detail Qualified while preserving Evaluation Phase, Key Store, and TikTok Evidence below them.
-- Updated implementation status, roadmap, and changelog.
+- Fixed dark-mode readability for the floating guided collection controller.
+- Kept compact target/open and collect/process actions visible when the collector is folded.
+- Prevented Shopee chrome labels such as `Shopping Cart icon` from overwriting product titles.
+- Updated Product Detail Qualified step guidance to show product-level substeps for first page, slides, description, reviews, media in user, vouchers/bundle deals, and shop homepage.
+- Added PDP sync for Store Name/URL from visible shop content.
+- Added PDP raw evidence for shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them.
+- Removed the standalone Key Stores navigation tab; Key Store remains inside Project Inspector.
+- Changed Evaluation Phase labels to `Potential Store` and moved the AI scoring action into Evaluation Phase.
+- Added project-level Key Store subsections for Overall, Store Home Page, Products, Best Sellers, and Visual Style.
+- Made Project Inspector outline navigation sticky, collapsible, and readable in light-mode hover states.
+- Restored Vite and Vitest config files while keeping deterministic CLI flags for build/test scripts.
+- Stabilized Playwright smoke tests by running isolated API/web servers on test-only ports and test app-data/cache folders.
+- Added a Prisma generate wrapper that only reuses an existing Windows generated client when schema and engine verification pass.
+- Updated implementation status, roadmap, changelog, and release report.
 
 ## Release Checklist
 
@@ -42,8 +32,8 @@ This release continues the M1/M2 guided-collection refactor. The embedded browse
 | --- | --- |
 | Delete `dist` | Completed |
 | Delete `dist-node` | Completed |
-| Delete `release` | Completed after closing locked packaged app process |
-| Generate Prisma | Completed |
+| Delete `release` | Partially completed: Windows kept an empty `release/win-unpacked` directory locked by an external handle |
+| Generate Prisma | Completed through `scripts/generatePrismaClient.mjs` |
 | Clean build | Completed |
 | Package Electron | Completed |
 | Generate Windows Installer | Completed: `apps/desktop/release/Marketplace Intelligence OS Setup 1.0.0.exe` |
@@ -51,27 +41,26 @@ This release continues the M1/M2 guided-collection refactor. The embedded browse
 | Generate macOS App | Not run locally on Windows; configured for GitHub Actions macOS runner |
 | Generate macOS DMG | Not run locally on Windows; configured for GitHub Actions macOS runner |
 | Launch packaged application automatically | Completed from `apps/desktop/release/win-unpacked/Marketplace Intelligence OS.exe` |
-| Verify UI reflects latest implementation | Completed through packaged startup plus fresh artifact timestamps; bundle includes the latest browser and inspector implementation from the clean build |
-| Verify packaged application version | Completed: `/api/health` on packaged port `4123` returned version `1.0.0` |
+| Verify UI reflects latest implementation | Completed through clean renderer build, Playwright smoke tests, packaged startup, and fresh artifact timestamps |
+| Verify packaged application version | Completed: `/api/health` returned version `1.0.0` |
 | Update changelog | Completed |
-| Commit | Completed |
-| Push | Completed |
-| Verify GitHub Actions | Completed: CI and Build Desktop Artifacts passed on GitHub Actions |
+| Commit | Pending |
+| Push | Pending |
+| Verify GitHub Actions | Pending |
 
 ## Local Validation
 
-- `pnpm prisma:generate`: passed.
-- `pnpm typecheck`: passed.
-- `pnpm lint`: passed.
-- `pnpm test`: passed, 5 files and 12 tests.
-- `pnpm test:e2e`: passed, 2 Playwright tests.
-- `pnpm build`: passed.
-- `pnpm package:win`: build phase passed, but Electron Builder could not remove a locked empty `release/win-unpacked` directory (`EBUSY`). No source/build error was involved.
-- `pnpm exec electron-builder --win --x64 --config.directories.output=release-fresh`: passed after the lock was isolated.
+- `pnpm --filter @marketplace-intelligence-os/desktop typecheck`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop lint`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop test`: passed, 5 files and 12 tests.
+- `pnpm --filter @marketplace-intelligence-os/desktop build`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop exec playwright test`: passed, 2 Playwright tests.
+- `pnpm --filter @marketplace-intelligence-os/desktop run build`: passed before packaging.
+- `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64 --config.directories.output=release-fresh`: passed.
 - Fresh `release-fresh` artifacts were copied into the expected `apps/desktop/release` paths; temporary `release-fresh` output was removed afterward.
 - Packaged app launched from `win-unpacked` and responded on `/api/health` port `4123` with `{"ok":true,"product":"Marketplace Intelligence OS","version":"1.0.0"}`.
-- Packaged `/api/dashboard` returned 35 projects, 307 products, and 2 generated reports, confirming Prisma-backed queries execute in the packaged runtime.
-- Packaged artifact verification confirmed the fresh installer, portable executable, and unpacked executable were generated with 2026-07-07 timestamps.
+- Packaged `/api/dashboard` returned project data, confirming Prisma-backed queries execute in the packaged runtime.
+- No packaged app process or release/test port remained running after validation.
 
 ## Generated Artifacts
 
@@ -85,6 +74,7 @@ Artifact sizes:
 - Setup installer: 146.40 MB.
 - Portable executable: 146.18 MB.
 - Unpacked executable: 191.91 MB.
+- Installer blockmap: 0.15 MB.
 
 ## Remaining Notes
 
@@ -92,5 +82,5 @@ Artifact sizes:
 - Shopee and TikTok anti-bot/login/verification flows remain user-controlled by design; the app does not bypass marketplace protections.
 - WebP-to-JPG thumbnail conversion is best-effort and falls back to original URLs when the marketplace CDN blocks image fetching.
 - Product slide/video extraction remains heuristic when Shopee hides media from browser-readable HTML.
-- A Windows directory handle intermittently locked `apps/desktop/release/win-unpacked` during local packaging. The verified release was built in a fresh side output and copied into the expected release paths after confirming the locked folder accepted writes.
+- A Windows directory handle locked the empty `apps/desktop/release/win-unpacked` folder during local cleanup. Packaging was completed in a fresh side output and copied into the expected release paths after verifying the destination accepted writes.
 - TikTok Shop adapter remains stubbed; Android evidence capture exists, but TikTok Shop navigation is user-controlled.

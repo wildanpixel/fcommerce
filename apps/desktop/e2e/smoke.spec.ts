@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+const e2eApiOverride = "/?apiBaseUrl=http%3A%2F%2F127.0.0.1%3A4223%2Fapi";
+
 test("renders the guided manual analysis flow", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(e2eApiOverride);
   await expect(page.getByRole("button", { name: "Hide sidebar" })).toBeVisible();
   await page.getByRole("button", { name: "Hide sidebar" }).click();
   await expect(page.getByRole("button", { name: "Show sidebar" })).toBeVisible();
@@ -22,7 +24,7 @@ test("renders the guided manual analysis flow", async ({ page }) => {
 });
 
 test("renders the TikTok Android emulator workspace", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(e2eApiOverride);
   await page.getByRole("button", { name: /Create Analysis/ }).click();
   await page.getByRole("button", { name: "TIKTOK SHOP" }).click();
   await page.getByLabel("Desired Keyword").fill("lip tint");

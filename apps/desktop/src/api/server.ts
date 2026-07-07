@@ -924,9 +924,14 @@ type EvidencePersistenceResult = {
 };
 
 type StructuredProductDetail = {
+  storeName?: string;
+  storeUrl?: string;
   images: string[];
   videos: string[];
   description?: string;
+  shopVouchers: string[];
+  bundleDeals: string[];
+  promotionCount?: number;
   reviews: Array<{
     type: "Positive Reviews" | "Negative Reviews";
     rating: number;
@@ -991,7 +996,7 @@ async function persistCapturedPageData(
       await prisma.product.update({
         where: { id: product.id },
         data: {
-          title: enrichment.title ?? product.title,
+          title: enrichment.title ?? safeExistingProductTitle(product.title, product.productUrl),
           priceMin: enrichment.priceMin ?? product.priceMin,
           priceMax: enrichment.priceMax ?? product.priceMax,
           priceAverage: enrichment.priceAverage ?? product.priceAverage,
@@ -1000,8 +1005,10 @@ async function persistCapturedPageData(
           rating: enrichment.rating ?? product.rating,
           reviewCount: enrichment.reviewCount ?? product.reviewCount,
           totalSold: enrichment.totalSold ?? product.totalSold,
+          storeName: enrichment.storeName ?? product.storeName,
+          storeUrl: enrichment.storeUrl ?? product.storeUrl,
           stock: enrichment.stock ?? product.stock,
-          voucherText: enrichment.voucherText ?? product.voucherText,
+          voucherText: enrichment.voucherText ?? enrichment.shopVouchers[0] ?? product.voucherText,
           shippingText: enrichment.shippingText ?? product.shippingText,
           variantsJson: JSON.stringify(mergeUnique([...currentVariants, ...enrichment.variants])),
           specificationsJson: JSON.stringify({
@@ -1020,6 +1027,15 @@ async function persistCapturedPageData(
             reviewText: enrichment.reviewText ?? currentRaw.reviewText,
             totalSoldText: enrichment.totalSoldText ?? currentRaw.totalSoldText,
             monthlySoldText: currentRaw.monthlySoldText,
+            shopVouchers: mergeUnique([
+              ...extractStringArray(currentRaw.shopVouchers),
+              ...enrichment.shopVouchers
+            ]),
+            bundleDeals: mergeUnique([
+              ...extractStringArray(currentRaw.bundleDeals),
+              ...enrichment.bundleDeals
+            ]),
+            promotionCount: enrichment.promotionCount ?? currentRaw.promotionCount,
             evidencePlan: {
               ...(isRecord(currentRaw.evidencePlan) ? currentRaw.evidencePlan : {}),
               latestCaptureKind: input.kind,
@@ -1273,6 +1289,11 @@ function extractProductEnrichment(
   reviewMediaImages: string[];
   reviewMediaVideos: string[];
   reviews: ReviewEvidence[];
+  storeName?: string;
+  storeUrl?: string;
+  shopVouchers: string[];
+  bundleDeals: string[];
+  promotionCount?: number;
   ratingText?: string;
   reviewText?: string;
   totalSoldText?: string;
@@ -1295,8 +1316,10 @@ function extractProductEnrichment(
   const reviews = structured?.reviews.length
     ? structured.reviews.map(toReviewEvidence)
     : [];
+  const shopVouchers = mergeUnique(structured?.shopVouchers ?? extractSectionKeywords(text, ["voucher", "diskon", "cashback"], 8));
+  const bundleDeals = mergeUnique(structured?.bundleDeals ?? extractSectionKeywords(text, ["bundle deals", "paket hemat", "bundling"], 8));
   return {
-    title: extractHtmlTitle(html) ?? inferTitleFromText(text, product.title),
+    title: safeProductTitle(extractHtmlTitle(html) ?? inferTitleFromText(text, product.title), product.title),
     priceMin: price.min,
     priceMax: price.max,
     priceAverage: price.average,
@@ -1316,6 +1339,11 @@ function extractProductEnrichment(
     reviewMediaImages: structured?.reviewMediaImages ?? [],
     reviewMediaVideos: structured?.reviewMediaVideos ?? [],
     reviews,
+    storeName: safeStoreName(structured?.storeName),
+    storeUrl: structured?.storeUrl ? normalizeUrl(structured.storeUrl) : undefined,
+    shopVouchers,
+    bundleDeals,
+    promotionCount: structured?.promotionCount ?? shopVouchers.length + bundleDeals.length,
     ratingText: extractRatingTextValue(text),
     reviewText: extractReviewTextValue(text),
     totalSoldText: extractSoldTextValue(text)
@@ -1417,9 +1445,14 @@ function readStructuredProductDetail(metadata?: Record<string, unknown>): Struct
     : [];
 
   return {
+    storeName: typeof raw.storeName === "string" && raw.storeName.trim() ? raw.storeName.trim() : undefined,
+    storeUrl: typeof raw.storeUrl === "string" && raw.storeUrl.trim() ? raw.storeUrl.trim() : undefined,
     images: extractStringArray(raw.images),
     videos: extractStringArray(raw.videos),
     description: typeof raw.description === "string" && raw.description.trim() ? raw.description.trim() : undefined,
+    shopVouchers: extractStringArray(raw.shopVouchers),
+    bundleDeals: extractStringArray(raw.bundleDeals),
+    promotionCount: typeof raw.promotionCount === "number" && Number.isFinite(raw.promotionCount) ? raw.promotionCount : undefined,
     reviews,
     reviewMediaImages: extractStringArray(raw.reviewMediaImages),
     reviewMediaVideos: extractStringArray(raw.reviewMediaVideos)
@@ -1560,15 +1593,71 @@ function parseMarketplaceCount(value: string): number | undefined {
 
 function extractHtmlTitle(html: string): string | undefined {
   const title = /<title[^>]*>(?<title>[^<]+)<\/title>/iu.exec(html)?.groups?.title;
-  return title ? cleanText(title).replace(/\s*\|\s*Shopee.*$/iu, "") : undefined;
+  return title ? cleanProductTitleCandidate(cleanText(title).replace(/\s*\|\s*Shopee.*$/iu, "")) : undefined;
 }
 
 function inferTitleFromText(text: string, fallback: string): string | undefined {
   const line = text
     .split("\n")
     .map((value) => value.trim())
-    .find((value) => value.length > 18 && value.length < 180 && !/(shopee|search|voucher|cart|shipping)/iu.test(value));
+    .find((value) => value.length > 18 && value.length < 180 && !isBadProductTitle(value) && !/(shopee|search|voucher|shipping)/iu.test(value));
   return line && line.length > fallback.length * 0.5 ? line : undefined;
+}
+
+function safeProductTitle(candidate: string | undefined, currentTitle: string): string | undefined {
+  const cleaned = cleanProductTitleCandidate(candidate);
+  if (!cleaned || isBadProductTitle(cleaned)) {
+    return undefined;
+  }
+  if (isBadProductTitle(currentTitle)) {
+    return cleaned;
+  }
+  return cleaned.length >= Math.max(8, currentTitle.length * 0.35) ? cleaned : undefined;
+}
+
+function safeExistingProductTitle(currentTitle: string, productUrl: string): string {
+  const cleaned = cleanProductTitleCandidate(currentTitle);
+  if (cleaned && !isBadProductTitle(cleaned)) {
+    return cleaned;
+  }
+  const urlTitle = titleFromProductUrl(productUrl);
+  return urlTitle ?? "Product detail";
+}
+
+function titleFromProductUrl(productUrl: string): string | undefined {
+  try {
+    const url = new URL(productUrl);
+    const slug = decodeURIComponent(url.pathname.split("/").filter(Boolean)[0] ?? "")
+      .replace(/[-_]+/gu, " ")
+      .trim();
+    const cleaned = cleanProductTitleCandidate(slug);
+    return cleaned && !isBadProductTitle(cleaned) ? cleaned : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function cleanProductTitleCandidate(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const cleaned = cleanText(value)
+    .replace(/^\s*(title|judul)\s*:?\s*/iu, "")
+    .replace(/\s*\|\s*Shopee.*$/iu, "")
+    .trim();
+  return cleaned && !isBadProductTitle(cleaned) ? cleaned : undefined;
+}
+
+function isBadProductTitle(value: string): boolean {
+  return /(shopping cart|cart icon|keranjang|add to cart|buy now|favorite|share|seller centre|seller center|notifications?|notifikasi|help|bantuan|report|laporkan)/iu.test(value);
+}
+
+function safeStoreName(value: string | undefined): string | undefined {
+  const cleaned = value ? cleanText(value) : "";
+  if (!cleaned || /(chat now|follow|rating|followers?|products?|seller centre|notifications?)/iu.test(cleaned)) {
+    return undefined;
+  }
+  return cleaned.slice(0, 120);
 }
 
 function extractDescription(kind: ManualEvidencePayload["kind"], text: string): string | undefined {

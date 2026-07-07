@@ -148,6 +148,9 @@ export class PrismaProjectRepository implements ProjectRepository {
         storeUrl: product.storeUrl,
         voucherText: product.voucherText,
         shippingText: product.shippingText,
+        shopVouchers: extractProductStringArray(product.rawJson, "shopVouchers"),
+        bundleDeals: extractProductStringArray(product.rawJson, "bundleDeals"),
+        promotionCount: extractProductNumber(product.rawJson, "promotionCount"),
         description: product.description,
         variants: parseJsonArray(product.variantsJson),
         specifications: parseStringRecord(product.specificationsJson),
@@ -775,6 +778,12 @@ function extractProductString(rawJson: string, key: string): string | undefined 
   const raw = parseJsonObject(rawJson);
   const value = raw[key];
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function extractProductNumber(rawJson: string, key: string): number | undefined {
+  const raw = parseJsonObject(rawJson);
+  const value = raw[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function extractProductSourcePlacement(rawJson: string): string | undefined {

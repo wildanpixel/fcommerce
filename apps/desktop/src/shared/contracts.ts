@@ -112,6 +112,9 @@ export type ProjectDetailPayload = {
     storeUrl?: string | null;
     voucherText?: string | null;
     shippingText?: string | null;
+    shopVouchers: string[];
+    bundleDeals: string[];
+    promotionCount?: number | null;
     description?: string | null;
     variants: string[];
     specifications: Record<string, string>;

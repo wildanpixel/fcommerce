@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Archive,
   AlertTriangle,
-  BadgeCheck,
   Brain,
   CheckCircle2,
   ChevronLeft,
@@ -68,7 +67,6 @@ const TIKTOK_SHOP_URL = "https://www.tiktok.com/shop";
 const navItems: Array<{ id: AppView; label: string; icon: LucideIcon }> = [
   { id: "research", label: "New Research", icon: Search },
   { id: "projects", label: "Projects", icon: Table2 },
-  { id: "keyStores", label: "Key Stores", icon: Store },
   { id: "reports", label: "Reports", icon: FileDown },
   { id: "settings", label: "Settings", icon: Settings }
 ];
@@ -128,9 +126,14 @@ type BrowserCaptureStatus = {
 };
 
 type RenderedProductDetailSnapshot = {
+  storeName?: string;
+  storeUrl?: string;
   images: string[];
   videos: string[];
   description?: string;
+  shopVouchers: string[];
+  bundleDeals: string[];
+  promotionCount?: number;
   reviews: Array<{
     type: "Positive Reviews" | "Negative Reviews";
     rating: number;
@@ -200,7 +203,6 @@ export default function App() {
               >
                 {activeView === "research" && <ManualResearchExperience />}
                 {activeView === "projects" && <ProjectsView />}
-                {activeView === "keyStores" && <KeyStoresView />}
                 {activeView === "reports" && <ReportsView />}
                 {activeView === "settings" && <SettingsView />}
               </motion.div>
@@ -1184,8 +1186,13 @@ function GuidedBrowserCollector({
           visibleText: "",
           products: [] as ExtractedPageProduct[],
           productDetail: {
+            storeName: undefined,
+            storeUrl: undefined,
             images: [],
             videos: [],
+            shopVouchers: [],
+            bundleDeals: [],
+            promotionCount: 0,
             reviews: [],
             reviewMediaImages: [],
             reviewMediaVideos: []
@@ -1466,6 +1473,16 @@ function GuidedBrowserCollector({
                     {collectedSteps[step.id] ? <CheckCircle2 size={14} className="text-signal-green" /> : <Circle size={12} className="text-ink-500" />}
                   </div>
                   <div className="text-ink-300">{step.label}</div>
+                  {index === activeStepIndex && step.substeps && step.substeps.length > 0 && (
+                    <div className="mt-2 space-y-1 border-t border-white/8 pt-2">
+                      {step.substeps.map((substep) => (
+                        <div key={substep} className="flex items-start gap-2 text-[11px] leading-4 text-ink-400">
+                          <CheckCircle2 size={11} className="mt-0.5 shrink-0 text-signal-blue" />
+                          <span>{substep}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
@@ -1554,7 +1571,7 @@ function FloatingStepController({
   if (compact) {
     return (
       <motion.div
-        className="mio-floating-collector mio-floating-collector-compact absolute left-4 top-4 z-20 max-w-[300px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
+        className="mio-floating-collector mio-floating-collector-compact absolute left-4 top-4 z-20 max-w-[430px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
         initial={{ opacity: 0, y: -10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.18 }}
@@ -1572,6 +1589,26 @@ function FloatingStepController({
           <span className={["shrink-0 rounded-full px-2 py-1 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
             {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "wait"}
           </span>
+          <button
+            className="secondary-button h-8 w-8 shrink-0 rounded-full px-0"
+            type="button"
+            onClick={onOpenTarget}
+            disabled={!targetUrl}
+            aria-label="Open target page"
+            title="Open target page"
+          >
+            <ExternalLink size={13} />
+          </button>
+          <button
+            className="primary-button h-8 w-8 shrink-0 rounded-full px-0"
+            type="button"
+            disabled={saving || !step.ready}
+            onClick={onCollect}
+            aria-label={step.mode === "PROCESS" ? "Build table" : "Collect step"}
+            title={step.mode === "PROCESS" ? "Build table" : "Collect step"}
+          >
+            {step.mode === "PROCESS" ? <Table2 size={13} /> : <ClipboardCheck size={13} />}
+          </button>
         </div>
       </motion.div>
     );
@@ -1956,6 +1993,7 @@ function ProjectInspectionPanel({
   const evidenceCount = detail.assets.length;
   const collectionState = projectCollectionState(detail.project);
   const outlineItems = projectOutlineItems(detail);
+  const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const runAnalysis = useMutation({
     mutationFn: () => apiClient.analyzeProject(detail.project.id),
     onSuccess: async () => {
@@ -1971,10 +2009,6 @@ function ProjectInspectionPanel({
           <button className="primary-button h-9 w-auto px-3" type="button" onClick={onContinueCollection}>
             <ClipboardCheck size={15} />
             Continue Collection
-          </button>
-          <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => runAnalysis.mutate()} disabled={runAnalysis.isPending}>
-            <Brain size={15} />
-            {runAnalysis.isPending ? "Scoring" : "Run AI"}
           </button>
           <button className="secondary-button h-9 w-auto px-3 text-signal-rose" type="button" onClick={onDelete} disabled={deleting}>
             <Trash2 size={15} />
@@ -2010,20 +2044,38 @@ function ProjectInspectionPanel({
         </div>
       </div>
 
-      {runAnalysis.data && (
-        <div className="mt-4 rounded-md border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
-          AI evaluation saved with {runAnalysis.data.provider}.
-        </div>
-      )}
-      <div className="mt-5 grid grid-cols-[240px_minmax(0,1fr)] gap-5">
-        <ProjectOutlineNav title={detail.project.name} items={outlineItems} />
-        <ProjectReportOutline detail={detail} />
+      <div className={["mt-5 grid gap-5", outlineCollapsed ? "grid-cols-[48px_minmax(0,1fr)]" : "grid-cols-[240px_minmax(0,1fr)]"].join(" ")}>
+        <ProjectOutlineNav
+          title={detail.project.name}
+          items={outlineItems}
+          collapsed={outlineCollapsed}
+          onToggle={() => setOutlineCollapsed((value) => !value)}
+        />
+        <ProjectReportOutline
+          detail={detail}
+          onContinueCollection={onContinueCollection}
+          onRunAnalysis={() => runAnalysis.mutate()}
+          scoring={runAnalysis.isPending}
+          scoringProvider={runAnalysis.data?.provider}
+        />
       </div>
     </Panel>
   );
 }
 
-function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
+function ProjectReportOutline({
+  detail,
+  onContinueCollection,
+  onRunAnalysis,
+  scoring,
+  scoringProvider
+}: {
+  detail: ProjectDetailPayload;
+  onContinueCollection: () => void;
+  onRunAnalysis: () => void;
+  scoring: boolean;
+  scoringProvider?: string;
+}) {
   const relevanceProducts = detail.products.filter((product) => product.source === "Relevance");
   const topSalesProducts = detail.products.filter((product) => product.source === "Top Sales");
   const keyProducts = selectKeyProductCandidates(detail.products);
@@ -2051,12 +2103,12 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
       <ReportOutlineSection id="product-detail-qualified" title="Product Detailed Qualified">
         <div className="space-y-3">
           {keyProducts.map((product) => (
-            <NestedReportSection key={product.id} title={product.title}>
-              <ProductDossierSummary
+            <NestedReportSection key={product.id} title={displayProductTitle(product)} defaultOpen={false}>
+              <ProductQualifiedSection
                 product={product}
                 reviews={detail.reviews.filter((review) => review.productId === product.id)}
+                assets={detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id)}
               />
-              <AssetList assets={detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id)} />
             </NestedReportSection>
           ))}
           {keyProducts.length === 0 && <EmptyState label="Capture Relevance and Top Sales first to generate dynamic product detail steps." />}
@@ -2064,17 +2116,17 @@ function ProjectReportOutline({ detail }: { detail: ProjectDetailPayload }) {
       </ReportOutlineSection>
 
       <ReportOutlineSection id="evaluation-phase" title="Evaluation Phase">
-        <EvaluationCards detail={detail} />
+        <EvaluationCards
+          detail={detail}
+          onRunAnalysis={onRunAnalysis}
+          scoring={scoring}
+          scoringProvider={scoringProvider}
+        />
         <AnalysisSummary detail={detail} />
       </ReportOutlineSection>
 
       <ReportOutlineSection id="key-store" title="Key Store">
-        <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
-          Key stores remain part of the report workflow. They are evaluated by store homepage, product matrix,
-          bestseller area, visual style, official/mall/star signals, and repeated appearance across keyword evidence.
-        </div>
-        <StoreDetailCards detail={detail} />
-        <AssetList assets={detail.assets.filter((asset) => ["STORE_HOME", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER", "STORE_PROMOTION", "STORE_VOUCHER"].includes(asset.kind))} />
+        <KeyStorePanel detail={detail} onContinueCollection={onContinueCollection} />
       </ReportOutlineSection>
 
       <ReportOutlineSection id="tiktok-evidence" title="TikTok Evidence">
@@ -2094,7 +2146,7 @@ function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; 
     { id: "key-product", label: "Product info", depth: 1 },
     { id: "product-detail-qualified", label: "Product Detail Qualified", depth: 0 },
     ...keyProducts.flatMap((product, index) => [
-      { id: "product-detail-qualified", label: product.title || `Product ${index + 1}`, depth: 1 },
+      { id: "product-detail-qualified", label: displayProductTitle(product, `Product ${index + 1}`), depth: 1 },
       { id: "product-detail-qualified", label: "First page", depth: 2 },
       { id: "product-detail-qualified", label: "Slides and images", depth: 2 },
       { id: "product-detail-qualified", label: "Reviews", depth: 2 },
@@ -2107,35 +2159,85 @@ function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; 
   ];
 }
 
-function EvaluationCards({ detail }: { detail: ProjectDetailPayload }) {
+function EvaluationCards({
+  detail,
+  onRunAnalysis,
+  scoring,
+  scoringProvider
+}: {
+  detail: ProjectDetailPayload;
+  onRunAnalysis: () => void;
+  scoring: boolean;
+  scoringProvider?: string;
+}) {
   const candidates = storeEvaluationCandidates(detail);
   if (candidates.length === 0) {
-    return <EmptyState label="No store candidates yet. Capture Key Product data and Product Detail Qualified evidence first." />;
+    return (
+      <div className="space-y-3">
+        <EvaluationActionBar onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
+        <EmptyState label="No store candidates yet. Capture Key Product data and Product Detail Qualified evidence first." />
+      </div>
+    );
   }
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {candidates.map((candidate, index) => (
-        <button key={candidate.key} type="button" className="rounded-md border border-white/8 bg-white/5 p-3 text-left hover:bg-white/8" onClick={() => candidate.url && void apiClient.openUrl(candidate.url)}>
-          <div className="aspect-video overflow-hidden rounded bg-white/10">
-            {candidate.thumbnail ? <img src={imageSource(candidate.thumbnail)} alt={candidate.name} className="h-full w-full object-cover" /> : null}
-          </div>
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Candidate {index + 1}</div>
-              <div className="mt-1 line-clamp-1 text-sm font-semibold text-white">{candidate.name}</div>
+    <div className="space-y-3">
+      <EvaluationActionBar onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {candidates.map((candidate, index) => (
+          <button key={candidate.key} type="button" className="rounded-md border border-white/8 bg-white/5 p-3 text-left hover:bg-white/8" onClick={() => candidate.url && void apiClient.openUrl(candidate.url)}>
+            <div className="aspect-video overflow-hidden rounded bg-white/10">
+              {candidate.thumbnail ? <img src={imageSource(candidate.thumbnail)} alt={candidate.name} className="h-full w-full object-cover" /> : null}
             </div>
-            <div className="rounded-full border border-signal-blue/25 bg-signal-blue/10 px-2 py-1 text-xs font-semibold text-signal-blue">
-              {candidate.score}
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Potential Store {index + 1}</div>
+                <div className="mt-1 line-clamp-1 text-sm font-semibold text-white">{candidate.name}</div>
+              </div>
+              <div className="rounded-full border border-signal-blue/25 bg-signal-blue/10 px-2 py-1 text-xs font-semibold text-signal-blue">
+                {candidate.score}
+              </div>
             </div>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-400">
-            <InfoLine label="Store Type" value={candidate.type} />
-            <InfoLine label="Products" value={candidate.productCount.toString()} />
-            <InfoLine label="GMV ETA" value={formatCurrency(candidate.gmvEstimate)} />
-            <InfoLine label="Evidence" value={candidate.hasStoreEvidence ? "Store evidence" : "Product evidence"} />
-          </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-400">
+              <InfoLine label="Store Type" value={candidate.type} />
+              <InfoLine label="Products" value={candidate.productCount.toString()} />
+              <InfoLine label="GMV ETA" value={formatCurrency(candidate.gmvEstimate)} />
+              <InfoLine label="Sold / Month" value={formatOptionalNumber(candidate.monthlySoldEstimate)} />
+              <InfoLine label="Promotion" value={`${candidate.promotionCount} signals`} />
+              <InfoLine label="Evidence" value={candidate.hasStoreEvidence ? "Store evidence" : "Product evidence"} />
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EvaluationActionBar({
+  onRunAnalysis,
+  scoring,
+  scoringProvider
+}: {
+  onRunAnalysis: () => void;
+  scoring: boolean;
+  scoringProvider?: string;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 p-3">
+      <div>
+        <div className="text-sm font-semibold text-white">AI Scoring</div>
+        <div className="mt-1 text-xs text-ink-500">Score Potential Stores from GMV/month, sold/month, and active promotions.</div>
+      </div>
+      <div className="flex items-center gap-2">
+        {scoringProvider && (
+          <span className="rounded-full border border-signal-green/25 bg-signal-green/10 px-3 py-1 text-xs text-signal-green">
+            Saved with {scoringProvider}
+          </span>
+        )}
+        <button className="primary-button h-9 w-auto px-3" type="button" onClick={onRunAnalysis} disabled={scoring}>
+          <Brain size={15} />
+          {scoring ? "Scoring" : "Run AI Scoring"}
         </button>
-      ))}
+      </div>
     </div>
   );
 }
@@ -2171,61 +2273,111 @@ function AnalysisSummary({ detail }: { detail: ProjectDetailPayload }) {
   );
 }
 
-function StoreDetailCards({ detail }: { detail: ProjectDetailPayload }) {
-  const storeAssets = detail.assets.filter((asset) => ["STORE_HOME", "STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER", "STORE_PROMOTION", "STORE_VOUCHER"].includes(asset.kind));
-  const normalizedStores = detail.stores.map((store) => ({
-    key: store.id,
-    name: store.name,
-    url: store.url,
-    type: store.visualTheme.dominantColors.length > 0 ? store.visualTheme.dominantColors.join(", ") : "Shopee store",
-    score: store.rating ? Math.round(store.rating * 20) : 0,
-    productCount: store.productsCount ?? 0,
-    gmvEstimate: 0,
-    thumbnail: storeAssets.find((asset) => asset.ownerId === store.id || asset.kind === "STORE_HOME")?.path,
-    hasStoreEvidence: storeAssets.length > 0
-  }));
-  const fallbackStores = normalizedStores.length > 0 ? normalizedStores : storeEvaluationCandidates(detail);
-
-  if (fallbackStores.length === 0) {
-    return <EmptyState label="No Key Store data yet. Continue to the Key Store guided collection after Product Detail Qualified." />;
+function KeyStorePanel({
+  detail,
+  onContinueCollection
+}: {
+  detail: ProjectDetailPayload;
+  onContinueCollection: () => void;
+}) {
+  const candidate = storeEvaluationCandidates(detail)[0];
+  if (!candidate) {
+    return <EmptyState label="No Key Store selected yet. Complete Product Detail Qualified and run Evaluation Phase scoring first." />;
   }
+  const matchingProducts = selectKeyProductCandidates(detail.products)
+    .filter((product) => normalizeStoreKey(product) === candidate.key);
+  const latestAnalysis = [...detail.analyses].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+  const summaryItems = latestAnalysis ? analysisPreview(latestAnalysis.resultJson) : [];
+  const homeAssets = detail.assets.filter((asset) => asset.kind === "STORE_HOME");
+  const productAssets = detail.assets.filter((asset) => asset.kind === "STORE_FEATURED_PRODUCTS");
+  const bestSellerAssets = detail.assets.filter((asset) => asset.kind === "STORE_BEST_SELLER");
+  const bannerAssets = detail.assets.filter((asset) => asset.kind === "STORE_BANNER");
 
   return (
-    <div className="mb-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {fallbackStores.map((store) => (
-        <div key={store.key} className="rounded-md border border-white/8 bg-white/5 p-3">
-          <div className="aspect-video overflow-hidden rounded bg-white/10">
-            {store.thumbnail ? <img src={imageSource(store.thumbnail)} alt={store.name} className="h-full w-full object-cover" /> : null}
-          </div>
-          <div className="mt-3 flex items-start justify-between gap-3">
-            <div>
-              <div className="line-clamp-1 text-sm font-semibold text-white">{store.name}</div>
-              <div className="mt-1 text-xs text-ink-500">{store.type}</div>
-            </div>
-            {store.url ? (
-              <button className="icon-button" type="button" aria-label={`Open ${store.name}`} onClick={() => void apiClient.openUrl(store.url ?? "")}>
-                <ExternalLink size={14} />
-              </button>
-            ) : null}
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-400">
-            <InfoLine label="Products" value={store.productCount.toString()} />
-            <InfoLine label="GMV ETA" value={formatCurrency(store.gmvEstimate)} />
-            <InfoLine label="Score" value={store.score.toString()} />
-            <InfoLine label="Evidence" value={store.hasStoreEvidence ? "Captured" : "Pending"} />
-          </div>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 p-3">
+        <div>
+          <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Selected Key Store</div>
+          <div className="mt-1 text-base font-semibold text-white">{candidate.name}</div>
+          {candidate.url && (
+            <button className="mt-2 text-xs text-signal-blue" type="button" onClick={() => void apiClient.openUrl(candidate.url ?? "")}>
+              {candidate.url}
+            </button>
+          )}
         </div>
-      ))}
+        <button className="primary-button h-9 w-auto px-3" type="button" onClick={onContinueCollection}>
+          <ClipboardCheck size={15} />
+          Collect Key Store Data
+        </button>
+      </div>
+
+      <NestedReportSection title="Overall" defaultOpen>
+        {summaryItems.length > 0 ? (
+          <div className="grid gap-2 md:grid-cols-3">
+            {summaryItems.map((item) => (
+              <div key={item.label} className="rounded border border-white/8 bg-white/5 p-2">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{item.label}</div>
+                <div className="mt-1 text-sm text-ink-200">{item.value}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm leading-6 text-ink-300">
+            {candidate.name} is currently ranked first by estimated GMV, sold-per-month signals, promotion count,
+            product quality, and captured evidence readiness.
+          </div>
+        )}
+      </NestedReportSection>
+
+      <NestedReportSection title="Store Home Page" defaultOpen={false}>
+        <AssetList assets={homeAssets} />
+      </NestedReportSection>
+
+      <NestedReportSection title="Products" defaultOpen={false}>
+        <AssetList assets={productAssets} />
+        <div className="mt-3">
+          <ProductCardGrid products={matchingProducts} />
+        </div>
+      </NestedReportSection>
+
+      <NestedReportSection title="Best Sellers" defaultOpen={false}>
+        <AssetList assets={bestSellerAssets} />
+      </NestedReportSection>
+
+      <NestedReportSection title="Visual Style" defaultOpen={false}>
+        <AssetList assets={bannerAssets} />
+      </NestedReportSection>
     </div>
   );
 }
 
-function ProjectOutlineNav({ title, items }: { title: string; items: Array<{ id: string; label: string; depth: number }> }) {
+function ProjectOutlineNav({
+  title,
+  items,
+  collapsed,
+  onToggle
+}: {
+  title: string;
+  items: Array<{ id: string; label: string; depth: number }>;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  if (collapsed) {
+    return (
+      <nav className="mio-inspector-nav sticky top-4 self-start rounded-md border border-white/8 bg-white/5 p-2 text-sm">
+        <button className="secondary-button h-8 w-8 px-0" type="button" onClick={onToggle} aria-label="Show project outline" title="Show project outline">
+          <PanelLeftOpen size={15} />
+        </button>
+      </nav>
+    );
+  }
   return (
-    <nav className="mio-inspector-nav sticky top-4 self-start rounded-md border border-white/8 bg-white/5 p-3 text-sm">
+    <nav className="mio-inspector-nav sticky top-4 max-h-[calc(100vh-96px)] self-start overflow-auto rounded-md border border-white/8 bg-white/5 p-3 text-sm">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="line-clamp-2 font-semibold text-white">{title}</div>
-        <span className="text-xs text-ink-500">{items.length}</span>
+        <button className="secondary-button h-8 w-8 px-0" type="button" onClick={onToggle} aria-label="Hide project outline" title="Hide project outline">
+          <PanelLeftClose size={15} />
+        </button>
       </div>
       <div className="space-y-1">
         {items.map((item) => (
@@ -2256,9 +2408,9 @@ function ReportOutlineSection({ id, title, defaultOpen, children }: { id: string
   );
 }
 
-function NestedReportSection({ title, children }: { title: string; children: ReactNode }) {
+function NestedReportSection({ title, defaultOpen = true, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
   return (
-    <details className="mb-3 rounded-md border border-white/8 bg-white/[0.04] p-3" open>
+    <details className="mb-3 rounded-md border border-white/8 bg-white/[0.04] p-3" open={defaultOpen}>
       <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-[0.08em] text-ink-500">{title}</summary>
       <div className="mt-3">{children}</div>
     </details>
@@ -2297,10 +2449,10 @@ function ProductCardGrid({ products }: { products: ProjectProductEvidence[] }) {
           {products.slice(0, 40).map((product) => (
             <button key={product.id} type="button" className="grid w-full grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-white/8 bg-white/5 p-2 text-left last:border-b-0 hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
               <div className="h-16 w-16 overflow-hidden rounded bg-white/10">
-                {product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover" /> : null}
+              {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} className="h-full w-full object-cover" /> : null}
               </div>
               <div className="min-w-0">
-                <div className="line-clamp-1 text-sm font-medium text-white">{product.title}</div>
+                <div className="line-clamp-1 text-sm font-medium text-white">{displayProductTitle(product)}</div>
                 <div className="mt-1 text-xs text-ink-500">
                   {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · Sold {productSoldText(product)}
                 </div>
@@ -2319,10 +2471,10 @@ function ProductCardGrid({ products }: { products: ProjectProductEvidence[] }) {
         {products.slice(0, 20).map((product) => (
           <button key={product.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
             <div className="aspect-square overflow-hidden rounded bg-white/10">
-              {product.imageUrl ? <img src={product.imageUrl} alt={product.title} className="h-full w-full object-cover" /> : null}
+              {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} className="h-full w-full object-cover" /> : null}
             </div>
             <div className="mt-2 min-w-0">
-              <div className="line-clamp-2 text-xs font-medium text-white">{product.title}</div>
+              <div className="line-clamp-2 text-xs font-medium text-white">{displayProductTitle(product)}</div>
               <div className="mt-1 text-[11px] text-ink-500">
                 {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · Sold {productSoldText(product)}
               </div>
@@ -2376,8 +2528,8 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
               <td className="px-3 py-2">{index + 1}</td>
               <td className="px-3 py-2">{productSourcePlacement(product)}</td>
               <td className="px-3 py-2">{product.selectionReason ?? "-"}</td>
-              <td className="px-3 py-2">{product.title}</td>
-              <td className="px-3 py-2">{product.productType ?? inferredProductTypeLabel(product.title)}</td>
+              <td className="px-3 py-2">{displayProductTitle(product)}</td>
+              <td className="px-3 py-2">{product.productType ?? inferredProductTypeLabel(displayProductTitle(product))}</td>
               <td className="px-3 py-2">{product.monthlySoldText ?? formatOptionalNumber(product.monthlySold)}</td>
               <td className="px-3 py-2">{product.storeName ?? "-"}</td>
               <td className="px-3 py-2">{product.storeType ?? storeTypeLabel(product)}</td>
@@ -2433,7 +2585,84 @@ function KeyProductTableReview({
   );
 }
 
-function ProductDossierSummary({
+function ProductQualifiedSection({
+  product,
+  reviews,
+  assets
+}: {
+  product: ProjectProductEvidence;
+  reviews: ProjectDetailPayload["reviews"];
+  assets: ProjectDetailPayload["assets"];
+}) {
+  const firstPageAssets = assets.filter((asset) => asset.kind === "PRODUCT_PAGE");
+  const shopHomeAssets = assets.filter((asset) => asset.kind === "STORE_HOME");
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <InfoLine label="Price" value={formatCurrency(product.priceAverage)} />
+        <InfoLine label="Store Name" value={product.storeName ?? "-"} />
+        <InfoLine label="Store Type" value={product.storeType ?? storeTypeLabel(product)} />
+        <InfoLine label="GMV ETA" value={formatCurrency((product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0))} />
+      </div>
+
+      <NestedReportSection title="1st Page" defaultOpen={false}>
+        <AssetList assets={firstPageAssets} />
+      </NestedReportSection>
+
+      <NestedReportSection title="Slides" defaultOpen={false}>
+        <ProductImageGrid images={product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []} />
+        <div className="mt-3">
+          <ProductVideoGrid videos={product.videos} />
+        </div>
+      </NestedReportSection>
+
+      <NestedReportSection title="Description" defaultOpen={false}>
+        <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
+          <p className="whitespace-pre-wrap text-sm leading-6 text-ink-300">
+            {product.description ?? "No browser-readable product description captured yet."}
+          </p>
+        </div>
+        <ProductPromotionSignals product={product} />
+      </NestedReportSection>
+
+      <NestedReportSection title="Reviews" defaultOpen={false}>
+        <ReviewEvidenceTable reviews={reviews} />
+      </NestedReportSection>
+
+      <NestedReportSection title="Media in User" defaultOpen={false}>
+        <ProductImageGrid images={product.reviewMediaImages} />
+        <div className="mt-3">
+          <ProductVideoGrid videos={product.reviewMediaVideos} />
+        </div>
+      </NestedReportSection>
+
+      <NestedReportSection title="Shop Home Page" defaultOpen={false}>
+        <AssetList assets={shopHomeAssets} />
+      </NestedReportSection>
+    </div>
+  );
+}
+
+function ProductPromotionSignals({ product }: { product: ProjectProductEvidence }) {
+  const rows = [
+    { label: "Shop Vouchers", values: product.shopVouchers },
+    { label: "Bundle Deals", values: product.bundleDeals }
+  ];
+  return (
+    <div className="mt-3 grid gap-3 lg:grid-cols-2">
+      {rows.map((row) => (
+        <div key={row.label} className="rounded-md border border-white/8 bg-white/[0.04] p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">{row.label}</div>
+          <div className="space-y-1 text-sm text-ink-300">
+            {row.values.length > 0 ? row.values.slice(0, 8).map((value) => <div key={value}>{value}</div>) : <span className="text-ink-500">No promotion signal captured yet.</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function _ProductDossierSummary({
   product,
   reviews
 }: {
@@ -2564,8 +2793,8 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
         <tbody>
           {reviews.map((review) => (
             <tr key={review.id} className="border-t border-white/8">
-              <td className="px-3 py-2">{review.sentiment}</td>
-              <td className="px-3 py-2">{review.rating ?? "-"}</td>
+              <td className="px-3 py-2">{review.sentiment === "NEGATIVE" ? "Negative Reviews" : review.sentiment === "POSITIVE" ? "Positive Reviews" : "Neutral Reviews"}</td>
+              <td className="px-3 py-2">{review.rating ? `${review.rating} Star` : "-"}</td>
               <td className="px-3 py-2">
                 {[review.reviewDate, review.variation, review.comment].filter(Boolean).join(" | ")}
               </td>
@@ -2574,25 +2803,6 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
         </tbody>
       </table>
     </div>
-  );
-}
-
-function KeyStoresView() {
-  return (
-    <section className="grid grid-cols-3 gap-5">
-      <InsightCard
-        title="Manual Store Evidence"
-        body="Store homepage, products, best sellers, banners, and social-account checks are now collected through guided browser steps."
-      />
-      <InsightCard
-        title="AI Ranking Input"
-        body="Captured store evidence is saved as project assets and remains available for the structured AI scoring/report pipeline."
-      />
-      <InsightCard
-        title="Automation Boundary"
-        body="Shopee login, traffic verification, and protected screens are intentionally user-controlled instead of forced through brittle automation."
-      />
-    </section>
   );
 }
 
@@ -3011,18 +3221,6 @@ function AndroidStatusTile({ label, value, ready }: { label: string; value: stri
   );
 }
 
-function InsightCard({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="rounded-md border border-white/8 bg-ink-900/72 p-5 shadow-glow">
-      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-        <BadgeCheck size={17} className="text-signal-blue" />
-        {title}
-      </div>
-      <div className="text-sm leading-6 text-ink-300">{body}</div>
-    </div>
-  );
-}
-
 function EmptyState({ label }: { label: string }) {
   return (
     <div className="rounded-md border border-dashed border-white/12 bg-white/[0.03] p-6 text-sm text-ink-500">
@@ -3215,25 +3413,26 @@ function buildShopeeSteps(
   const productSteps = keyProducts.map((product): CollectionStep => {
     const productUrl = product.productUrl;
     const productCurrent = productReady && sameProductIntent(currentUrl, productUrl);
-    const productTitle = shortProductTitle(product.title);
+    const productTitle = displayProductTitle(product);
     return {
       id: `product-${product.id}-qualified`,
       stage: "PRODUCT_DETAILS",
-      section: product.title,
-      label: productTitle,
+      section: productTitle,
+      label: shortProductTitle(productTitle),
       kind: "PRODUCT_PAGE",
       captureMode: "viewport",
       ownerType: "PRODUCT",
       ownerId: product.id,
       targetUrl: productUrl,
-      instruction: `Open ${product.title}. Capture the visible first frame; the app syncs slides, video, description, reviews, and user media from the page HTML in the background.`,
+      instruction: `Open ${productTitle}. Capture the visible first frame; the app syncs slides, video, description, reviews, user media, vouchers, and bundle deals from the page HTML in the background.`,
       substeps: [
-        "First page screenshot: visible viewport only",
-        "Slides and images: sync from page-product picture/source elements",
-        "Description: sync from page-product__content",
+        "First page: capture visible first viewport only",
+        "Slides: download images and videos from page-product picture/source/video elements",
+        "Description: sync from page-product__content in the background",
         "Reviews: sync 3 positive 5-star and 2 negative 1-star rows",
-        "Media in user: sync review image/video carousel URLs",
-        "Shop homepage: open the shop page later for full-page store evidence"
+        "Media in User: download review image/video carousel URLs",
+        "Shop vouchers and bundle deals: sync in the background",
+        "Shop Home Page: open the shop page later for store evidence"
       ],
       ready: productCurrent
     };
@@ -3551,6 +3750,26 @@ function shortProductTitle(title: string): string {
   return title.length > 54 ? `${title.slice(0, 51).trim()}...` : title;
 }
 
+function displayProductTitle(product: ProjectProductEvidence, fallback = "Product detail"): string {
+  const title = product.title?.trim();
+  if (title && !isBadDisplayProductTitle(title)) {
+    return title;
+  }
+  try {
+    const url = new URL(product.productUrl);
+    const slug = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(0) ?? "")
+      .replace(/[-_]+/gu, " ")
+      .trim();
+    return slug && !isBadDisplayProductTitle(slug) ? titleCase(slug) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function isBadDisplayProductTitle(value: string): boolean {
+  return /(shopping cart|cart icon|keranjang|add to cart|buy now|favorite|share|seller centre|seller center|notifications?|notifikasi|help|bantuan|report|laporkan)/iu.test(value);
+}
+
 function formatCurrency(value?: number | null): string {
   if (!value) {
     return "-";
@@ -3635,6 +3854,8 @@ type StoreEvaluationCandidate = {
   score: number;
   productCount: number;
   gmvEstimate: number;
+  monthlySoldEstimate: number;
+  promotionCount: number;
   thumbnail?: string;
   hasStoreEvidence: boolean;
 };
@@ -3650,11 +3871,12 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluatio
   ];
   const hasStoreEvidence = hasAnyAsset(detail, storeEvidenceKinds);
   const grouped = new Map<string, StoreEvaluationCandidate & { qualityTotal: number }>();
-  for (const product of detail.products) {
+  for (const product of selectKeyProductCandidates(detail.products).filter((item) => item.storeName || item.storeUrl)) {
     const key = normalizeStoreKey(product);
     const existing = grouped.get(key);
     const monthlySold = product.monthlySold ?? 0;
     const price = product.priceAverage ?? 0;
+    const promotionCount = product.promotionCount ?? product.shopVouchers.length + product.bundleDeals.length;
     const candidate = existing ?? {
       key,
       name: product.storeName ?? product.storeUrl ?? "Store pending PDP capture",
@@ -3663,13 +3885,17 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluatio
       score: 0,
       productCount: 0,
       gmvEstimate: 0,
+      monthlySoldEstimate: 0,
+      promotionCount: 0,
       thumbnail: product.imageUrl ?? undefined,
       hasStoreEvidence,
       qualityTotal: 0
     };
     candidate.productCount += 1;
     candidate.gmvEstimate += price * monthlySold;
-    candidate.qualityTotal += productQualityScore(product);
+    candidate.monthlySoldEstimate += monthlySold;
+    candidate.promotionCount += promotionCount;
+    candidate.qualityTotal += productQualityScore(product) + Math.min(18, promotionCount * 3);
     candidate.score = Math.min(100, Math.round(candidate.qualityTotal / candidate.productCount));
     if (!candidate.thumbnail && product.imageUrl) {
       candidate.thumbnail = product.imageUrl;
@@ -3690,6 +3916,8 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluatio
       score: candidate.score,
       productCount: candidate.productCount,
       gmvEstimate: candidate.gmvEstimate,
+      monthlySoldEstimate: candidate.monthlySoldEstimate,
+      promotionCount: candidate.promotionCount,
       thumbnail: candidate.thumbnail,
       hasStoreEvidence: candidate.hasStoreEvidence
     }));
@@ -3832,8 +4060,13 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       visibleText: "",
       products: [],
       productDetail: {
+        storeName: undefined,
+        storeUrl: undefined,
         images: [],
         videos: [],
+        shopVouchers: [],
+        bundleDeals: [],
+        promotionCount: 0,
         reviews: [],
         reviewMediaImages: [],
         reviewMediaVideos: []
@@ -3960,16 +4193,18 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         .replace(/\\n\\s+/g, "\\n")
         .replace(/\\n{3,}/g, "\\n\\n")
         .trim();
+      const isBadTitle = (value) => /(shopping cart|cart icon|keranjang|add to cart|buy now|favorite|share|seller centre|seller center|notifications?|notifikasi|help|bantuan|report|laporkan)/i.test(compact(value));
       const meaningfulTitle = (text, imageAlt) => {
         const lines = String(text || "")
           .split(/\\n+/)
           .map(compact)
           .filter(Boolean)
           .filter((line) => !/^rp\\s*/i.test(line))
-          .filter((line) => !/(shopping cart|cart icon|keranjang|terjual|sold|rating|penilaian|gratis ongkir|cashback|mall)$/i.test(line))
+          .filter((line) => !isBadTitle(line))
+          .filter((line) => !/(terjual|sold|rating|penilaian|gratis ongkir|cashback|mall)$/i.test(line))
           .filter((line) => line.length >= 8 && line.length <= 180);
         const alt = compact(imageAlt);
-        if (alt && alt.length >= 8 && !/(^image|shopping cart|cart icon|keranjang)/i.test(alt)) return alt;
+        if (alt && alt.length >= 8 && !/(^image)/i.test(alt) && !isBadTitle(alt)) return alt;
         return lines.sort((left, right) => right.length - left.length)[0] || lines[0] || "";
       };
       const findCard = (anchor) => {
@@ -4045,6 +4280,27 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const descriptionRoot = document.querySelector(".page-product__content .page-product__content--left section:nth-of-type(2) div") ||
         document.querySelector(".page-product__content .page-product__content--left") ||
         document.querySelector(".page-product__content");
+      const shopRoot = document.querySelector("#s112-product-shop");
+      const storeAnchor = shopRoot?.querySelector?.('a[href]');
+      const storeName = unique([
+        storeAnchor?.querySelector?.("img[alt]")?.getAttribute("alt"),
+        storeAnchor?.getAttribute?.("title"),
+        storeAnchor?.textContent,
+        shopRoot?.querySelector?.("[title]")?.getAttribute("title"),
+        shopRoot?.innerText
+      ])
+        .map((value) => compact(value).split(/\\n|\\|/u)[0])
+        .find((value) => value.length >= 2 && value.length <= 120 && !/(chat|follow|rating|produk|products|followers|pengikut|seller centre|notifications?)/iu.test(value));
+      const storeUrl = storeAnchor ? absoluteUrl(storeAnchor.getAttribute("href")) : undefined;
+      const voucherRoot = document.querySelector("section.mini-vouchers .mini-vouchers-with-popover") || document.querySelector("section.mini-vouchers");
+      const shopVouchers = unique(textFrom(voucherRoot).split(/\\n|\\s{2,}|(?=Rp\\s)|(?=Diskon)|(?=Voucher)|(?=Cashback)/iu))
+        .filter((value) => value.length >= 3)
+        .slice(0, 12);
+      const bundleSection = Array.from(document.querySelectorAll("section"))
+        .find((section) => /bundle deals|paket hemat|bundling/iu.test(section.querySelector("h2")?.textContent || section.textContent || ""));
+      const bundleDeals = unique(textFrom(bundleSection).split(/\\n|\\s{2,}/u))
+        .filter((value) => value.length >= 3)
+        .slice(0, 12);
       const reviewRoot = document.querySelector(".product-ratings");
       const commentRoot = document.querySelector(".product-comment-list") || reviewRoot;
       const productImages = unique(Array.from(galleryRoot?.querySelectorAll?.("picture._displayContents_, picture, source[srcset], img[srcset], img[src]") || [])
@@ -4088,9 +4344,14 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         ? reviewBlocks.slice(0, 3).map((comment) => toReview("Positive Reviews", 5, comment))
         : [];
       const productDetail = {
+        storeName,
+        storeUrl,
         images: productImages.slice(0, 12),
         videos: productVideos.slice(0, 6),
         description: textFrom(descriptionRoot).slice(0, 8000) || undefined,
+        shopVouchers,
+        bundleDeals,
+        promotionCount: shopVouchers.length + bundleDeals.length,
         reviews: [...positiveReviews, ...negativeReviews, ...fallbackReviews],
         reviewMediaImages: reviewMediaImages.slice(0, 30),
         reviewMediaVideos: reviewMediaVideos.slice(0, 12)

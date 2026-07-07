@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -47,6 +47,11 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-07 | Browser fullscreen still behaved like a framed panel | Fixed | Fullscreen now makes the webview fill the viewport while browser controls, manual-action notice, and guided collector float above it. |
 | 2026-07-07 | Shopee PDP detail sync was too shallow | Improved | Product Detail Qualified capture now saves structured PDP images, videos, description, review rows, and user-media URLs from browser-readable HTML where available. |
 | 2026-07-07 | Key Product table lost rendered Shopee metric strings | Fixed | Duplicate product merging now preserves raw rating/sold text, inferred product type, normalized store type, monthly sold text, and total sold text. |
+| 2026-07-08 | Floating collector unreadable in dark mode | Fixed | The collector now has dark-mode surface/text overrides, and compact folded mode keeps target and collect/process actions visible. |
+| 2026-07-08 | Product Detail titles could become Shopee chrome labels | Fixed | PDP sync now rejects bad title candidates such as cart/header labels and keeps the existing product title unless a high-confidence PDP title is available. |
+| 2026-07-08 | PDP store and promotion signals were not persisted | Improved | PDP sync now updates Store Name/URL from visible shop content and stores shop vouchers, bundle deals, and promotion counts where readable. |
+| 2026-07-08 | Key Store lived in two navigation concepts | Fixed | The standalone Key Stores tab was removed; Evaluation Phase owns AI scoring and promotes the top Potential Store into the project-level Key Store section. |
+| 2026-07-08 | Playwright smoke tests raced the desktop API | Fixed | E2E now starts isolated API and web preview servers on test-only ports with test app-data/cache folders. |
 
 ## Sprint Overview
 
@@ -117,6 +122,7 @@ Completed: 2026-06-29
 - Passed: user can interact directly with the embedded platform view.
 - Passed: default theme is light and the hidden sidebar no longer hides the main content.
 - Passed: light-mode sidebar, browser controls, floating collector, and Shopee protected-page states remain readable after the corrective UI polish pass.
+- Passed: dark-mode floating collector remains readable, and folded collector state still exposes compact target and collect/process buttons.
 - Passed: report history and project inspection persist through the local database.
 - Passed: project inspector mirrors the report hierarchy and displays extracted product/store/evidence data in collapsible sections.
 - Passed: collection can be saved and resumed from the Projects vault with visible stage and percentage.
@@ -225,6 +231,7 @@ Completed: 2026-07-03
 - Follow-up: protected slide/video extraction and dedicated parser fixtures remain open.
 - 2026-07-03 update: rendered-page capture now targets `#main`, formats HTML snapshots across lines, shows browser capture status, persists collection phase/progress, and localizes WebP thumbnails to JPG where possible.
 - 2026-07-07 update: guided PDP capture now syncs structured media, review, description, and raw Shopee metric text into product records; product dossiers expose videos and Media in User evidence.
+- 2026-07-08 update: PDP sync now prevents Shopee UI labels from replacing product titles, updates Store Name/URL from visible shop content, and records shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them.
 
 ## Sprint 3 - Complete Store Detail
 
@@ -293,7 +300,8 @@ Status: Partial
 
 ### Acceptance Criteria
 
-- Passed: Project Inspector Evaluation Phase no longer uses placeholder-only scoring; it combines GMV ETA, rating/trust signals, store assets, and persisted AI output where available.
+- Passed: Project Inspector Evaluation Phase no longer uses placeholder-only scoring; it combines GMV ETA, monthly sold, promotion signals, rating/trust signals, store assets, and persisted AI output where available.
+- Passed: Evaluation Phase now labels entries as Potential Store, owns the AI scoring action, and promotes the highest-scored store into the project-level Key Store section.
 - Partial: rankings show evidence-backed rationale when product/store evidence exists, but high-confidence narrative scoring still depends on completed store evidence and configured providers.
 - Passed: AI provider failure falls back to local heuristic analysis with explicit limitations.
 - Passed: M1 and M3 Key Stores rows in `IMPLEMENTATION_STATUS.md` are updated.

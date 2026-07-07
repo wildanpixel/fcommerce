@@ -162,13 +162,19 @@ function detectOperatingSystem(): OperatingSystem {
 function createNodeDirectories(os: OperatingSystem): AppDirectories {
   const appName = "Marketplace Intelligence OS";
   const home = homedir();
-  const appData =
+  const appDataOverride = process.env.MIO_APP_DATA_DIR;
+  const cacheOverride = process.env.MIO_CACHE_DIR;
+  const appData = appDataOverride
+    ? resolve(appDataOverride)
+    :
     os === "windows"
       ? join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), appName)
       : os === "macos"
         ? join(home, "Library", "Application Support", appName)
         : join(process.env.XDG_CONFIG_HOME ?? join(home, ".config"), appName);
-  const cache =
+  const cache = cacheOverride
+    ? resolve(cacheOverride)
+    :
     os === "windows"
       ? join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), appName, "Cache")
       : os === "macos"

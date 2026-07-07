@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type AppView = "research" | "projects" | "keyStores" | "reports" | "settings";
+export type AppView = "research" | "projects" | "reports" | "settings";
 
 type UiStore = {
   activeView: AppView;

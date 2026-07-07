@@ -2,6 +2,21 @@
 
 All notable changes to Marketplace Intelligence OS will be documented in this file.
 
+## Unreleased - 2026-07-08
+
+- Fixed dark-mode readability for the floating guided collection controller.
+- Kept compact target/open and collect/process actions visible when the floating guided collector is folded.
+- Prevented Shopee UI labels such as `Shopping Cart icon` from overwriting Product Detail Qualified product titles.
+- Updated Product Detail Qualified steps to show product-level substeps for first page, slides, description, reviews, media in user, vouchers/bundle deals, and shop homepage.
+- Added PDP sync for Store Name/URL from visible shop content and persisted shop vouchers, bundle deals, and promotion counts where browser-readable HTML exposes them.
+- Removed the standalone Key Stores navigation tab; Key Store selection now lives inside Project Inspector after Evaluation Phase scoring.
+- Changed Evaluation Phase labels from Candidate to Potential Store and moved the AI scoring action into that phase.
+- Added project-level Key Store subsections for Overall, Store Home Page, Products, Best Sellers, and Visual Style.
+- Made Project Inspector outline navigation sticky, collapsible, and readable in light-mode hover states.
+- Restored Vite and Vitest config files while keeping deterministic CLI flags for build and test scripts.
+- Stabilized Playwright smoke tests by starting isolated web/API servers on test-only ports and test app-data/cache folders.
+- Added a Prisma generate wrapper for Windows locked-engine cases that only reuses the existing generated client after schema and engine verification.
+
 ## Unreleased - 2026-07-07
 
 - Reworked the embedded browser toolbar so Desktop/Mobile view selection sits inline with address, zoom, print, reload, and extraction controls.
