@@ -16,7 +16,7 @@
     "build": "pnpm run prisma:generate && tsc -p tsconfig.node.json && vite build --base ./ --outDir dist --emptyOutDir",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint .",
-    "test": "vitest run --exclude node_modules/** --exclude dist/** --exclude dist-node/** --exclude e2e/**",
+    "test": "vitest run",
     "dev:test": "cross-env MIO_APP_DATA_DIR=.mio-test/app-data MIO_CACHE_DIR=.mio-test/cache MIO_API_PORT=4223 concurrently -k \"pnpm dev:api\" \"pnpm preview:web:test\"",
     "test:e2e": "pnpm run build && playwright test",
     "format": "prettier --write .",

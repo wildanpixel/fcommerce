@@ -15,6 +15,7 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 - Made Project Inspector outline navigation sticky, collapsible, and readable in light-mode hover states.
 - Restored Vite and Vitest config files while keeping deterministic CLI flags for build and test scripts.
 - Stabilized Playwright smoke tests by starting isolated web/API servers on test-only ports and test app-data/cache folders.
+- Fixed macOS CI unit-test execution by moving Vitest excludes into `vitest.config.ts` and removing unquoted shell globs from the npm test script.
 - Added a Prisma generate wrapper for Windows locked-engine cases that only reuses the existing generated client after schema and engine verification.
 
 ## Unreleased - 2026-07-07

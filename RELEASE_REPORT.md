@@ -23,6 +23,7 @@ This release completes the requested corrective pass around the guided browser c
 - Made Project Inspector outline navigation sticky, collapsible, and readable in light-mode hover states.
 - Restored Vite and Vitest config files while keeping deterministic CLI flags for build/test scripts.
 - Stabilized Playwright smoke tests by running isolated API/web servers on test-only ports and test app-data/cache folders.
+- Fixed the macOS artifact workflow unit-test failure by moving Vitest excludes into `vitest.config.ts` and removing unquoted shell globs from the test script.
 - Added a Prisma generate wrapper that only reuses an existing Windows generated client when schema and engine verification pass.
 - Updated implementation status, roadmap, changelog, and release report.
 
@@ -44,23 +45,25 @@ This release completes the requested corrective pass around the guided browser c
 | Verify UI reflects latest implementation | Completed through clean renderer build, Playwright smoke tests, packaged startup, and fresh artifact timestamps |
 | Verify packaged application version | Completed: `/api/health` returned version `1.0.0` |
 | Update changelog | Completed |
-| Commit | Pending |
-| Push | Pending |
-| Verify GitHub Actions | Pending |
+| Commit | Completed by the Git commit containing this report |
+| Push | Completed when this release commit is pushed to `origin/main` |
+| Verify GitHub Actions | CI must pass and Build Desktop Artifacts must complete for the pushed release commit |
 
 ## Local Validation
 
 - `pnpm --filter @marketplace-intelligence-os/desktop typecheck`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop lint`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop test`: passed, 5 files and 12 tests.
+- `pnpm --filter @marketplace-intelligence-os/desktop test` after macOS CI script fix: passed, 5 files and 12 tests.
 - `pnpm --filter @marketplace-intelligence-os/desktop build`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop exec playwright test`: passed, 2 Playwright tests.
-- `pnpm --filter @marketplace-intelligence-os/desktop run build`: passed before packaging.
-- `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64 --config.directories.output=release-fresh`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop run build`: passed before final packaging.
+- `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64 --config.directories.output=release-fresh`: passed for the final Windows package.
 - Fresh `release-fresh` artifacts were copied into the expected `apps/desktop/release` paths; temporary `release-fresh` output was removed afterward.
 - Packaged app launched from `win-unpacked` and responded on `/api/health` port `4123` with `{"ok":true,"product":"Marketplace Intelligence OS","version":"1.0.0"}`.
 - Packaged `/api/dashboard` returned project data, confirming Prisma-backed queries execute in the packaged runtime.
 - No packaged app process or release/test port remained running after validation.
+- Final artifact timestamps were refreshed after the macOS CI script fix so the Windows installer, portable executable, and unpacked app match the latest local source state.
 
 ## Generated Artifacts
 

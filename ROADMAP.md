@@ -52,6 +52,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-08 | PDP store and promotion signals were not persisted | Improved | PDP sync now updates Store Name/URL from visible shop content and stores shop vouchers, bundle deals, and promotion counts where readable. |
 | 2026-07-08 | Key Store lived in two navigation concepts | Fixed | The standalone Key Stores tab was removed; Evaluation Phase owns AI scoring and promotes the top Potential Store into the project-level Key Store section. |
 | 2026-07-08 | Playwright smoke tests raced the desktop API | Fixed | E2E now starts isolated API and web preview servers on test-only ports with test app-data/cache folders. |
+| 2026-07-08 | macOS artifact workflow failed during unit tests | Fixed | The desktop test script now uses `vitest run` and relies on `vitest.config.ts` for excludes, avoiding unquoted glob expansion on macOS shell runners. |
 
 ## Sprint Overview
 

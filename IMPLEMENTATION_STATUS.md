@@ -91,6 +91,7 @@ Release blocker fixes:
 - 2026-07-08: Hardened PDP title/store sync so Shopee chrome labels such as `Shopping Cart icon` cannot overwrite product titles, while store names are synced from PDP shop content when visible.
 - 2026-07-08: Moved Key Store work into the project inspection and Evaluation Phase flow; the standalone Key Stores navigation tab is removed from the product shell.
 - 2026-07-08: Playwright validation now boots isolated web/API servers on test-only ports so E2E tests do not race the local desktop API.
+- 2026-07-08: macOS artifact workflow unit tests now rely on `vitest.config.ts` excludes instead of unquoted npm-script globs, avoiding shell expansion differences between Windows and macOS runners.
 
 ## M1 Product Experience
 
