@@ -3,37 +3,24 @@
 Release date: 2026-07-08
 Version: 1.0.0
 Local platform: Windows
-Release task: Key Product Store Name/Store Type repair, Product Detail sub-action collection, review persistence, and packaged runtime validation
+Release task: Browser HTML download repair, Shopee evidence extraction hardening, and packaged runtime validation
 
 ## Summary
 
-This release completes the requested corrective pass around Key Product Store Name/Store Type extraction and Product Detail Qualified collection. PDP Store Name extraction now follows Shopee's current shop-anchor sibling layout, Store Type extraction targets small rendered badge images with a best-effort image-only classifier, Product Detail sub-actions are selectable, and review collection preserves separate 5-star and 1-star passes.
+This release fixes the failing browser `Download HTML` path. The root cause was the rendered-page snapshot script using `await` inside a non-async injected function, which caused Electron webview extraction to fail before HTML could be returned. The snapshot script now runs as an async IIFE, and manual HTML downloads are saved through the local API into the project evidence folder instead of relying on fragile renderer blob downloads.
 
 ## Completed
 
-- Fixed dark-mode readability for the floating guided collection controller.
-- Kept compact target/open and collect/process actions visible when the collector is folded.
-- Prevented Shopee chrome labels such as `Shopping Cart icon` from overwriting product titles.
-- Updated Product Detail Qualified step guidance to show product-level substeps for first page, slides, description, reviews, media in user, vouchers/bundle deals, and shop homepage.
-- Added PDP sync for Store Name/URL from Shopee's `.s112-pdp-product-shop` / `section.page-product__shop` shop block and visible adjacent store-name text.
-- Tightened Key Product Store Type extraction to badge-derived `Mall ORI`, `Star+`, or `Star` values only.
-- Reworked PDP Store Name extraction to walk from the shop anchor to the following sibling store-name block.
-- Added small rendered badge scoring plus best-effort image color classification for image-only `Mall ORI`, `Star+`, and `Star` badges.
-- Added strict Store Type persistence so invalid labels are not stored in product evidence.
-- Turned Product Detail Qualified sub-actions into selectable guided actions.
-- Split review collection into explicit 5-star Positive Reviews and 1-star Negative Reviews actions.
-- Changed review persistence to append deduped rows instead of replacing the previous review batch.
-- Added Collection Progress previews for active product-detail evidence, including screenshot/media/review/description/promotion/shop-homepage status.
-- Added PDP raw evidence for shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them.
-- Removed the standalone Key Stores navigation tab; Key Store remains inside Project Inspector.
-- Changed Evaluation Phase labels to `Potential Store`, moved the AI scoring action into Evaluation Phase, and made the phase reviewable without leaving the collection workspace.
-- Added project-level Key Store subsections for Overall, Store Home Page, Products, Best Sellers, and Visual Style.
-- Made the main sidebar sticky and made Project Inspector outline navigation sticky, grouped, collapsible, and readable in light-mode hover states.
-- Restored Vite and Vitest config files while keeping deterministic CLI flags for build/test scripts.
-- Stabilized Playwright smoke tests by running isolated API/web servers on test-only ports and test app-data/cache folders.
-- Fixed the macOS artifact workflow unit-test failure by moving Vitest excludes into `vitest.config.ts` and removing unquoted shell globs from the test script.
-- Added a Prisma generate wrapper that only reuses an existing Windows generated client when schema and engine verification pass.
-- Updated implementation status, roadmap, changelog, and release report.
+- Fixed manual `Download HTML` by making rendered-page extraction async-safe.
+- Added `/api/html-snapshot` for local project evidence HTML/text snapshot saves.
+- Added renderer API client support for `saveHtmlSnapshot`.
+- Changed the Download HTML button to save the current `#main` snapshot through the API and log the saved file path.
+- Kept the normal evidence capture path unchanged: screenshot capture still saves image, HTML, visible text, optional PDF, extracted products, and structured PDP details.
+- Hardened PDP Store Name extraction using Shopee's `.s112-pdp-product-shop` / `section.page-product__shop` shop anchor and sibling name block.
+- Kept Store Type strict to `Mall ORI`, `Star+`, and `Star`, with best-effort small badge image classification for image-only labels.
+- Made Playwright smoke tests respect the configured E2E API port instead of hardcoding `4223`.
+- Changed the desktop build script to use Vite's `--configLoader runner`, avoiding Windows/esbuild parent-directory access failures.
+- Updated `CHANGELOG.md`, `IMPLEMENTATION_STATUS.md`, `ROADMAP.md`, and this release report.
 
 ## Release Checklist
 
@@ -41,8 +28,8 @@ This release completes the requested corrective pass around Key Product Store Na
 | --- | --- |
 | Delete `dist` | Completed |
 | Delete `dist-node` | Completed |
-| Delete `release` | Partially completed: Windows kept an empty `release/win-unpacked` directory locked by an external handle |
-| Generate Prisma | Completed through `scripts/generatePrismaClient.mjs` |
+| Delete `release` | Completed after stopping stale test/app processes |
+| Generate Prisma | Completed through `scripts/generatePrismaClient.mjs` during build/package |
 | Clean build | Completed |
 | Package Electron | Completed |
 | Generate Windows Installer | Completed: `apps/desktop/release/Marketplace Intelligence OS Setup 1.0.0.exe` |
@@ -50,12 +37,12 @@ This release completes the requested corrective pass around Key Product Store Na
 | Generate macOS App | Not run locally on Windows; configured for GitHub Actions macOS runner |
 | Generate macOS DMG | Not run locally on Windows; configured for GitHub Actions macOS runner |
 | Launch packaged application automatically | Completed from `apps/desktop/release/win-unpacked/Marketplace Intelligence OS.exe` |
-| Verify UI reflects latest implementation | Completed through clean renderer build, Playwright smoke tests, packaged startup, and fresh artifact timestamps |
+| Verify UI/API reflects latest implementation | Completed through clean renderer build, Playwright smoke tests, and packaged API startup |
 | Verify packaged application version | Completed: `/api/health` returned version `1.0.0` |
 | Update changelog | Completed |
-| Commit | Completed by the Git commit containing this report |
-| Push | Completed when this release commit is pushed to `origin/main` |
-| Verify GitHub Actions | CI must pass and Build Desktop Artifacts must complete for the pushed release commit |
+| Commit | Pending this release commit |
+| Push | Pending this release commit |
+| Verify GitHub Actions | Pending after push |
 
 ## Local Validation
 
@@ -64,13 +51,10 @@ This release completes the requested corrective pass around Key Product Store Na
 - `pnpm --filter @marketplace-intelligence-os/desktop test`: passed, 5 files and 12 tests.
 - `pnpm --filter @marketplace-intelligence-os/desktop build`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop test:e2e`: passed, 2 Playwright smoke tests.
-- Release cleanup deleted `apps/desktop/dist`, `apps/desktop/dist-node`, and `apps/desktop/release`.
-- `pnpm --filter @marketplace-intelligence-os/desktop prisma:generate`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop package:win`: passed for Windows installer, portable executable, and `win-unpacked`.
-- Packaged app launched from `win-unpacked` and responded on `/api/health` port `4123` with `{"ok":true,"product":"Marketplace Intelligence OS","version":"1.0.0"}`.
-- Packaged `/api/dashboard` returned `37` projects, confirming Prisma-backed queries execute in the packaged runtime.
-- No packaged app process or release/test port remained running after validation.
-- Final artifact timestamps were refreshed after this Store Name/Store Type and sub-action collection fix so the Windows installer, portable executable, and unpacked app match the latest local source state.
+- Packaged app launched from `win-unpacked` and responded on `/api/health` port `4123` with `ok=true`, product `Marketplace Intelligence OS`, and version `1.0.0`.
+- Packaged `/api/dashboard` returned `1` project, `0` jobs, and `0` reports, confirming Prisma-backed runtime queries execute in the packaged app.
+- Packaged app processes were stopped after verification.
 
 ## Generated Artifacts
 
@@ -81,16 +65,13 @@ This release completes the requested corrective pass around Key Product Store Na
 
 Artifact sizes:
 
-- Setup installer: 146.40 MB, 153,514,506 bytes.
-- Portable executable: 146.18 MB, 153,283,723 bytes.
-- Unpacked executable: 191.91 MB.
-- Installer blockmap: 0.15 MB.
+- Setup installer: 153,514,761 bytes.
+- Portable executable: 153,284,042 bytes.
+- Unpacked executable: 201,233,920 bytes.
 
 ## Remaining Notes
 
 - macOS artifacts must be verified on the GitHub Actions macOS runner.
-- Shopee and TikTok anti-bot/login/verification flows remain user-controlled by design; the app does not bypass marketplace protections.
-- WebP-to-JPG thumbnail conversion is best-effort and falls back to original URLs when the marketplace CDN blocks image fetching.
-- Product slide/video extraction remains heuristic when Shopee hides media from browser-readable HTML.
-- Previous Windows release cleanup had encountered a locked `win-unpacked` folder; this run deleted `release` cleanly and packaged directly into the expected output folder.
-- TikTok Shop adapter remains stubbed; Android evidence capture exists, but TikTok Shop navigation is user-controlled.
+- Shopee/TikTok login, captcha, verification, and protected pages remain user-controlled by design; the app does not bypass marketplace protections.
+- Store Type image recognition is best-effort when Shopee exposes the Mall/Star badge only as pixels; persistence still rejects invalid Store Type labels.
+- TikTok Shop adapter remains stubbed; Android evidence capture exists, but TikTok Shop navigation remains user-controlled.

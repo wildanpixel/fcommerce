@@ -96,6 +96,8 @@ Release blocker fixes:
 - 2026-07-08: Moved Key Store work into the project inspection and Evaluation Phase flow; the standalone Key Stores navigation tab is removed from the product shell.
 - 2026-07-08: Playwright validation now boots isolated web/API servers on test-only ports so E2E tests do not race the local desktop API.
 - 2026-07-08: macOS artifact workflow unit tests now rely on `vitest.config.ts` excludes instead of unquoted npm-script globs, avoiding shell expansion differences between Windows and macOS runners.
+- 2026-07-08: Fixed manual `Download HTML` by making the webview snapshot script async-safe and saving HTML through the local API into project evidence folders instead of using fragile renderer blob downloads.
+- 2026-07-08: Build scripts now use Vite's runner config loader so Windows validation does not fail when esbuild attempts to inspect inaccessible parent directories.
 
 ## M1 Product Experience
 
@@ -114,6 +116,7 @@ Release blocker fixes:
 | Icon-only browser controls | Completed | Product UI | Embedded platform browser | Done | P1 |
 | Browser-visible HTML text extraction | Completed | Product UI and Evidence API | Electron webview session | Done | P1 |
 | Browser HTML download status | Completed | Product UI and Evidence API | Electron webview session | Done | P1 |
+| API-backed browser HTML snapshot save | Completed | Product UI and Evidence API | Project workspace, Express API | Done | P1 |
 | Persistent marketplace browser session | Completed | Product UI | Electron persistent partition | Done | P0 |
 | Browser zoom and print controls | Completed | Product UI | Electron webview | Done | P1 |
 | Rendered-page snapshot capture | Completed | Product UI and Evidence API | Electron webview, project workspace | Done | P0 |

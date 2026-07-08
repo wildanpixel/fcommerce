@@ -16,6 +16,7 @@ import type {
   CollectionState,
   CreateJobPayload,
   ExtractedPageProduct,
+  HtmlSnapshotPayload,
   ManualEvidencePayload,
   ManualFileEvidencePayload,
   NewProjectInput,
@@ -187,6 +188,14 @@ const manualEvidenceSchema = z.object({
   pagePdfDataUrl: z.string().optional(),
   extractedProducts: z.array(extractedPageProductSchema).optional(),
   metadata: z.record(z.unknown()).optional()
+});
+
+const htmlSnapshotSchema = z.object({
+  projectId: z.string().uuid(),
+  label: z.string().min(2),
+  sourceUrl: z.string().optional(),
+  pageHtml: z.string().min(1),
+  visibleText: z.string().optional()
 });
 
 const collectionStateSchema = z.object({
@@ -508,6 +517,46 @@ export function createApp(): Express {
       textPath,
       pdfPath,
       extractedProductCount: normalizedEvidence.extractedProductCount
+    });
+  }));
+
+  app.post("/api/html-snapshot", asyncRoute(async (request, response) => {
+    const input = htmlSnapshotSchema.parse(request.body) satisfies HtmlSnapshotPayload;
+    const project = await dependencies.projectRepository.get(input.projectId);
+    if (!project) {
+      response.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const projectFolder = await dependencies.workspace.projectFolder(project);
+    const evidenceFolder = resolve(projectFolder, "manual-evidence");
+    await mkdir(evidenceFolder, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const baseName = `${timestamp}-${slug(input.label)}`;
+    const htmlPath = resolve(evidenceFolder, `${baseName}.html`);
+    const textPath = input.visibleText ? resolve(evidenceFolder, `${baseName}.txt`) : undefined;
+
+    await writeFile(htmlPath, input.pageHtml, "utf8");
+    if (textPath && input.visibleText) {
+      await writeFile(textPath, input.visibleText, "utf8");
+    }
+
+    await dependencies.logRepository.write({
+      projectId: project.id,
+      level: "INFO",
+      message: "Browser HTML snapshot saved",
+      context: {
+        sourceUrl: input.sourceUrl,
+        htmlPath,
+        textPath
+      }
+    });
+
+    response.status(201).json({
+      ok: true,
+      projectId: project.id,
+      htmlPath,
+      textPath
     });
   }));
 

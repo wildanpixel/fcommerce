@@ -10,6 +10,8 @@ import type {
   CreateJobPayload,
   DashboardSnapshot,
   HealthPayload,
+  HtmlSnapshotPayload,
+  HtmlSnapshotResult,
   ManualEvidencePayload,
   ManualEvidenceResult,
   ManualFileEvidencePayload,
@@ -109,6 +111,11 @@ export const apiClient = {
     }),
   saveManualFileEvidence: (payload: ManualFileEvidencePayload) =>
     request<ManualEvidenceResult>("/manual-file-evidence", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  saveHtmlSnapshot: (payload: HtmlSnapshotPayload) =>
+    request<HtmlSnapshotResult>("/html-snapshot", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

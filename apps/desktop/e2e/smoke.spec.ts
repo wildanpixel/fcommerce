@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-const e2eApiOverride = "/?apiBaseUrl=http%3A%2F%2F127.0.0.1%3A4223%2Fapi";
+const e2eApiPort = process.env.MIO_E2E_API_PORT ?? "4223";
+const e2eApiOverride = `/?apiBaseUrl=${encodeURIComponent(`http://127.0.0.1:${e2eApiPort}/api`)}`;
 
 test("renders the guided manual analysis flow", async ({ page }) => {
   await page.goto(e2eApiOverride);

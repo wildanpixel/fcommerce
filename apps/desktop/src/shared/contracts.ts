@@ -326,6 +326,21 @@ export type ManualFileEvidencePayload = {
   metadata?: Record<string, unknown>;
 };
 
+export type HtmlSnapshotPayload = {
+  projectId: string;
+  label: string;
+  sourceUrl?: string;
+  pageHtml: string;
+  visibleText?: string;
+};
+
+export type HtmlSnapshotResult = {
+  ok: true;
+  projectId: string;
+  htmlPath: string;
+  textPath?: string;
+};
+
 export type ManualEvidenceResult = {
   ok: true;
   stepId: string;

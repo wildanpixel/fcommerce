@@ -62,6 +62,8 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-08 | Key Store lived in two navigation concepts | Fixed | The standalone Key Stores tab was removed; Evaluation Phase owns AI scoring and promotes the top Potential Store into the project-level Key Store section. |
 | 2026-07-08 | Playwright smoke tests raced the desktop API | Fixed | E2E now starts isolated API and web preview servers on test-only ports with test app-data/cache folders. |
 | 2026-07-08 | macOS artifact workflow failed during unit tests | Fixed | The desktop test script now uses `vitest run` and relies on `vitest.config.ts` for excludes, avoiding unquoted glob expansion on macOS shell runners. |
+| 2026-07-08 | Browser Download HTML kept failing | Fixed | The rendered snapshot script now runs as an async webview function and manual HTML saves go through `/api/html-snapshot` into the local project evidence folder. |
+| 2026-07-08 | Windows build failed under managed sandbox | Fixed | The desktop build script now uses Vite's `--configLoader runner`, avoiding esbuild parent-directory access failures. |
 
 ## Sprint Overview
 
@@ -103,6 +105,7 @@ Completed: 2026-06-29
 | Add browser fullscreen mode | Electron webview | Done | Completed: visible platform browser can expand fullscreen while the floating collector remains visible. |
 | Add browser zoom and print | Electron webview | Done | Completed: embedded browser exposes zoom in/out and native print controls. |
 | Add background HTML capture status | Electron webview | Done | Completed: browser overlay shows target received, HTML download, done, failed, and Download HTML fallback. |
+| Add API-backed HTML snapshot save | Project workspace, Express API | Done | Completed: Download HTML saves the current rendered snapshot into the project evidence folder without relying on browser blob downloads. |
 | Add shell personalization | React renderer | Done | Completed: sidebar can collapse and user can switch dark/light mode. |
 | Fix light default and readability | React renderer, CSS | Done | Completed: light white/grey theme is default, sidebar is readable, and the floating guide follows the dashboard theme. |
 | Add TikTok mobile visible view | Electron webview | Done | Completed: TikTok Shop opens in a mobile-style visible browser. |

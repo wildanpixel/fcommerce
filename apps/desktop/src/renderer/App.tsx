@@ -1325,22 +1325,30 @@ function GuidedBrowserCollector({
       return;
     }
     setCaptureStatus({ message: "Downloading HTML from #main", state: "working" });
-    const snapshot = await extractRenderedPageSnapshot(webview).catch(() => undefined);
+    const snapshot = await extractRenderedPageSnapshot(webview).catch((error: unknown) => {
+      appendLog(setActivityLog, error instanceof Error ? `HTML extraction failed: ${error.message}` : "HTML extraction failed before a snapshot could be created.");
+      return undefined;
+    });
     if (!snapshot?.html) {
       setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML" });
       appendLog(setActivityLog, "Could not download readable HTML from this page. Complete login/verification or reload the target page.");
       return;
     }
-    const blob = new Blob([snapshot.html], { type: "text/html;charset=utf-8" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `${project.keyword.replace(/[^a-z0-9]+/giu, "-").replace(/^-|-$/gu, "") || "marketplace-page"}-${Date.now()}.html`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(link.href);
-    setCaptureStatus({ message: "HTML download done", state: "done" });
-    appendLog(setActivityLog, "Downloaded the current #main HTML snapshot.");
+    const sourceUrl = webview.getURL?.() ?? currentUrl;
+    try {
+      const saved = await apiClient.saveHtmlSnapshot({
+        projectId: project.id,
+        label: `${project.keyword} browser-html`,
+        sourceUrl: sourceUrl === "about:blank" ? undefined : sourceUrl,
+        pageHtml: snapshot.html,
+        visibleText: snapshot.visibleText
+      });
+      setCaptureStatus({ message: "HTML download done", state: "done" });
+      appendLog(setActivityLog, `Saved the current #main HTML snapshot to ${saved.htmlPath}.`);
+    } catch (error) {
+      setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML" });
+      appendLog(setActivityLog, error instanceof Error ? `Could not save HTML snapshot: ${error.message}` : "Could not save the current HTML snapshot.");
+    }
   }
 
   async function openTikTokAndroidFromShopeeStep() {
@@ -4498,7 +4506,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
     products: ExtractedPageProduct[];
     productDetail: RenderedProductDetailSnapshot;
   }>(`
-    (() => {
+    (async () => {
       const parseHumanNumber = (value) => {
         if (!value) return undefined;
         const normalized = String(value).toLowerCase().replace(/\\+/g, "").replace(/,/g, ".").trim();
@@ -4776,7 +4784,6 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         document.querySelector(".page-product__content");
       const shopRoot = document.querySelector("#s112-product-shop, .s112-pdp-product-shop, div[class*='s112-pdp-product-shop']");
       const shopSection = shopRoot?.querySelector?.("section.page-product__shop") || shopRoot;
-      const storeAnchor = shopSection?.querySelector?.('a[href]');
       const isGoodStoreName = (value) => {
         const normalized = compact(value);
         const lowered = normalized.toLowerCase();
@@ -4803,8 +4810,25 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         }
         return candidates;
       };
+      const shopAnchors = Array.from(shopSection?.querySelectorAll?.('a[href]') || [])
+        .filter((anchor) => !/(chat|cart|checkout|help|report|seller|login|verify)/iu.test(anchor.getAttribute("href") || ""))
+        .filter((anchor) => !/(chat|cart|checkout|help|report|seller centre|seller center|login|verify)/iu.test(textFrom(anchor)));
+      const storeAnchor = shopAnchors
+        .map((anchor) => ({
+          anchor,
+          candidates: [
+            ...storeNameLinesFrom(anchor),
+            ...storeNameAfterAnchor(anchor),
+            anchor.getAttribute("title"),
+            anchor.getAttribute("aria-label"),
+            anchor.querySelector?.("img[alt]")?.getAttribute("alt")
+          ].filter(Boolean)
+        }))
+        .sort((left, right) => right.candidates.length - left.candidates.length)[0]?.anchor ||
+        shopSection?.querySelector?.('a[href]');
       const shopNameCandidates = [
         ...storeNameAfterAnchor(storeAnchor),
+        ...storeNameLinesFrom(storeAnchor),
         ...storeNameLinesFrom(shopSection?.querySelector?.("a[href] + div")),
         ...storeNameLinesFrom(shopSection?.querySelector?.("a[href] ~ div")),
         storeAnchor?.getAttribute?.("title"),

@@ -4,6 +4,11 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 ## Unreleased - 2026-07-08
 
+- Fixed the browser `Download HTML` failure by changing the injected snapshot script to an async IIFE so badge-image analysis can run without a runtime syntax error.
+- Changed manual HTML download from fragile renderer blob downloads to an API-backed local snapshot save in the project `manual-evidence` folder.
+- Added `/api/html-snapshot` and renderer client support for saving standalone browser HTML/text snapshots.
+- Made Playwright smoke tests use the configured E2E API port instead of hardcoding `4223`.
+- Changed the production Vite build command to use `--configLoader runner`, avoiding Windows sandbox/esbuild parent-folder access failures during build.
 - Fixed PDP Store Name extraction by walking from Shopee's shop anchor to the following sibling store-name block inside `.s112-pdp-product-shop` / `section.page-product__shop`.
 - Hardened Store Type extraction for Relevance/Top Sales product cards by scoring small rendered badge images and adding a best-effort visual color classifier for image-only `Mall ORI`, `Star+`, and `Star` badges.
 - Added strict Store Type persistence so only `Mall ORI`, `Star+`, or `Star` can enter product raw evidence.
