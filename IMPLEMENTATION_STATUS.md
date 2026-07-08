@@ -89,6 +89,8 @@ Release blocker fixes:
 - 2026-07-03: Removed the Home navigation tab; Projects now opens as a dedicated Vault Metrics and project-list page, and individual project inspection opens as a full dedicated page.
 - 2026-07-08: Fixed dark-mode floating collector readability and kept target/collect actions available when the collector is folded.
 - 2026-07-08: Hardened PDP title/store sync so Shopee chrome labels such as `Shopping Cart icon` cannot overwrite product titles, while store names are synced from PDP shop content when visible.
+- 2026-07-08: Tightened Key Product Store Name sync to the Shopee PDP shop block (`.s112-pdp-product-shop` / `section.page-product__shop`) and limited search-result Store Type display to badge-derived `Mall ORI`, `Star+`, or `Star`.
+- 2026-07-08: Added product-detail collection previews, in-flow Evaluation Phase review, sticky main navigation, and grouped sticky Project Inspector navigation.
 - 2026-07-08: Moved Key Store work into the project inspection and Evaluation Phase flow; the standalone Key Stores navigation tab is removed from the product shell.
 - 2026-07-08: Playwright validation now boots isolated web/API servers on test-only ports so E2E tests do not race the local desktop API.
 - 2026-07-08: macOS artifact workflow unit tests now rely on `vitest.config.ts` excludes instead of unquoted npm-script globs, avoiding shell expansion differences between Windows and macOS runners.
@@ -231,11 +233,13 @@ Implemented:
 - Manual evidence capture now targets `div#main`/`main`/body content and formats saved HTML across multiple lines to avoid unusable single-line snapshots.
 - Shopee product extraction now narrows from `#main` into the inner content `<div>` below the marketplace header and before the footer, reducing header/footer/sidebar distraction in saved HTML and product parsing.
 - Relevance and Top Sales cards now prioritize `picture._displayContents_ img[srcset]` thumbnails and persist source placement, product type, and store badge/store type signals where available.
+- Search result Store Type extraction now reads badge images from the product card body and only surfaces `Mall ORI`, `Star+`, or `Star`; broad text fallbacks are suppressed so stale labels such as `Top-sales store` do not appear in the Key Product table.
 - Step 3 in Keyword General is now process-only: it builds an AI-assisted Key Product table from Relevance and Top Sales rows instead of capturing another screenshot.
 - Key Product selection now deduplicates products, prioritizes Top Sales placement, monthly sold, review count, rating, price signal, and thumbnail availability, and caps the Product Detail Qualified flow to 10 products.
 - Key Product table display now preserves raw Shopee rating/sold strings, infers Product Type from title, normalizes Store Type to Mall ORI/Star+/Star, and leaves Reviews pending until PDP capture.
 - Product Detail Qualified collection steps now use product titles as section/step labels instead of generic Product 1/Product 2 labels.
-- Product Detail Qualified collection now captures only the visible first viewport and syncs structured PDP evidence in the background: slides/images, videos, description, review rows, and review media.
+- Product Detail Qualified collection now captures only the visible first viewport and syncs structured PDP evidence in the background: slides/images, videos, description, review rows, review media, shop vouchers, and bundle deals.
+- Product Detail Qualified collection progress now previews the active product, evidence status, and sub-actions for first page, slides/images, description, reviews, media in user, and shop homepage so users can verify whether the current PDP data looks correct before moving on.
 - Product dossiers now show collected videos plus Media in User image/video evidence when browser-readable Shopee HTML exposes it.
 - Browser capture status is visible to the user with `targeted page received`, `downloading HTML`, done, and failed states plus a manual `Download HTML` fallback action.
 - Relevance and top-sales snapshots extract rendered product cards from the visible browser page and persist product rows with thumbnail, product URL, price estimate, rating, sold count, source, and selection reason.
@@ -253,7 +257,7 @@ Implemented:
 - Product page collection exists as user-controlled rendered snapshot capture and stores product-specific assets where the user opens the PDP.
 - Product-specific evidence now enriches stored product records with browser-readable PDP fields including price range, original price, discount, rating, review count, total sold, stock, voucher/shipping text, variants, specifications, description, and image URLs where visible.
 - Product-specific evidence now keeps the existing product title unless the PDP exposes a high-confidence product title, preventing Shopee header/cart/accessibility labels from replacing the real product name.
-- Product-specific evidence now updates Store Name and Store URL from PDP shop content when browser-readable `#s112-product-shop` content or equivalent shop links are visible.
+- Product-specific evidence now updates Store Name and Store URL from PDP shop content when browser-readable `#s112-product-shop`, `.s112-pdp-product-shop`, or `section.page-product__shop` content and equivalent shop links are visible.
 - Product image URLs are collected into product raw evidence for report rendering with a 3-column image grid.
 - Product Detail Qualified capture now records product videos, review media images/videos, shop vouchers, bundle deals, and a promotion count where the visible PDP HTML exposes those sections.
 - Project inspection now renders dynamic product dossiers for every collected product with first-page evidence, slides, description, variants, specifications, reviews, review media, and shop-homepage evidence.
@@ -314,8 +318,8 @@ Implemented:
 - OpenAI and Gemini provider paths exist when API keys are configured.
 - Local heuristic analysis fallback exists.
 - Project-level AI evaluation can be triggered from Project Inspector and persists a structured analysis record from collected products, stores, reviews, and screenshots.
-- Store Evaluation Phase cards estimate GMV locally from extracted price and monthly sold values, then expose a deterministic candidate score.
-- Evaluation Phase now labels stores as `Potential Store`, owns the AI scoring action, deduplicates stores from the qualified-product set, and promotes the top scored store into the project-level Key Store section.
+- Store Evaluation Phase cards estimate GMV locally from extracted price and monthly sold values, then expose a deterministic Potential Store score.
+- Evaluation Phase now labels stores as `Potential Store`, owns the AI scoring action, deduplicates stores from the qualified-product set, opens inside the collection workspace before Key Store collection, and promotes the top scored store into the project-level Key Store section.
 - Key Product processing now receives richer normalized product signals from M2, including source placement, inferred product type, raw rating/sold text, PDP review rows, videos, and review media pointers.
 - Project Inspector now displays persisted AI scoring, observations, and recommendations inside the Evaluation Phase so users can review evidence before report export.
 - Report sections are modular.

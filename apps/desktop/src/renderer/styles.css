@@ -143,7 +143,7 @@ webview {
 
 .mio-main {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .mio-main > * {
@@ -225,6 +225,11 @@ webview {
 }
 
 .mio-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
   background:
     linear-gradient(180deg, rgba(18, 24, 35, 0.78), rgba(8, 10, 15, 0.84)),
     rgba(9, 13, 20, 0.72);
@@ -558,6 +563,15 @@ webview {
   color: #0f172a;
 }
 
+.mio-light .mio-inspector-nav summary {
+  color: #0f172a;
+}
+
+.mio-light .mio-inspector-nav summary:hover {
+  background: #eef4ff;
+  color: #0f172a;
+}
+
 .mio-dark .mio-inspector-nav {
   background: rgba(9, 11, 16, 0.92);
   border-color: rgba(255, 255, 255, 0.12);
@@ -568,6 +582,15 @@ webview {
 }
 
 .mio-dark .mio-inspector-nav a:hover {
+  background: rgba(98, 168, 255, 0.12);
+  color: #ffffff;
+}
+
+.mio-dark .mio-inspector-nav summary {
+  color: #f8fbff;
+}
+
+.mio-dark .mio-inspector-nav summary:hover {
   background: rgba(98, 168, 255, 0.12);
   color: #ffffff;
 }

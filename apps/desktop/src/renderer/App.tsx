@@ -85,6 +85,13 @@ type AnalysisFormState = {
   createdAt: string;
 };
 
+type CollectionSubAction = {
+  id: string;
+  label: string;
+  mode: "screenshot" | "download" | "sync" | "background";
+  description: string;
+};
+
 type CollectionStep = {
   id: string;
   stage: CollectionStage;
@@ -94,6 +101,7 @@ type CollectionStep = {
   mode?: "CAPTURE" | "PROCESS";
   captureMode?: "viewport" | "full-page";
   substeps?: string[];
+  subActions?: CollectionSubAction[];
   ownerType?: ManualEvidencePayload["ownerType"];
   ownerId?: string;
   instruction: string;
@@ -840,6 +848,7 @@ function GuidedBrowserCollector({
   const [collectedSteps, setCollectedSteps] = useState<Record<string, string>>(savedCollectionState.stepAssetPaths);
   const [stageCompleted, setStageCompleted] = useState<CollectionState["stageCompleted"]>(savedCollectionState.stageCompleted);
   const [reviewingKeyProducts, setReviewingKeyProducts] = useState(false);
+  const [reviewingEvaluation, setReviewingEvaluation] = useState(false);
   const [pageTextPreview, setPageTextPreview] = useState("");
   const [zoomFactor, setZoomFactor] = useState(1);
   const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
@@ -854,6 +863,20 @@ function GuidedBrowserCollector({
   const projectDetail = useQuery({
     queryKey: ["project-detail", project.id],
     queryFn: () => apiClient.projectDetail(project.id)
+  });
+
+  const runAnalysis = useMutation({
+    mutationFn: () => apiClient.analyzeProject(project.id),
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
+      ]);
+      appendLog(setActivityLog, `AI scoring saved with ${result.provider}.`);
+    },
+    onError: (error) => {
+      appendLog(setActivityLog, error instanceof Error ? error.message : "AI scoring could not be completed.");
+    }
   });
 
   const allSteps = useMemo(
@@ -1010,6 +1033,7 @@ function GuidedBrowserCollector({
   useEffect(() => {
     setActiveStepIndex(0);
     setReviewingKeyProducts(false);
+    setReviewingEvaluation(false);
   }, [activeStage]);
 
   useEffect(() => {
@@ -1127,6 +1151,12 @@ function GuidedBrowserCollector({
     appendLog(setActivityLog, "Built the AI-assisted Key Product table from Relevance and Top Sales evidence.");
   }
 
+  function openEvaluationReview() {
+    setExpanded(false);
+    setReviewingEvaluation(true);
+    appendLog(setActivityLog, "Opened Evaluation Phase in the collection workspace. Score Potential Stores before collecting Key Store evidence.");
+  }
+
   function startProductDetailCollection() {
     const processStep = allSteps.find((step) => step.id === "key-product-table");
     const nextCollectedSteps = processStep
@@ -1137,9 +1167,31 @@ function GuidedBrowserCollector({
     completeCurrentStage(nextCollectedSteps);
   }
 
+  function startKeyStoreCollection() {
+    const processStep = allSteps.find((step) => step.id === "evaluation-phase-scoring");
+    const nextCollectedSteps = processStep
+      ? { ...collectedSteps, [processStep.id]: "processed:evaluation-phase-scoring" }
+      : collectedSteps;
+    setCollectedSteps(nextCollectedSteps);
+    setReviewingEvaluation(false);
+    const nextIndex = Math.max(0, steps.findIndex((step) => step.id !== "evaluation-phase-scoring"));
+    setActiveStepIndex(nextIndex);
+    persistCollectionState({
+      stepAssetPaths: nextCollectedSteps,
+      completedStepIds: Object.keys(nextCollectedSteps),
+      progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+      currentStepId: steps[nextIndex]?.id ?? processStep?.id
+    });
+    appendLog(setActivityLog, "Evaluation Phase marked processed. Continue with Key Store store-page evidence.");
+  }
+
   function runStagePrimaryAction() {
     if (activeStage === "KEYWORD_GENERAL") {
       openKeyProductTableReview();
+      return;
+    }
+    if (activeStage === "EVALUATION_KEY_STORE") {
+      openEvaluationReview();
       return;
     }
     completeCurrentStage();
@@ -1387,7 +1439,17 @@ function GuidedBrowserCollector({
           captured={Boolean(collectedSteps[activeStep.id])}
           saving={saveEvidence.isPending}
           onOpenTarget={() => activeStep.targetUrl && navigateTo(activeStep.targetUrl)}
-          onCollect={() => activeStep.mode === "PROCESS" ? openKeyProductTableReview() : void captureAndSaveEvidence(activeStep)}
+          onCollect={() => {
+            if (activeStep.mode === "PROCESS") {
+              if (activeStep.id === "evaluation-phase-scoring") {
+                openEvaluationReview();
+              } else {
+                openKeyProductTableReview();
+              }
+              return;
+            }
+            void captureAndSaveEvidence(activeStep);
+          }}
           onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
           onOpenAndroid={activeStep.id === "tiktok-brand-search" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
           onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
@@ -1416,6 +1478,17 @@ function GuidedBrowserCollector({
       totalProducts={projectDetail.data?.products.length ?? 0}
       onBackToBrowser={() => setReviewingKeyProducts(false)}
       onStartProductDetails={startProductDetailCollection}
+    />
+  );
+
+  const evaluationPanel = (
+    <EvaluationCollectionPanel
+      detail={projectDetail.data}
+      onBackToBrowser={() => setReviewingEvaluation(false)}
+      onRunAnalysis={() => runAnalysis.mutate()}
+      scoring={runAnalysis.isPending}
+      scoringProvider={runAnalysis.data?.provider}
+      onStartKeyStoreCollection={startKeyStoreCollection}
     />
   );
 
@@ -1486,6 +1559,12 @@ function GuidedBrowserCollector({
                 </button>
               ))}
             </div>
+            <CollectionStepPreview
+              step={activeStep}
+              detail={projectDetail.data}
+              selectedProducts={selectedKeyProducts}
+              collected={Boolean(collectedSteps[activeStep.id])}
+            />
           </Panel>
 
           <Panel title="Activity" icon={Gauge}>
@@ -1501,9 +1580,182 @@ function GuidedBrowserCollector({
       )}
 
       <div className={expanded ? "h-screen w-screen" : ""}>
-        {reviewingKeyProducts && activeStage === "KEYWORD_GENERAL" ? keyProductTablePanel : browserPanel}
+        {reviewingKeyProducts && activeStage === "KEYWORD_GENERAL"
+          ? keyProductTablePanel
+          : reviewingEvaluation && activeStage === "EVALUATION_KEY_STORE"
+            ? evaluationPanel
+            : browserPanel}
       </div>
     </section>
+  );
+}
+
+function CollectionStepPreview({
+  step,
+  detail,
+  selectedProducts,
+  collected
+}: {
+  step: CollectionStep;
+  detail?: ProjectDetailPayload;
+  selectedProducts: ProjectProductEvidence[];
+  collected: boolean;
+}) {
+  if (!detail) {
+    return null;
+  }
+
+  if (step.id === "key-product-table") {
+    return (
+      <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
+        <div className="mb-2 font-semibold text-white">Preview: Key Product Table</div>
+        <div>{selectedProducts.length} qualified product{selectedProducts.length === 1 ? "" : "s"} selected from {detail.products.length} extracted rows.</div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <EvidenceStatusPill label="Relevance rows" done={detail.products.some((product) => product.source === "Relevance")} />
+          <EvidenceStatusPill label="Top Sales rows" done={detail.products.some((product) => product.source === "Top Sales")} />
+        </div>
+      </div>
+    );
+  }
+
+  if (step.id === "evaluation-phase-scoring") {
+    const candidates = storeEvaluationCandidates(detail);
+    return (
+      <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
+        <div className="mb-2 font-semibold text-white">Preview: Evaluation Phase</div>
+        <div>{candidates.length} Potential Store{candidates.length === 1 ? "" : "s"} ready for GMV, sold/month, and promotion scoring.</div>
+        <div className="mt-2 space-y-1">
+          {candidates.slice(0, 3).map((candidate, index) => (
+            <div key={candidate.key} className="flex items-center justify-between gap-3 rounded border border-white/8 bg-white/[0.04] px-2 py-1">
+              <span className="truncate">{index + 1}. {candidate.name}</span>
+              <span className="shrink-0 text-signal-blue">{candidate.score}</span>
+            </div>
+          ))}
+          {candidates.length === 0 && <div className="text-ink-500">Capture Product Detail Qualified evidence first.</div>}
+        </div>
+      </div>
+    );
+  }
+
+  const product = step.ownerType === "PRODUCT" && step.ownerId
+    ? detail.products.find((item) => item.id === step.ownerId)
+    : undefined;
+  if (product) {
+    const productAssets = detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id);
+    const productReviews = detail.reviews.filter((review) => review.productId === product.id);
+    return (
+      <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate font-semibold text-white">{displayProductTitle(product)}</div>
+            <div className="mt-0.5 truncate text-[11px] text-ink-500">{product.storeName ?? "Store name pending PDP sync"}</div>
+          </div>
+          <span className={["shrink-0 rounded-full px-2 py-1 text-[10px]", collected ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-400"].join(" ")}>
+            {collected ? "saved" : "open PDP"}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <EvidenceStatusPill label="First page" done={productAssets.some((asset) => asset.kind === "PRODUCT_PAGE")} />
+          <EvidenceStatusPill label="Slides / video" done={product.images.length > 0 || product.videos.length > 0} />
+          <EvidenceStatusPill label="Description" done={Boolean(product.description)} />
+          <EvidenceStatusPill label="Reviews" done={productReviews.length > 0} />
+          <EvidenceStatusPill label="Media in user" done={product.reviewMediaImages.length > 0 || product.reviewMediaVideos.length > 0} />
+          <EvidenceStatusPill label="Shop vouchers" done={product.shopVouchers.length > 0 || product.bundleDeals.length > 0} />
+        </div>
+        {step.subActions && step.subActions.length > 0 && (
+          <div className="mt-3 space-y-1 border-t border-white/8 pt-3">
+            {step.subActions.map((action) => (
+              <div key={action.id} className="rounded border border-white/8 bg-white/[0.04] px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-white">{action.label}</span>
+                  <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-400">{action.mode}</span>
+                </div>
+                <div className="mt-1 text-[11px] leading-4 text-ink-500">{action.description}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return step.subActions && step.subActions.length > 0 ? (
+    <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
+      <div className="mb-2 font-semibold text-white">Step Actions</div>
+      <div className="space-y-1">
+        {step.subActions.map((action) => (
+          <div key={action.id} className="flex items-start justify-between gap-3 rounded border border-white/8 bg-white/[0.04] px-2 py-1.5">
+            <div>
+              <div className="font-medium text-white">{action.label}</div>
+              <div className="text-[11px] text-ink-500">{action.description}</div>
+            </div>
+            <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-400">{action.mode}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  ) : null;
+}
+
+function EvidenceStatusPill({ label, done }: { label: string; done: boolean }) {
+  return (
+    <div className={["flex items-center gap-1.5 rounded border px-2 py-1", done ? "border-signal-green/25 bg-signal-green/10 text-signal-green" : "border-white/8 bg-white/[0.04] text-ink-500"].join(" ")}>
+      {done ? <CheckCircle2 size={12} /> : <Circle size={11} />}
+      <span className="truncate">{label}</span>
+    </div>
+  );
+}
+
+function EvaluationCollectionPanel({
+  detail,
+  onBackToBrowser,
+  onRunAnalysis,
+  scoring,
+  scoringProvider,
+  onStartKeyStoreCollection
+}: {
+  detail?: ProjectDetailPayload;
+  onBackToBrowser: () => void;
+  onRunAnalysis: () => void;
+  scoring: boolean;
+  scoringProvider?: string;
+  onStartKeyStoreCollection: () => void;
+}) {
+  const candidates = detail ? storeEvaluationCandidates(detail) : [];
+  return (
+    <Panel
+      title="Evaluation Phase"
+      icon={Brain}
+      action={
+        <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onBackToBrowser}>
+          <ChevronLeft size={15} />
+          Browser
+        </button>
+      }
+    >
+      <div className="mb-4 rounded-md border border-signal-blue/20 bg-signal-blue/10 p-4 text-sm leading-6 text-ink-300">
+        Review Potential Stores without leaving the collection workspace. Run AI scoring after Product Detail Qualified evidence is synced, then start Key Store collection for the top-ranked store.
+      </div>
+      {detail ? (
+        <>
+          <EvaluationCards detail={detail} onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
+          <AnalysisSummary detail={detail} />
+        </>
+      ) : (
+        <EmptyState label="Loading project evidence..." />
+      )}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs leading-5 text-ink-500">
+          {candidates.length > 0
+            ? `${candidates[0].name} is currently ranked as Key Store from ${candidates.length} Potential Store candidates.`
+            : "No Potential Store is available yet. Capture PDP store names or store links first."}
+        </div>
+        <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartKeyStoreCollection} disabled={candidates.length === 0}>
+          <Store size={16} />
+          Start Key Store Collection
+        </button>
+      </div>
+    </Panel>
   );
 }
 
@@ -1604,8 +1856,8 @@ function FloatingStepController({
             type="button"
             disabled={saving || !step.ready}
             onClick={onCollect}
-            aria-label={step.mode === "PROCESS" ? "Build table" : "Collect step"}
-            title={step.mode === "PROCESS" ? "Build table" : "Collect step"}
+            aria-label={step.mode === "PROCESS" ? "Process step" : "Collect step"}
+            title={step.mode === "PROCESS" ? "Process step" : "Collect step"}
           >
             {step.mode === "PROCESS" ? <Table2 size={13} /> : <ClipboardCheck size={13} />}
           </button>
@@ -1651,6 +1903,19 @@ function FloatingStepController({
             ))}
           </ul>
         )}
+        {step.subActions && step.subActions.length > 0 && (
+          <div className="mt-2 space-y-1 border-t border-white/8 pt-2">
+            {step.subActions.map((action) => (
+              <div key={action.id} className="rounded-md border border-white/8 bg-white/[0.04] px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium text-white">{action.label}</span>
+                  <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{action.mode}</span>
+                </div>
+                <div className="mt-1 text-[10px] leading-4 text-ink-500">{action.description}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <div className="mt-2 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-2">
         <button className="secondary-button h-9 w-10 px-0" type="button" onClick={onPrevious} aria-label="Previous step">
@@ -1670,7 +1935,7 @@ function FloatingStepController({
         <button className="primary-button mt-2 h-9" type="button" disabled={saving} onClick={onCollect}>
           <ClipboardCheck size={16} />
           {step.mode === "PROCESS"
-            ? captured ? "Review Table Again" : "Build Key Product Table"
+            ? captured ? "Review Process Again" : step.id === "evaluation-phase-scoring" ? "Open Evaluation Phase" : "Build Key Product Table"
             : saving ? "Saving Evidence" : captured ? "Capture Again" : "Collect This Step"}
         </button>
       ) : (
@@ -2362,6 +2627,7 @@ function ProjectOutlineNav({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const groups = groupProjectOutlineItems(items);
   if (collapsed) {
     return (
       <nav className="mio-inspector-nav sticky top-4 self-start rounded-md border border-white/8 bg-white/5 p-2 text-sm">
@@ -2380,23 +2646,46 @@ function ProjectOutlineNav({
         </button>
       </div>
       <div className="space-y-1">
-        {items.map((item) => (
-          <a
-            key={`${item.id}-${item.label}`}
-            href={`#${item.id}`}
-            className={[
-              "block rounded px-2 py-1.5 text-ink-300 hover:bg-white/8 hover:text-white",
-              item.depth === 0 ? "font-semibold" : "text-xs",
-              item.depth === 1 ? "ml-3" : "",
-              item.depth === 2 ? "ml-6" : ""
-            ].join(" ")}
-          >
-            {item.label}
-          </a>
+        {groups.map((group) => (
+          <details key={`${group.id}-${group.label}`} className="mio-outline-group rounded-md" open>
+            <summary className="cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
+              {group.label}
+            </summary>
+            <div className="mt-1 space-y-1">
+              <a href={`#${group.id}`} className="block rounded px-2 py-1.5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
+                Open section
+              </a>
+              {group.children.map((item) => (
+                <a
+                  key={`${item.id}-${item.label}`}
+                  href={`#${item.id}`}
+                  className={[
+                    "block rounded px-2 py-1.5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white",
+                    item.depth === 1 ? "ml-3" : "",
+                    item.depth >= 2 ? "ml-6" : ""
+                  ].join(" ")}
+                >
+                  {item.label}
+                </a>
+              ))}
+            </div>
+          </details>
         ))}
       </div>
     </nav>
   );
+}
+
+function groupProjectOutlineItems(items: Array<{ id: string; label: string; depth: number }>) {
+  const groups: Array<{ id: string; label: string; children: Array<{ id: string; label: string; depth: number }> }> = [];
+  for (const item of items) {
+    if (item.depth === 0 || groups.length === 0) {
+      groups.push({ id: item.id, label: item.label, children: [] });
+      continue;
+    }
+    groups[groups.length - 1].children.push(item);
+  }
+  return groups;
 }
 
 function ReportOutlineSection({ id, title, defaultOpen, children }: { id: string; title: string; defaultOpen?: boolean; children: ReactNode }) {
@@ -2532,7 +2821,7 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
               <td className="px-3 py-2">{product.productType ?? inferredProductTypeLabel(displayProductTitle(product))}</td>
               <td className="px-3 py-2">{product.monthlySoldText ?? formatOptionalNumber(product.monthlySold)}</td>
               <td className="px-3 py-2">{product.storeName ?? "-"}</td>
-              <td className="px-3 py-2">{product.storeType ?? storeTypeLabel(product)}</td>
+              <td className="px-3 py-2">{storeTypeLabel(product)}</td>
               <td className="px-3 py-2">{formatCurrency(product.priceAverage)}</td>
               <td className="px-3 py-2">{productRatingText(product)}</td>
               <td className="px-3 py-2">{product.reviewText ?? formatOptionalNumber(product.reviewCount)}</td>
@@ -2601,7 +2890,7 @@ function ProductQualifiedSection({
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <InfoLine label="Price" value={formatCurrency(product.priceAverage)} />
         <InfoLine label="Store Name" value={product.storeName ?? "-"} />
-        <InfoLine label="Store Type" value={product.storeType ?? storeTypeLabel(product)} />
+        <InfoLine label="Store Type" value={storeTypeLabel(product)} />
         <InfoLine label="GMV ETA" value={formatCurrency((product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0))} />
       </div>
 
@@ -3374,8 +3663,11 @@ function buildShopeeSteps(
   const hasRelevanceProducts = products.some((product) => product.source === "Relevance");
   const hasTopSalesProducts = products.some((product) => product.source === "Top Sales");
   const keyProducts = selectKeyProductCandidates(products);
-  const popularStoreTarget = storeReady ? withStoreSort(currentUrl, "pop") : undefined;
-  const bestSellerTarget = storeReady ? withStoreSort(currentUrl, "sales") : undefined;
+  const keyStoreSeed = selectKeyStoreSeedProduct(keyProducts);
+  const keyStoreUrl = keyStoreSeed?.storeUrl ?? undefined;
+  const currentStoreUrl = storeReady ? currentUrl : keyStoreUrl;
+  const popularStoreTarget = currentStoreUrl ? withStoreSort(currentStoreUrl, "pop") : undefined;
+  const bestSellerTarget = currentStoreUrl ? withStoreSort(currentStoreUrl, "sales") : undefined;
 
   const discoverySteps: CollectionStep[] = [
     {
@@ -3434,6 +3726,44 @@ function buildShopeeSteps(
         "Shop vouchers and bundle deals: sync in the background",
         "Shop Home Page: open the shop page later for store evidence"
       ],
+      subActions: [
+        {
+          id: "first-page",
+          label: "First page",
+          mode: "screenshot",
+          description: "Capture only the visible first viewport frame."
+        },
+        {
+          id: "slides",
+          label: "Slides and images",
+          mode: "download",
+          description: "Extract product picture/source URLs and product video URLs from page-product."
+        },
+        {
+          id: "reviews",
+          label: "Reviews",
+          mode: "sync",
+          description: "Sync 3 positive 5-star and 2 negative 1-star review rows from product-ratings."
+        },
+        {
+          id: "media-in-user",
+          label: "Media in user",
+          mode: "download",
+          description: "Extract review carousel image and video URLs."
+        },
+        {
+          id: "description-promotions",
+          label: "Description, vouchers, bundle deals",
+          mode: "background",
+          description: "Sync description, mini vouchers, and Bundle Deals from readable HTML."
+        },
+        {
+          id: "shop-homepage",
+          label: "Shop Home Page",
+          mode: "screenshot",
+          description: "Use the synced store link later in Key Store collection."
+        }
+      ],
       ready: productCurrent
     };
   });
@@ -3453,13 +3783,44 @@ function buildShopeeSteps(
 
   const storeSteps: CollectionStep[] = [
     {
+      id: "evaluation-phase-scoring",
+      stage: "EVALUATION_KEY_STORE",
+      section: "Evaluation Phase",
+      label: "AI score Potential Stores",
+      kind: "STORE_HOME",
+      mode: "PROCESS",
+      instruction: "Score Potential Stores by estimated GMV/month, sold/month, and active promotion signals. The highest ranked store becomes the Key Store.",
+      subActions: [
+        {
+          id: "potential-stores",
+          label: "Potential Store cards",
+          mode: "sync",
+          description: "Deduplicate qualified products by store and show one card per store."
+        },
+        {
+          id: "ai-scoring",
+          label: "AI Scoring",
+          mode: "sync",
+          description: "Use GMV/month, sold/month, shop vouchers, bundle deals, and evidence readiness."
+        },
+        {
+          id: "key-store-selection",
+          label: "Key Store selection",
+          mode: "background",
+          description: "Promote the highest scoring Potential Store into the Key Store section."
+        }
+      ],
+      ready: keyProducts.some((product) => product.storeName || product.storeUrl)
+    },
+    {
       id: "store-homepage",
       stage: "EVALUATION_KEY_STORE",
       section: "Key Store",
       label: "Store homepage",
       kind: "STORE_HOME",
       instruction: "Open the inspected product store page and capture the visible homepage.",
-      ready: storeReady
+      targetUrl: keyStoreUrl,
+      ready: Boolean(storeReady && (!keyStoreUrl || sameUrlIntent(currentUrl, keyStoreUrl)))
     },
     {
       id: "store-products",
@@ -3467,7 +3828,7 @@ function buildShopeeSteps(
       section: "Key Store",
       label: "Store products popular page",
       kind: "STORE_FEATURED_PRODUCTS",
-      instruction: "Open the store product tab sorted by popular products and capture it.",
+      instruction: "Open the store product tab sorted by popular products and capture it. Extract product rows like the Relevance section where possible.",
       targetUrl: popularStoreTarget,
       ready: storeReady && currentUrl.includes("sortBy=pop")
     },
@@ -3477,7 +3838,7 @@ function buildShopeeSteps(
       section: "Key Store",
       label: "Store best-seller page",
       kind: "STORE_BEST_SELLER",
-      instruction: "Open the store product tab sorted by sales and capture the best-selling products.",
+      instruction: "Open the store product tab sorted by sales and capture the best-selling products. Extract product rows like the Top Sales section where possible.",
       targetUrl: bestSellerTarget,
       ready: storeReady && currentUrl.includes("sortBy=sales")
     },
@@ -3487,7 +3848,8 @@ function buildShopeeSteps(
       section: "Key Store",
       label: "Store visual style and banners",
       kind: "STORE_BANNER",
-      instruction: "Capture store decoration, banners, campaign strips, and visual theme evidence.",
+      instruction: "Capture store decoration and sync banner images from shop-decoration when readable.",
+      targetUrl: keyStoreUrl,
       ready: storeReady
     },
     {
@@ -3826,13 +4188,10 @@ function inferredProductTypeLabel(title: string): string {
 }
 
 function storeTypeLabel(product: ProjectProductEvidence): string {
-  if (product.storeType) {
+  if (product.storeType && /^(Mall ORI|Star\+|Star)$/u.test(product.storeType)) {
     return product.storeType;
   }
-  if (product.source === "Top Sales") {
-    return "Top-sales store";
-  }
-  return "Marketplace";
+  return "-";
 }
 
 function productRatingText(product: ProjectProductEvidence): string {
@@ -3881,7 +4240,7 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluatio
       key,
       name: product.storeName ?? product.storeUrl ?? "Store pending PDP capture",
       url: product.storeUrl ?? undefined,
-      type: product.storeType ?? storeTypeLabel(product),
+      type: storeTypeLabel(product),
       score: 0,
       productCount: 0,
       gmvEstimate: 0,
@@ -3921,6 +4280,16 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluatio
       thumbnail: candidate.thumbnail,
       hasStoreEvidence: candidate.hasStoreEvidence
     }));
+}
+
+function selectKeyStoreSeedProduct(products: ProjectProductEvidence[]): ProjectProductEvidence | undefined {
+  return [...products]
+    .filter((product) => product.storeName || product.storeUrl)
+    .sort((left, right) => {
+      const leftGmv = (left.priceAverage ?? 0) * (left.monthlySold ?? left.totalSold ?? 0);
+      const rightGmv = (right.priceAverage ?? 0) * (right.monthlySold ?? right.totalSold ?? 0);
+      return rightGmv - leftGmv || productQualityScore(right) - productQualityScore(left);
+    })[0];
 }
 
 function normalizeStoreKey(product: ProjectProductEvidence): string {
@@ -4243,10 +4612,11 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         const title = meaningfulTitle(text, image?.alt || image?.querySelector?.("img")?.alt);
         if (!title) continue;
         seen.add(key);
-        const badgeImage = card.querySelector('div.p-2 div.space-y-1 div.whitespace-normal img, div.p-2 div.space-y-1 div.whitespaces-normal img, div.p-2 div.space-y-1 div[class*="whitespace"] img, img[alt*="Mall" i], img[alt*="Star" i], img[src*="mall" i], img[src*="star" i]');
+        const badgeRoot = card.querySelector('div.p-2.flex-1.flex.flex-col.justify-between, div[class*="p-2"][class*="flex-1"][class*="flex-col"], div.p-2') || card;
+        const badgeImage = badgeRoot.querySelector('div > div img, div.space-y-1 div.whitespace-normal img, div.space-y-1 div.whitespaces-normal img, div[class*="whitespace"] img, img[alt*="Mall" i], img[alt*="Star" i], img[src*="mall" i], img[src*="star" i]');
         const badgeImageUrl = imageUrlFrom(badgeImage);
         const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title].filter(Boolean).join(" "));
-        const storeType = inferStoreType(badgeText, badgeImageUrl) || inferStoreType(cardText, undefined);
+        const storeType = inferStoreType(badgeText, badgeImageUrl);
         const priceText = compact((text.match(/Rp\\s*[\\d.]+(?:\\s*-\\s*Rp\\s*[\\d.]+)?/i) || [])[0] || "");
         const soldText = extractSoldText(text);
         const ratingText = extractRatingText(text, soldText);
@@ -4266,9 +4636,9 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           storeType,
           storeBadgeImageUrl: badgeImageUrl,
           sourcePlacement: String(products.length + 1),
-          mallStatus: /mall/i.test([cardText, storeType].filter(Boolean).join(" ")),
+          mallStatus: storeType === "Mall ORI",
           officialStatus: /official|resmi/i.test(cardText),
-          starSeller: /star\\s*seller|star\\+?|star plus/i.test([cardText, storeType].filter(Boolean).join(" ")),
+          starSeller: storeType === "Star" || storeType === "Star+",
           rawText: compact(cardText).slice(0, 1200)
         });
       }
@@ -4280,17 +4650,27 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const descriptionRoot = document.querySelector(".page-product__content .page-product__content--left section:nth-of-type(2) div") ||
         document.querySelector(".page-product__content .page-product__content--left") ||
         document.querySelector(".page-product__content");
-      const shopRoot = document.querySelector("#s112-product-shop");
-      const storeAnchor = shopRoot?.querySelector?.('a[href]');
-      const storeName = unique([
-        storeAnchor?.querySelector?.("img[alt]")?.getAttribute("alt"),
+      const shopRoot = document.querySelector("#s112-product-shop, .s112-pdp-product-shop, div[class*='s112-pdp-product-shop']");
+      const storeAnchor = shopRoot?.querySelector?.('section.page-product__shop a[href], a[href]');
+      const storeLinkSibling = storeAnchor?.parentElement?.nextElementSibling;
+      const exactShopNameNode = shopRoot?.querySelector?.("section.page-product__shop a[href] + div div, section.page-product__shop > div > div > div:nth-of-type(2) div div");
+      const shopNameCandidates = [
+        exactShopNameNode?.textContent,
+        storeLinkSibling?.textContent,
         storeAnchor?.getAttribute?.("title"),
-        storeAnchor?.textContent,
-        shopRoot?.querySelector?.("[title]")?.getAttribute("title"),
-        shopRoot?.innerText
-      ])
+        storeAnchor?.querySelector?.("img[alt]")?.getAttribute("alt"),
+        ...Array.from(shopRoot?.querySelectorAll?.("section.page-product__shop div div") || [])
+          .map((node) => node.textContent)
+      ];
+      const storeName = unique(shopNameCandidates)
         .map((value) => compact(value).split(/\\n|\\|/u)[0])
-        .find((value) => value.length >= 2 && value.length <= 120 && !/(chat|follow|rating|produk|products|followers|pengikut|seller centre|notifications?)/iu.test(value));
+        .find((value) => {
+          const lowered = value.toLowerCase();
+          return value.length >= 2 &&
+            value.length <= 120 &&
+            !/(chat|follow|ikuti|rating|penilaian|produk|products|followers|pengikut|seller centre|seller center|notifications?|notifikasi|laporkan)/iu.test(lowered) &&
+            !/^\\d+(?:[.,]\\d+)?\\s*(rb|k|jt|juta)?/iu.test(lowered);
+        });
       const storeUrl = storeAnchor ? absoluteUrl(storeAnchor.getAttribute("href")) : undefined;
       const voucherRoot = document.querySelector("section.mini-vouchers .mini-vouchers-with-popover") || document.querySelector("section.mini-vouchers");
       const shopVouchers = unique(textFrom(voucherRoot).split(/\\n|\\s{2,}|(?=Rp\\s)|(?=Diskon)|(?=Voucher)|(?=Cashback)/iu))

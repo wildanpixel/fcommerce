@@ -50,6 +50,11 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-08 | Floating collector unreadable in dark mode | Fixed | The collector now has dark-mode surface/text overrides, and compact folded mode keeps target and collect/process actions visible. |
 | 2026-07-08 | Product Detail titles could become Shopee chrome labels | Fixed | PDP sync now rejects bad title candidates such as cart/header labels and keeps the existing product title unless a high-confidence PDP title is available. |
 | 2026-07-08 | PDP store and promotion signals were not persisted | Improved | PDP sync now updates Store Name/URL from visible shop content and stores shop vouchers, bundle deals, and promotion counts where readable. |
+| 2026-07-08 | Key Product Store Name stayed blank after PDP capture | Improved | PDP sync now targets Shopee's `.s112-pdp-product-shop` / `section.page-product__shop` area, using the shop anchor and adjacent visible store-name text before falling back to broader shop links. |
+| 2026-07-08 | Key Product Store Type showed invalid fallback labels | Fixed | Search-result Store Type extraction now uses product-card badge images only and displays only `Mall ORI`, `Star+`, or `Star`; stale fallback labels such as `Top-sales store` are hidden. |
+| 2026-07-08 | Collection progress did not preview product-detail sync results | Improved | The collection workspace now previews the active product, evidence status, and sub-actions for PDP screenshot, slides/media, description, reviews, user media, vouchers, bundle deals, and shop homepage. |
+| 2026-07-08 | Evaluation Phase forced a project-inspector context switch | Improved | Evaluation Phase can now open inside the collection workspace, show Potential Store scoring, run AI scoring, and then continue into Key Store collection. |
+| 2026-07-08 | Sidebar and inspector navigation scrolled away | Fixed | The main sidebar and Project Inspector outline are sticky; the inspector outline is grouped into collapsible dropdown sections matching the report hierarchy. |
 | 2026-07-08 | Key Store lived in two navigation concepts | Fixed | The standalone Key Stores tab was removed; Evaluation Phase owns AI scoring and promotes the top Potential Store into the project-level Key Store section. |
 | 2026-07-08 | Playwright smoke tests raced the desktop API | Fixed | E2E now starts isolated API and web preview servers on test-only ports with test app-data/cache folders. |
 | 2026-07-08 | macOS artifact workflow failed during unit tests | Fixed | The desktop test script now uses `vitest run` and relies on `vitest.config.ts` for excludes, avoiding unquoted glob expansion on macOS shell runners. |
@@ -232,7 +237,7 @@ Completed: 2026-07-03
 - Follow-up: protected slide/video extraction and dedicated parser fixtures remain open.
 - 2026-07-03 update: rendered-page capture now targets `#main`, formats HTML snapshots across lines, shows browser capture status, persists collection phase/progress, and localizes WebP thumbnails to JPG where possible.
 - 2026-07-07 update: guided PDP capture now syncs structured media, review, description, and raw Shopee metric text into product records; product dossiers expose videos and Media in User evidence.
-- 2026-07-08 update: PDP sync now prevents Shopee UI labels from replacing product titles, updates Store Name/URL from visible shop content, and records shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them.
+- 2026-07-08 update: PDP sync now prevents Shopee UI labels from replacing product titles, updates Store Name/URL from `.s112-pdp-product-shop` / `section.page-product__shop` where visible, records shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them, and shows a live collection preview for the current product.
 
 ## Sprint 3 - Complete Store Detail
 
@@ -268,6 +273,8 @@ Status: Partial
 - Partial: store records include profile metrics and homepage evidence where visible.
 - Partial: voucher and promotion sections are captured as assets where visible, but voucher normalization is not complete.
 - Passed: store detail report sections have real evidence inputs and explicit empty states.
+- Passed: Product Detail capture now refreshes Store Name/URL from PDP shop content using the Shopee shop block before store evaluation begins.
+- Passed: Key Store collection can start from the top Potential Store and targets Store Home Page, Products, Best Sellers, and Visual Style/banner evidence.
 - Passed: M2 store-related rows in `IMPLEMENTATION_STATUS.md` are updated.
 
 ## Sprint 4 - Complete Key Stores AI
@@ -302,7 +309,7 @@ Status: Partial
 ### Acceptance Criteria
 
 - Passed: Project Inspector Evaluation Phase no longer uses placeholder-only scoring; it combines GMV ETA, monthly sold, promotion signals, rating/trust signals, store assets, and persisted AI output where available.
-- Passed: Evaluation Phase now labels entries as Potential Store, owns the AI scoring action, and promotes the highest-scored store into the project-level Key Store section.
+- Passed: Evaluation Phase now labels entries as Potential Store, owns the AI scoring action, can be opened inside the collection workspace, and promotes the highest-scored store into the project-level Key Store section.
 - Partial: rankings show evidence-backed rationale when product/store evidence exists, but high-confidence narrative scoring still depends on completed store evidence and configured providers.
 - Passed: AI provider failure falls back to local heuristic analysis with explicit limitations.
 - Passed: M1 and M3 Key Stores rows in `IMPLEMENTATION_STATUS.md` are updated.

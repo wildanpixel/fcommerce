@@ -3,11 +3,11 @@
 Release date: 2026-07-08
 Version: 1.0.0
 Local platform: Windows
-Release task: floating collector dark-mode fix, Product Detail Qualified sync, Evaluation Phase scoring placement, and packaged runtime validation
+Release task: Key Product store sync, Product Detail Qualified previews, Evaluation Phase collection flow, sticky navigation, and packaged runtime validation
 
 ## Summary
 
-This release completes the requested corrective pass around the guided browser collector and project inspection workflow. The floating collector is readable in dark mode, compact mode still exposes the target and collect/process actions, Product Detail Qualified steps preserve real product titles, PDP sync records store and promotion signals where visible, and Evaluation Phase now owns Potential Store scoring before promoting the top store into Key Store.
+This release completes the requested corrective pass around the guided browser collector, Key Product table, and project inspection workflow. The floating collector is readable in dark mode, compact mode still exposes the target and collect/process actions, Product Detail Qualified steps preserve real product titles, PDP sync records store and promotion signals where visible, search Store Type is constrained to valid Shopee badges, and Evaluation Phase now opens inside the collection workspace before promoting the top Potential Store into Key Store.
 
 ## Completed
 
@@ -15,12 +15,14 @@ This release completes the requested corrective pass around the guided browser c
 - Kept compact target/open and collect/process actions visible when the collector is folded.
 - Prevented Shopee chrome labels such as `Shopping Cart icon` from overwriting product titles.
 - Updated Product Detail Qualified step guidance to show product-level substeps for first page, slides, description, reviews, media in user, vouchers/bundle deals, and shop homepage.
-- Added PDP sync for Store Name/URL from visible shop content.
+- Added PDP sync for Store Name/URL from Shopee's `.s112-pdp-product-shop` / `section.page-product__shop` shop block and visible adjacent store-name text.
+- Tightened Key Product Store Type extraction to badge-derived `Mall ORI`, `Star+`, or `Star` values only.
+- Added Collection Progress previews for active product-detail evidence, including screenshot/media/review/description/promotion/shop-homepage status.
 - Added PDP raw evidence for shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them.
 - Removed the standalone Key Stores navigation tab; Key Store remains inside Project Inspector.
-- Changed Evaluation Phase labels to `Potential Store` and moved the AI scoring action into Evaluation Phase.
+- Changed Evaluation Phase labels to `Potential Store`, moved the AI scoring action into Evaluation Phase, and made the phase reviewable without leaving the collection workspace.
 - Added project-level Key Store subsections for Overall, Store Home Page, Products, Best Sellers, and Visual Style.
-- Made Project Inspector outline navigation sticky, collapsible, and readable in light-mode hover states.
+- Made the main sidebar sticky and made Project Inspector outline navigation sticky, grouped, collapsible, and readable in light-mode hover states.
 - Restored Vite and Vitest config files while keeping deterministic CLI flags for build/test scripts.
 - Stabilized Playwright smoke tests by running isolated API/web servers on test-only ports and test app-data/cache folders.
 - Fixed the macOS artifact workflow unit-test failure by moving Vitest excludes into `vitest.config.ts` and removing unquoted shell globs from the test script.
