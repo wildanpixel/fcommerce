@@ -43,9 +43,9 @@ This release repairs the Key Product extraction path reported in the project ins
 | Verify UI/API reflects latest implementation | Completed through clean renderer build, Playwright smoke tests, and packaged API startup |
 | Verify packaged application version | Completed: `/api/health` returned version `1.0.0` |
 | Update changelog | Completed |
-| Commit | Pending this release commit |
-| Push | Pending this release commit |
-| Verify GitHub Actions | Pending after push |
+| Commit | Completed: `309d2e867dbc686a86d6cd9aff50ecd5dba9724b` |
+| Push | Completed: pushed to `origin/main` |
+| Verify GitHub Actions | Completed: `CI` and `Build Desktop Artifacts` succeeded |
 
 ## Local Validation
 
@@ -71,6 +71,12 @@ Artifact sizes:
 - Setup installer: 153,515,108 bytes.
 - Portable executable: 153,284,389 bytes.
 - Unpacked executable: 201,233,920 bytes.
+
+## GitHub Verification
+
+- Commit: `309d2e867dbc686a86d6cd9aff50ecd5dba9724b`
+- CI: passed, https://github.com/wildanpixel/fcommerce/actions/runs/28954523589
+- Build Desktop Artifacts: passed, https://github.com/wildanpixel/fcommerce/actions/runs/28954523588
 
 ## Remaining Notes
 
