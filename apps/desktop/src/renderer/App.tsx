@@ -90,6 +90,8 @@ type CollectionSubAction = {
   label: string;
   mode: "screenshot" | "download" | "sync" | "background";
   description: string;
+  collectLabel?: string;
+  guidance?: string;
 };
 
 type CollectionStep = {
@@ -136,6 +138,8 @@ type BrowserCaptureStatus = {
 type RenderedProductDetailSnapshot = {
   storeName?: string;
   storeUrl?: string;
+  storeType?: string;
+  activeReviewFilter?: string;
   images: string[];
   videos: string[];
   description?: string;
@@ -849,6 +853,7 @@ function GuidedBrowserCollector({
   const [stageCompleted, setStageCompleted] = useState<CollectionState["stageCompleted"]>(savedCollectionState.stageCompleted);
   const [reviewingKeyProducts, setReviewingKeyProducts] = useState(false);
   const [reviewingEvaluation, setReviewingEvaluation] = useState(false);
+  const [activeSubActionId, setActiveSubActionId] = useState<string | undefined>(undefined);
   const [pageTextPreview, setPageTextPreview] = useState("");
   const [zoomFactor, setZoomFactor] = useState(1);
   const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
@@ -885,6 +890,7 @@ function GuidedBrowserCollector({
   );
   const steps = useMemo(() => allSteps.filter((step) => step.stage === activeStage), [activeStage, allSteps]);
   const activeStep = steps[activeStepIndex] ?? steps[0] ?? allSteps[0];
+  const activeSubAction = activeStep?.subActions?.find((action) => action.id === activeSubActionId) ?? activeStep?.subActions?.[0];
   const selectedKeyProducts = useMemo(
     () => selectKeyProductCandidates(projectDetail.data?.products ?? []),
     [projectDetail.data?.products]
@@ -915,6 +921,10 @@ function GuidedBrowserCollector({
     }, 5000);
     return () => window.clearTimeout(timer);
   }, [captureStatus.message, captureStatus.state]);
+
+  useEffect(() => {
+    setActiveSubActionId(undefined);
+  }, [activeStep?.id]);
 
   const saveCollectionState = useMutation({
     mutationFn: (state: CollectionState) => apiClient.saveCollectionState(project.id, state),
@@ -1197,13 +1207,13 @@ function GuidedBrowserCollector({
     completeCurrentStage();
   }
 
-  async function captureAndSaveEvidence(step: CollectionStep) {
+  async function captureAndSaveEvidence(step: CollectionStep, subAction?: CollectionSubAction) {
     try {
       setCaptureStatus({ message: "Targeted page received", state: "working" });
-      appendLog(setActivityLog, `Capturing rendered page snapshot for ${step.label}...`);
+      appendLog(setActivityLog, `Capturing rendered page snapshot for ${subAction ? `${step.label} / ${subAction.label}` : step.label}...`);
       setPendingCapture({
-        payload: await buildManualEvidencePayload(step),
-        stepLabel: step.label
+        payload: await buildManualEvidencePayload(step, subAction),
+        stepLabel: subAction ? `${step.label} / ${subAction.label}` : step.label
       });
       appendLog(setActivityLog, "Review the screenshot, crop if needed, then save the evidence.");
     } catch (error) {
@@ -1211,7 +1221,7 @@ function GuidedBrowserCollector({
     }
   }
 
-  async function buildManualEvidencePayload(step: CollectionStep): Promise<ManualEvidencePayload> {
+  async function buildManualEvidencePayload(step: CollectionStep, subAction?: CollectionSubAction): Promise<ManualEvidencePayload> {
     const webview = webviewRef.current;
     if (!webview?.capturePage) {
       throw new Error("The embedded browser cannot capture this page in the current runtime.");
@@ -1240,6 +1250,8 @@ function GuidedBrowserCollector({
           productDetail: {
             storeName: undefined,
             storeUrl: undefined,
+            storeType: undefined,
+            activeReviewFilter: undefined,
             images: [],
             videos: [],
             shopVouchers: [],
@@ -1280,6 +1292,9 @@ function GuidedBrowserCollector({
         screenshotMode: screenshot.mode,
         screenshotClipped: screenshot.clipped,
         productDetailSubsteps: step.substeps,
+        productDetailSubAction: subAction?.id,
+        productDetailSubActionLabel: subAction?.label,
+        productDetailSubActionMode: subAction?.mode,
         syncProductDetail: step.stage === "PRODUCT_DETAILS",
         structuredProductDetail: snapshot.productDetail,
         extractedText: snapshot.visibleText,
@@ -1432,6 +1447,7 @@ function GuidedBrowserCollector({
         <BrowserCaptureStatusPill status={captureStatus} onAction={() => void downloadCurrentHtml()} />
         <FloatingStepController
           step={activeStep}
+          activeSubActionId={activeSubAction?.id}
           stepNumber={activeStepIndex + 1}
           stepTotal={steps.length}
           stageCollectedCount={stageCollectedCount}
@@ -1448,8 +1464,9 @@ function GuidedBrowserCollector({
               }
               return;
             }
-            void captureAndSaveEvidence(activeStep);
+            void captureAndSaveEvidence(activeStep, activeSubAction);
           }}
+          onSelectSubAction={setActiveSubActionId}
           onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
           onOpenAndroid={activeStep.id === "tiktok-brand-search" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
           onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
@@ -1792,6 +1809,7 @@ function BrowserCaptureStatusPill({
 
 function FloatingStepController({
   step,
+  activeSubActionId,
   stepNumber,
   stepTotal,
   stageCollectedCount,
@@ -1800,12 +1818,14 @@ function FloatingStepController({
   saving,
   onOpenTarget,
   onCollect,
+  onSelectSubAction,
   onAttachFile,
   onOpenAndroid,
   onPrevious,
   onNext
 }: {
   step: CollectionStep;
+  activeSubActionId?: string;
   stepNumber: number;
   stepTotal: number;
   stageCollectedCount: number;
@@ -1814,12 +1834,15 @@ function FloatingStepController({
   saving: boolean;
   onOpenTarget: () => void;
   onCollect: () => void;
+  onSelectSubAction: (id: string) => void;
   onAttachFile?: () => void;
   onOpenAndroid?: () => void;
   onPrevious: () => void;
   onNext: () => void;
 }) {
   const [compact, setCompact] = useState(true);
+  const activeSubAction = step.subActions?.find((action) => action.id === activeSubActionId) ?? step.subActions?.[0];
+  const collectLabel = activeSubAction?.collectLabel ?? (activeSubAction?.mode === "download" ? "Download Data" : activeSubAction?.mode === "sync" ? "Collect Data" : undefined);
   if (compact) {
     return (
       <motion.div
@@ -1837,6 +1860,7 @@ function FloatingStepController({
               Step {stepNumber}/{stepTotal}
             </div>
             <div className="truncate text-xs font-medium text-white">{step.label}</div>
+            {activeSubAction && <div className="truncate text-[10px] text-ink-400">{activeSubAction.label}</div>}
           </div>
           <span className={["shrink-0 rounded-full px-2 py-1 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
             {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "wait"}
@@ -1906,13 +1930,22 @@ function FloatingStepController({
         {step.subActions && step.subActions.length > 0 && (
           <div className="mt-2 space-y-1 border-t border-white/8 pt-2">
             {step.subActions.map((action) => (
-              <div key={action.id} className="rounded-md border border-white/8 bg-white/[0.04] px-2 py-1.5">
+              <button
+                key={action.id}
+                className={[
+                  "w-full rounded-md border px-2 py-1.5 text-left transition",
+                  activeSubAction?.id === action.id ? "border-signal-blue/45 bg-signal-blue/12" : "border-white/8 bg-white/[0.04] hover:bg-white/8"
+                ].join(" ")}
+                type="button"
+                onClick={() => onSelectSubAction(action.id)}
+              >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-medium text-white">{action.label}</span>
                   <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{action.mode}</span>
                 </div>
                 <div className="mt-1 text-[10px] leading-4 text-ink-500">{action.description}</div>
-              </div>
+                {action.guidance && <div className="mt-1 text-[10px] leading-4 text-signal-blue">{action.guidance}</div>}
+              </button>
             ))}
           </div>
         )}
@@ -1936,7 +1969,7 @@ function FloatingStepController({
           <ClipboardCheck size={16} />
           {step.mode === "PROCESS"
             ? captured ? "Review Process Again" : step.id === "evaluation-phase-scoring" ? "Open Evaluation Phase" : "Build Key Product Table"
-            : saving ? "Saving Evidence" : captured ? "Capture Again" : "Collect This Step"}
+            : saving ? "Saving Evidence" : captured ? `Collect Again${activeSubAction ? `: ${activeSubAction.label}` : ""}` : collectLabel ?? "Collect This Step"}
         </button>
       ) : (
         <div className="mt-2 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
@@ -3721,7 +3754,7 @@ function buildShopeeSteps(
         "First page: capture visible first viewport only",
         "Slides: download images and videos from page-product picture/source/video elements",
         "Description: sync from page-product__content in the background",
-        "Reviews: sync 3 positive 5-star and 2 negative 1-star rows",
+        "Reviews: open 5-star tab and collect 3 positive rows, then open 1-star tab and collect 2 negative rows",
         "Media in User: download review image/video carousel URLs",
         "Shop vouchers and bundle deals: sync in the background",
         "Shop Home Page: open the shop page later for store evidence"
@@ -3731,36 +3764,51 @@ function buildShopeeSteps(
           id: "first-page",
           label: "First page",
           mode: "screenshot",
+          collectLabel: "Capture First Page",
           description: "Capture only the visible first viewport frame."
         },
         {
           id: "slides",
           label: "Slides and images",
           mode: "download",
+          collectLabel: "Download Slides",
           description: "Extract product picture/source URLs and product video URLs from page-product."
         },
         {
-          id: "reviews",
-          label: "Reviews",
+          id: "positive-reviews",
+          label: "Positive reviews: 5 star",
           mode: "sync",
-          description: "Sync 3 positive 5-star and 2 negative 1-star review rows from product-ratings."
+          collectLabel: "Collect 5 Star Reviews",
+          guidance: "Open the Shopee 5-star review tab first, then click Collect.",
+          description: "Collect up to 3 positive reviews from product-ratings and product-comment-list."
+        },
+        {
+          id: "negative-reviews",
+          label: "Negative reviews: 1 star",
+          mode: "sync",
+          collectLabel: "Collect 1 Star Reviews",
+          guidance: "Open the Shopee 1-star review tab first, then click Collect.",
+          description: "Collect up to 2 negative reviews from product-ratings and product-comment-list."
         },
         {
           id: "media-in-user",
           label: "Media in user",
           mode: "download",
+          collectLabel: "Download User Media",
           description: "Extract review carousel image and video URLs."
         },
         {
           id: "description-promotions",
           label: "Description, vouchers, bundle deals",
           mode: "background",
+          collectLabel: "Sync Details",
           description: "Sync description, mini vouchers, and Bundle Deals from readable HTML."
         },
         {
           id: "shop-homepage",
           label: "Shop Home Page",
           mode: "screenshot",
+          collectLabel: "Capture Shop Page",
           description: "Use the synced store link later in Key Store collection."
         }
       ],
@@ -4402,7 +4450,7 @@ async function extractVisibleBrowserText(webview: WebviewElement): Promise<strin
     url: string;
     text: string;
   }>(`
-    (() => {
+    (async () => {
       const text = (document.body?.innerText || "")
         .replace(/\\s+/g, " ")
         .trim()
@@ -4431,6 +4479,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       productDetail: {
         storeName: undefined,
         storeUrl: undefined,
+        storeType: undefined,
+        activeReviewFilter: undefined,
         images: [],
         videos: [],
         shopVouchers: [],
@@ -4532,13 +4582,87 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           .join(" ");
         return firstUseful || "marketplace product";
       };
-      const inferStoreType = (text, imageUrl) => {
-        const value = compact([text, imageUrl].filter(Boolean).join(" ")).toLowerCase();
+      const inferStoreType = (text, imageUrl, outerHtml) => {
+        const value = compact([text, imageUrl, outerHtml].filter(Boolean).join(" ")).toLowerCase();
         if (/mall\\s*ori|mallori|mall-ori/u.test(value)) return "Mall ORI";
         if (/shopee\\s*mall|mall/u.test(value)) return "Mall ORI";
         if (/star\\s*\\+|starplus|star-plus/u.test(value)) return "Star+";
         if (/star/u.test(value)) return "Star";
         return undefined;
+      };
+      const classifyBadgeImageByPixels = async (imageElement) => {
+        if (!imageElement) return undefined;
+        const rect = imageElement.getBoundingClientRect?.();
+        const width = Math.max(1, Math.round(rect?.width || imageElement.naturalWidth || 0));
+        const height = Math.max(1, Math.round(rect?.height || imageElement.naturalHeight || 0));
+        if (width < 8 || height < 6 || width > 120 || height > 50) return undefined;
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.min(width, 120);
+          canvas.height = Math.min(height, 50);
+          const context = canvas.getContext("2d", { willReadFrequently: true });
+          if (!context) return undefined;
+          context.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
+          const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+          let red = 0;
+          let orange = 0;
+          let bright = 0;
+          for (let index = 0; index < data.length; index += 4) {
+            const r = data[index];
+            const g = data[index + 1];
+            const b = data[index + 2];
+            const a = data[index + 3];
+            if (a < 120) continue;
+            if (r > 150 || g > 100 || b > 100) bright += 1;
+            if (r > 170 && g < 95 && b < 95) red += 1;
+            if (r > 180 && g >= 65 && g < 170 && b < 95) orange += 1;
+          }
+          const denominator = Math.max(bright, 1);
+          if (red / denominator > 0.12) return "Mall ORI";
+          if (orange / denominator > 0.10) {
+            return width / height > 2.15 ? "Star+" : "Star";
+          }
+        } catch {
+          return undefined;
+        }
+        return undefined;
+      };
+      const findStoreBadgeImage = (card, productImageUrl) => {
+        const dataRoots = [
+          card.querySelector('div.p-2.flex-1.flex.flex-col.justify-between'),
+          card.querySelector('div[class*="p-2"][class*="flex-1"][class*="flex-col"]'),
+          card.querySelector("div.p-2"),
+          card
+        ].filter(Boolean);
+        const candidates = [];
+        for (const root of dataRoots) {
+          for (const imageCandidate of Array.from(root.querySelectorAll("img"))) {
+            const candidateUrl = imageUrlFrom(imageCandidate);
+            if (candidateUrl && productImageUrl && candidateUrl === productImageUrl) continue;
+            const rect = imageCandidate.getBoundingClientRect?.();
+            const width = Math.round(rect?.width || imageCandidate.naturalWidth || 0);
+            const height = Math.round(rect?.height || imageCandidate.naturalHeight || 0);
+            const descriptor = compact([
+              imageCandidate.alt,
+              imageCandidate.title,
+              imageCandidate.getAttribute("aria-label"),
+              imageCandidate.getAttribute("src"),
+              imageCandidate.getAttribute("srcset"),
+              imageCandidate.outerHTML
+            ].filter(Boolean).join(" "));
+            const explicit = inferStoreType(descriptor, candidateUrl, imageCandidate.outerHTML);
+            const smallBadgeShape = width >= 8 && height >= 6 && width <= 120 && height <= 50;
+            const score =
+              (explicit ? 100 : 0) +
+              (smallBadgeShape ? 50 : 0) +
+              (width > height ? 10 : 0) -
+              (width > 160 || height > 80 ? 100 : 0);
+            if (score > 0) {
+              candidates.push({ image: imageCandidate, score });
+            }
+          }
+        }
+        return candidates.sort((left, right) => right.score - left.score)[0]?.image;
       };
       const extractSoldText = (text) => {
         const match = compact(text).match(/(?:terjual|sold)\\s*([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)|([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)\\s*(?:terjual|sold)/i);
@@ -4609,14 +4733,14 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         const text = dataRoot.innerText || card.innerText || anchor.innerText || "";
         const cardText = card.innerText || text;
         const image = card.querySelector('picture._displayContents_, picture, picture._displayContents_ img, picture img, img');
+        const productImageUrl = imageUrlFrom(image);
         const title = meaningfulTitle(text, image?.alt || image?.querySelector?.("img")?.alt);
         if (!title) continue;
         seen.add(key);
-        const badgeRoot = card.querySelector('div.p-2.flex-1.flex.flex-col.justify-between, div[class*="p-2"][class*="flex-1"][class*="flex-col"], div.p-2') || card;
-        const badgeImage = badgeRoot.querySelector('div > div img, div.space-y-1 div.whitespace-normal img, div.space-y-1 div.whitespaces-normal img, div[class*="whitespace"] img, img[alt*="Mall" i], img[alt*="Star" i], img[src*="mall" i], img[src*="star" i]');
+        const badgeImage = findStoreBadgeImage(card, productImageUrl);
         const badgeImageUrl = imageUrlFrom(badgeImage);
-        const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title].filter(Boolean).join(" "));
-        const storeType = inferStoreType(badgeText, badgeImageUrl);
+        const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title, badgeImage?.outerHTML].filter(Boolean).join(" "));
+        const storeType = inferStoreType(badgeText, badgeImageUrl, badgeImage?.outerHTML) || await classifyBadgeImageByPixels(badgeImage);
         const priceText = compact((text.match(/Rp\\s*[\\d.]+(?:\\s*-\\s*Rp\\s*[\\d.]+)?/i) || [])[0] || "");
         const soldText = extractSoldText(text);
         const ratingText = extractRatingText(text, soldText);
@@ -4624,7 +4748,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           rank: products.length + 1,
           title,
           url,
-          imageUrl: imageUrlFrom(image),
+          imageUrl: productImageUrl,
           priceText: priceText || undefined,
           priceAverage: parsePrice(priceText),
           rating: ratingText ? Number(ratingText.replace(",", ".")) : undefined,
@@ -4651,27 +4775,48 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         document.querySelector(".page-product__content .page-product__content--left") ||
         document.querySelector(".page-product__content");
       const shopRoot = document.querySelector("#s112-product-shop, .s112-pdp-product-shop, div[class*='s112-pdp-product-shop']");
-      const storeAnchor = shopRoot?.querySelector?.('section.page-product__shop a[href], a[href]');
-      const storeLinkSibling = storeAnchor?.parentElement?.nextElementSibling;
-      const exactShopNameNode = shopRoot?.querySelector?.("section.page-product__shop a[href] + div div, section.page-product__shop > div > div > div:nth-of-type(2) div div");
+      const shopSection = shopRoot?.querySelector?.("section.page-product__shop") || shopRoot;
+      const storeAnchor = shopSection?.querySelector?.('a[href]');
+      const isGoodStoreName = (value) => {
+        const normalized = compact(value);
+        const lowered = normalized.toLowerCase();
+        return normalized.length >= 2 &&
+          normalized.length <= 120 &&
+          !/(chat|chat now|follow|ikuti|active|aktif|view shop|lihat toko|rating|ratings|penilaian|produk|products|response|respon|followers|pengikut|seller centre|seller center|notifications?|notifikasi|laporkan|report|joined|bergabung|ago|yang lalu)/iu.test(lowered) &&
+          !/^\\d+(?:[.,]\\d+)?\\s*(rb|k|jt|juta|%|months?|bulan)?/iu.test(lowered);
+      };
+      const storeNameLinesFrom = (element) => compact(element?.innerText || element?.textContent || "")
+        .split(/\\n|\\|/u)
+        .map(compact)
+        .filter(isGoodStoreName);
+      const storeNameAfterAnchor = (anchor) => {
+        const candidates = [];
+        let wrapper = anchor?.parentElement;
+        for (let depth = 0; depth < 5 && wrapper && shopSection?.contains?.(wrapper); depth += 1) {
+          const sibling = wrapper.nextElementSibling;
+          if (sibling) {
+            candidates.push(...storeNameLinesFrom(sibling));
+            const firstNested = sibling.querySelector?.("div div, div, span");
+            candidates.push(...storeNameLinesFrom(firstNested));
+          }
+          wrapper = wrapper.parentElement;
+        }
+        return candidates;
+      };
       const shopNameCandidates = [
-        exactShopNameNode?.textContent,
-        storeLinkSibling?.textContent,
+        ...storeNameAfterAnchor(storeAnchor),
+        ...storeNameLinesFrom(shopSection?.querySelector?.("a[href] + div")),
+        ...storeNameLinesFrom(shopSection?.querySelector?.("a[href] ~ div")),
         storeAnchor?.getAttribute?.("title"),
+        storeAnchor?.getAttribute?.("aria-label"),
         storeAnchor?.querySelector?.("img[alt]")?.getAttribute("alt"),
-        ...Array.from(shopRoot?.querySelectorAll?.("section.page-product__shop div div") || [])
-          .map((node) => node.textContent)
+        ...Array.from(shopSection?.querySelectorAll?.("div, span") || [])
+          .flatMap((node) => storeNameLinesFrom(node))
       ];
-      const storeName = unique(shopNameCandidates)
-        .map((value) => compact(value).split(/\\n|\\|/u)[0])
-        .find((value) => {
-          const lowered = value.toLowerCase();
-          return value.length >= 2 &&
-            value.length <= 120 &&
-            !/(chat|follow|ikuti|rating|penilaian|produk|products|followers|pengikut|seller centre|seller center|notifications?|notifikasi|laporkan)/iu.test(lowered) &&
-            !/^\\d+(?:[.,]\\d+)?\\s*(rb|k|jt|juta)?/iu.test(lowered);
-        });
+      const storeName = unique(shopNameCandidates).find(isGoodStoreName);
       const storeUrl = storeAnchor ? absoluteUrl(storeAnchor.getAttribute("href")) : undefined;
+      const pdpBadgeImage = findStoreBadgeImage(productPageRoot || document.body, undefined);
+      const storeType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
       const voucherRoot = document.querySelector("section.mini-vouchers .mini-vouchers-with-popover") || document.querySelector("section.mini-vouchers");
       const shopVouchers = unique(textFrom(voucherRoot).split(/\\n|\\s{2,}|(?=Rp\\s)|(?=Diskon)|(?=Voucher)|(?=Cashback)/iu))
         .filter((value) => value.length >= 3)
@@ -4683,6 +4828,12 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         .slice(0, 12);
       const reviewRoot = document.querySelector(".product-ratings");
       const commentRoot = document.querySelector(".product-comment-list") || reviewRoot;
+      const activeReviewFilter = textFrom(reviewRoot?.querySelector?.(".product-rating-overview__filter--active") || document.querySelector(".product-rating-overview__filter--active"));
+      const activeReviewRating = /(?:^|\\s)1\\s*(?:star|bintang)?(?:\\s|$)/iu.test(activeReviewFilter)
+        ? 1
+        : /(?:^|\\s)5\\s*(?:star|bintang)?(?:\\s|$)/iu.test(activeReviewFilter)
+          ? 5
+          : undefined;
       const productImages = unique(Array.from(galleryRoot?.querySelectorAll?.("picture._displayContents_, picture, source[srcset], img[srcset], img[src]") || [])
         .map(imageUrlFrom));
       const productVideos = unique(Array.from(galleryRoot?.querySelectorAll?.("video") || [])
@@ -4693,9 +4844,10 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const reviewMediaVideos = unique(Array.from(mediaRoot.querySelectorAll("video"))
         .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || "")));
       const reviewBlocks = unique(
-        Array.from(commentRoot?.querySelectorAll?.("[class*='comment'], [class*='rating']") || [])
+        Array.from(commentRoot?.querySelectorAll?.(".product-comment-list > div, [class*='product-comment'], [class*='shopee-product-rating'], [class*='rating']") || [])
           .map(textFrom)
           .filter((value) => value.length >= 24)
+          .filter((value) => !/(semua|all|dengan media|with media|filter|urutkan|sort by|rating overview)/iu.test(value))
       ).slice(0, 20);
       const positiveWords = /(bagus|suka|sesuai|cepat|mantap|puas|recommended|rekomen|good|love|worth|cantik|rapi|halus|natural|baik)/iu;
       const negativeWords = /(kecewa|rusak|jelek|kurang|lama|bad|tidak sesuai|gagal|patah|lepas|mahal|tipis|buruk)/iu;
@@ -4712,20 +4864,30 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           variation: variationMatch?.[1] ? compact(variationMatch[1]).slice(0, 120) : undefined
         };
       };
-      const positiveReviews = reviewBlocks
-        .filter((value) => positiveWords.test(value) && !negativeWords.test(value))
-        .slice(0, 3)
-        .map((comment) => toReview("Positive Reviews", 5, comment));
-      const negativeReviews = reviewBlocks
-        .filter((value) => negativeWords.test(value))
-        .slice(0, 2)
-        .map((comment) => toReview("Negative Reviews", 1, comment));
+      let positiveReviews = [];
+      let negativeReviews = [];
+      if (activeReviewRating === 5) {
+        positiveReviews = reviewBlocks.slice(0, 3).map((comment) => toReview("Positive Reviews", 5, comment));
+      } else if (activeReviewRating === 1) {
+        negativeReviews = reviewBlocks.slice(0, 2).map((comment) => toReview("Negative Reviews", 1, comment));
+      } else {
+        positiveReviews = reviewBlocks
+          .filter((value) => positiveWords.test(value) && !negativeWords.test(value))
+          .slice(0, 3)
+          .map((comment) => toReview("Positive Reviews", 5, comment));
+        negativeReviews = reviewBlocks
+          .filter((value) => negativeWords.test(value))
+          .slice(0, 2)
+          .map((comment) => toReview("Negative Reviews", 1, comment));
+      }
       const fallbackReviews = positiveReviews.length + negativeReviews.length === 0
         ? reviewBlocks.slice(0, 3).map((comment) => toReview("Positive Reviews", 5, comment))
         : [];
       const productDetail = {
         storeName,
         storeUrl,
+        storeType,
+        activeReviewFilter,
         images: productImages.slice(0, 12),
         videos: productVideos.slice(0, 6),
         description: textFrom(descriptionRoot).slice(0, 8000) || undefined,

@@ -4,6 +4,12 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 ## Unreleased - 2026-07-08
 
+- Fixed PDP Store Name extraction by walking from Shopee's shop anchor to the following sibling store-name block inside `.s112-pdp-product-shop` / `section.page-product__shop`.
+- Hardened Store Type extraction for Relevance/Top Sales product cards by scoring small rendered badge images and adding a best-effort visual color classifier for image-only `Mall ORI`, `Star+`, and `Star` badges.
+- Added strict Store Type persistence so only `Mall ORI`, `Star+`, or `Star` can enter product raw evidence.
+- Turned Product Detail Qualified sub-actions into selectable guided collection actions for First Page, Slides, Positive Reviews, Negative Reviews, Media in User, Description/Vouchers/Bundle Deals, and Shop Home Page.
+- Made review collection tab-aware: collecting on Shopee's active 5-star tab stores Positive Reviews, and collecting on the active 1-star tab stores Negative Reviews.
+- Changed PDP review persistence from replace-all to append-deduped so separate 5-star and 1-star collection passes remain visible together.
 - Fixed dark-mode readability for the floating guided collection controller.
 - Kept compact target/open and collect/process actions visible when the floating guided collector is folded.
 - Prevented Shopee UI labels such as `Shopping Cart icon` from overwriting Product Detail Qualified product titles.

@@ -926,6 +926,8 @@ type EvidencePersistenceResult = {
 type StructuredProductDetail = {
   storeName?: string;
   storeUrl?: string;
+  storeType?: string;
+  activeReviewFilter?: string;
   images: string[];
   videos: string[];
   description?: string;
@@ -1007,6 +1009,9 @@ async function persistCapturedPageData(
           totalSold: enrichment.totalSold ?? product.totalSold,
           storeName: enrichment.storeName ?? product.storeName,
           storeUrl: enrichment.storeUrl ?? product.storeUrl,
+          mallStatus: enrichment.storeType === "Mall ORI" ? true : product.mallStatus,
+          officialStatus: enrichment.storeType === "Mall ORI" ? true : product.officialStatus,
+          starSeller: enrichment.storeType === "Star" || enrichment.storeType === "Star+" ? true : product.starSeller,
           stock: enrichment.stock ?? product.stock,
           voucherText: enrichment.voucherText ?? enrichment.shopVouchers[0] ?? product.voucherText,
           shippingText: enrichment.shippingText ?? product.shippingText,
@@ -1026,6 +1031,7 @@ async function persistCapturedPageData(
             ratingText: enrichment.ratingText ?? currentRaw.ratingText,
             reviewText: enrichment.reviewText ?? currentRaw.reviewText,
             totalSoldText: enrichment.totalSoldText ?? currentRaw.totalSoldText,
+            storeType: enrichment.storeType ?? currentRaw.storeType,
             monthlySoldText: currentRaw.monthlySoldText,
             shopVouchers: mergeUnique([
               ...extractStringArray(currentRaw.shopVouchers),
@@ -1056,9 +1062,24 @@ async function persistCapturedPageData(
 
       if (input.kind === "REVIEW_SECTION" || metadataFlag(input.metadata, "syncProductDetail")) {
         const reviews = enrichment.reviews.length > 0 ? enrichment.reviews : parseReviewEvidence(input.visibleText ?? "");
-        await prisma.review.deleteMany({ where: { productId: product.id } });
-        await intelligenceRepository.saveReviews(product.id, reviews);
-        result.reviewCount = reviews.length;
+        const existingReviews = await prisma.review.findMany({ where: { productId: product.id } });
+        const existingKeys = new Set(existingReviews.map((reviewRow) => reviewDedupeKey({
+          sentiment: reviewRow.sentiment as ReviewEvidence["sentiment"],
+          rating: reviewRow.rating ?? undefined,
+          comment: reviewRow.comment,
+          mediaUrls: [],
+          raw: {}
+        })));
+        const newReviews = reviews.filter((reviewItem) => {
+          const key = reviewDedupeKey(reviewItem);
+          if (existingKeys.has(key)) {
+            return false;
+          }
+          existingKeys.add(key);
+          return true;
+        });
+        await intelligenceRepository.saveReviews(product.id, newReviews);
+        result.reviewCount = existingReviews.length + newReviews.length;
       }
 
       result.normalizedRecordCount += 1;
@@ -1192,7 +1213,7 @@ function toProductDetail(
       imageUrl: product.imageUrl,
       images: product.imageUrl ? [product.imageUrl] : [],
       productType: product.productType,
-      storeType: product.storeType,
+      storeType: normalizeStoreType(product.storeType),
       storeBadgeImageUrl: product.storeBadgeImageUrl,
       ratingText: product.ratingText,
       reviewText: product.reviewText,
@@ -1267,6 +1288,9 @@ function extractProductEnrichment(
   product: {
     title: string;
     productUrl: string;
+    mallStatus?: boolean | null;
+    officialStatus?: boolean | null;
+    starSeller?: boolean | null;
   }
 ): {
   title?: string;
@@ -1291,6 +1315,7 @@ function extractProductEnrichment(
   reviews: ReviewEvidence[];
   storeName?: string;
   storeUrl?: string;
+  storeType?: string;
   shopVouchers: string[];
   bundleDeals: string[];
   promotionCount?: number;
@@ -1341,6 +1366,7 @@ function extractProductEnrichment(
     reviews,
     storeName: safeStoreName(structured?.storeName),
     storeUrl: structured?.storeUrl ? normalizeUrl(structured.storeUrl) : undefined,
+    storeType: normalizeStoreType(structured?.storeType),
     shopVouchers,
     bundleDeals,
     promotionCount: structured?.promotionCount ?? shopVouchers.length + bundleDeals.length,
@@ -1447,6 +1473,8 @@ function readStructuredProductDetail(metadata?: Record<string, unknown>): Struct
   return {
     storeName: typeof raw.storeName === "string" && raw.storeName.trim() ? raw.storeName.trim() : undefined,
     storeUrl: typeof raw.storeUrl === "string" && raw.storeUrl.trim() ? raw.storeUrl.trim() : undefined,
+    storeType: normalizeStoreType(typeof raw.storeType === "string" ? raw.storeType : undefined),
+    activeReviewFilter: typeof raw.activeReviewFilter === "string" && raw.activeReviewFilter.trim() ? raw.activeReviewFilter.trim() : undefined,
     images: extractStringArray(raw.images),
     videos: extractStringArray(raw.videos),
     description: typeof raw.description === "string" && raw.description.trim() ? raw.description.trim() : undefined,
@@ -1477,6 +1505,28 @@ function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): Re
 
 function metadataFlag(metadata: Record<string, unknown> | undefined, key: string): boolean {
   return metadata?.[key] === true;
+}
+
+function normalizeStoreType(value?: string): "Mall ORI" | "Star+" | "Star" | undefined {
+  const normalized = String(value ?? "").trim();
+  if (/^mall\s*ori$/iu.test(normalized) || /^shopee\s*mall$/iu.test(normalized)) {
+    return "Mall ORI";
+  }
+  if (/^star\s*\+$/iu.test(normalized) || /^starplus$/iu.test(normalized)) {
+    return "Star+";
+  }
+  if (/^star$/iu.test(normalized)) {
+    return "Star";
+  }
+  return undefined;
+}
+
+function reviewDedupeKey(reviewItem: ReviewEvidence): string {
+  return [
+    reviewItem.sentiment,
+    reviewItem.rating ?? "",
+    cleanText(reviewItem.comment).toLowerCase().replace(/\s+/gu, " ").slice(0, 240)
+  ].join("|");
 }
 
 function extractRatingTextValue(text: string): string | undefined {

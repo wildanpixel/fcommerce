@@ -91,6 +91,8 @@ Release blocker fixes:
 - 2026-07-08: Hardened PDP title/store sync so Shopee chrome labels such as `Shopping Cart icon` cannot overwrite product titles, while store names are synced from PDP shop content when visible.
 - 2026-07-08: Tightened Key Product Store Name sync to the Shopee PDP shop block (`.s112-pdp-product-shop` / `section.page-product__shop`) and limited search-result Store Type display to badge-derived `Mall ORI`, `Star+`, or `Star`.
 - 2026-07-08: Added product-detail collection previews, in-flow Evaluation Phase review, sticky main navigation, and grouped sticky Project Inspector navigation.
+- 2026-07-08: Reworked Store Name extraction to follow the exact PDP shop-anchor sibling structure and added image-only Store Type badge detection with strict persistence of `Mall ORI`, `Star+`, and `Star`.
+- 2026-07-08: Product Detail Qualified now exposes selectable guided sub-actions, including separate 5-star Positive Reviews and 1-star Negative Reviews collection passes with deduped persistence.
 - 2026-07-08: Moved Key Store work into the project inspection and Evaluation Phase flow; the standalone Key Stores navigation tab is removed from the product shell.
 - 2026-07-08: Playwright validation now boots isolated web/API servers on test-only ports so E2E tests do not race the local desktop API.
 - 2026-07-08: macOS artifact workflow unit tests now rely on `vitest.config.ts` excludes instead of unquoted npm-script globs, avoiding shell expansion differences between Windows and macOS runners.
@@ -234,6 +236,7 @@ Implemented:
 - Shopee product extraction now narrows from `#main` into the inner content `<div>` below the marketplace header and before the footer, reducing header/footer/sidebar distraction in saved HTML and product parsing.
 - Relevance and Top Sales cards now prioritize `picture._displayContents_ img[srcset]` thumbnails and persist source placement, product type, and store badge/store type signals where available.
 - Search result Store Type extraction now reads badge images from the product card body and only surfaces `Mall ORI`, `Star+`, or `Star`; broad text fallbacks are suppressed so stale labels such as `Top-sales store` do not appear in the Key Product table.
+- Search result Store Type extraction now also scores small rendered badge images and uses a best-effort visual color classifier for image-only badges when Shopee does not expose useful alt/title text.
 - Step 3 in Keyword General is now process-only: it builds an AI-assisted Key Product table from Relevance and Top Sales rows instead of capturing another screenshot.
 - Key Product selection now deduplicates products, prioritizes Top Sales placement, monthly sold, review count, rating, price signal, and thumbnail availability, and caps the Product Detail Qualified flow to 10 products.
 - Key Product table display now preserves raw Shopee rating/sold strings, infers Product Type from title, normalizes Store Type to Mall ORI/Star+/Star, and leaves Reviews pending until PDP capture.
@@ -258,8 +261,12 @@ Implemented:
 - Product-specific evidence now enriches stored product records with browser-readable PDP fields including price range, original price, discount, rating, review count, total sold, stock, voucher/shipping text, variants, specifications, description, and image URLs where visible.
 - Product-specific evidence now keeps the existing product title unless the PDP exposes a high-confidence product title, preventing Shopee header/cart/accessibility labels from replacing the real product name.
 - Product-specific evidence now updates Store Name and Store URL from PDP shop content when browser-readable `#s112-product-shop`, `.s112-pdp-product-shop`, or `section.page-product__shop` content and equivalent shop links are visible.
+- Product-specific Store Name extraction now walks from the PDP shop anchor to the following sibling store-name block, matching Shopee's visible shop panel layout.
+- Product-specific Store Type can be repaired during PDP capture when the page exposes a valid Mall/Star badge, and persisted product evidence rejects any Store Type outside `Mall ORI`, `Star+`, and `Star`.
 - Product image URLs are collected into product raw evidence for report rendering with a 3-column image grid.
 - Product Detail Qualified capture now records product videos, review media images/videos, shop vouchers, bundle deals, and a promotion count where the visible PDP HTML exposes those sections.
+- Product Detail Qualified capture now exposes selectable sub-actions for First Page, Slides, Positive Reviews, Negative Reviews, Media in User, Description/Vouchers/Bundle Deals, and Shop Home Page.
+- Review capture is tab-aware: if the user opens Shopee's 5-star review filter before collecting, rows are stored as Positive Reviews; if the user opens the 1-star filter, rows are stored as Negative Reviews. Multiple review passes are appended with deduplication instead of replacing each other.
 - Project inspection now renders dynamic product dossiers for every collected product with first-page evidence, slides, description, variants, specifications, reviews, review media, and shop-homepage evidence.
 - Store page collection exists.
 - Store homepage, banner, popular-products, and best-seller screenshots are captured where Shopee allows access.

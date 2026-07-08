@@ -3,11 +3,11 @@
 Release date: 2026-07-08
 Version: 1.0.0
 Local platform: Windows
-Release task: Key Product store sync, Product Detail Qualified previews, Evaluation Phase collection flow, sticky navigation, and packaged runtime validation
+Release task: Key Product Store Name/Store Type repair, Product Detail sub-action collection, review persistence, and packaged runtime validation
 
 ## Summary
 
-This release completes the requested corrective pass around the guided browser collector, Key Product table, and project inspection workflow. The floating collector is readable in dark mode, compact mode still exposes the target and collect/process actions, Product Detail Qualified steps preserve real product titles, PDP sync records store and promotion signals where visible, search Store Type is constrained to valid Shopee badges, and Evaluation Phase now opens inside the collection workspace before promoting the top Potential Store into Key Store.
+This release completes the requested corrective pass around Key Product Store Name/Store Type extraction and Product Detail Qualified collection. PDP Store Name extraction now follows Shopee's current shop-anchor sibling layout, Store Type extraction targets small rendered badge images with a best-effort image-only classifier, Product Detail sub-actions are selectable, and review collection preserves separate 5-star and 1-star passes.
 
 ## Completed
 
@@ -17,6 +17,12 @@ This release completes the requested corrective pass around the guided browser c
 - Updated Product Detail Qualified step guidance to show product-level substeps for first page, slides, description, reviews, media in user, vouchers/bundle deals, and shop homepage.
 - Added PDP sync for Store Name/URL from Shopee's `.s112-pdp-product-shop` / `section.page-product__shop` shop block and visible adjacent store-name text.
 - Tightened Key Product Store Type extraction to badge-derived `Mall ORI`, `Star+`, or `Star` values only.
+- Reworked PDP Store Name extraction to walk from the shop anchor to the following sibling store-name block.
+- Added small rendered badge scoring plus best-effort image color classification for image-only `Mall ORI`, `Star+`, and `Star` badges.
+- Added strict Store Type persistence so invalid labels are not stored in product evidence.
+- Turned Product Detail Qualified sub-actions into selectable guided actions.
+- Split review collection into explicit 5-star Positive Reviews and 1-star Negative Reviews actions.
+- Changed review persistence to append deduped rows instead of replacing the previous review batch.
 - Added Collection Progress previews for active product-detail evidence, including screenshot/media/review/description/promotion/shop-homepage status.
 - Added PDP raw evidence for shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them.
 - Removed the standalone Key Stores navigation tab; Key Store remains inside Project Inspector.
@@ -56,16 +62,15 @@ This release completes the requested corrective pass around the guided browser c
 - `pnpm --filter @marketplace-intelligence-os/desktop typecheck`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop lint`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop test`: passed, 5 files and 12 tests.
-- `pnpm --filter @marketplace-intelligence-os/desktop test` after macOS CI script fix: passed, 5 files and 12 tests.
 - `pnpm --filter @marketplace-intelligence-os/desktop build`: passed.
-- `pnpm --filter @marketplace-intelligence-os/desktop exec playwright test`: passed, 2 Playwright tests.
-- `pnpm --filter @marketplace-intelligence-os/desktop run build`: passed before final packaging.
-- `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64 --config.directories.output=release-fresh`: passed for the final Windows package.
-- Fresh `release-fresh` artifacts were copied into the expected `apps/desktop/release` paths; temporary `release-fresh` output was removed afterward.
+- `pnpm --filter @marketplace-intelligence-os/desktop test:e2e`: passed, 2 Playwright smoke tests.
+- Release cleanup deleted `apps/desktop/dist`, `apps/desktop/dist-node`, and `apps/desktop/release`.
+- `pnpm --filter @marketplace-intelligence-os/desktop prisma:generate`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop package:win`: passed for Windows installer, portable executable, and `win-unpacked`.
 - Packaged app launched from `win-unpacked` and responded on `/api/health` port `4123` with `{"ok":true,"product":"Marketplace Intelligence OS","version":"1.0.0"}`.
-- Packaged `/api/dashboard` returned project data, confirming Prisma-backed queries execute in the packaged runtime.
+- Packaged `/api/dashboard` returned `37` projects, confirming Prisma-backed queries execute in the packaged runtime.
 - No packaged app process or release/test port remained running after validation.
-- Final artifact timestamps were refreshed after the macOS CI script fix so the Windows installer, portable executable, and unpacked app match the latest local source state.
+- Final artifact timestamps were refreshed after this Store Name/Store Type and sub-action collection fix so the Windows installer, portable executable, and unpacked app match the latest local source state.
 
 ## Generated Artifacts
 
@@ -76,8 +81,8 @@ This release completes the requested corrective pass around the guided browser c
 
 Artifact sizes:
 
-- Setup installer: 146.40 MB.
-- Portable executable: 146.18 MB.
+- Setup installer: 146.40 MB, 153,514,506 bytes.
+- Portable executable: 146.18 MB, 153,283,723 bytes.
 - Unpacked executable: 191.91 MB.
 - Installer blockmap: 0.15 MB.
 
@@ -87,5 +92,5 @@ Artifact sizes:
 - Shopee and TikTok anti-bot/login/verification flows remain user-controlled by design; the app does not bypass marketplace protections.
 - WebP-to-JPG thumbnail conversion is best-effort and falls back to original URLs when the marketplace CDN blocks image fetching.
 - Product slide/video extraction remains heuristic when Shopee hides media from browser-readable HTML.
-- A Windows directory handle locked the empty `apps/desktop/release/win-unpacked` folder during local cleanup. Packaging was completed in a fresh side output and copied into the expected release paths after verifying the destination accepted writes.
+- Previous Windows release cleanup had encountered a locked `win-unpacked` folder; this run deleted `release` cleanly and packaged directly into the expected output folder.
 - TikTok Shop adapter remains stubbed; Android evidence capture exists, but TikTok Shop navigation is user-controlled.

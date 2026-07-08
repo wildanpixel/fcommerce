@@ -52,6 +52,10 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-08 | PDP store and promotion signals were not persisted | Improved | PDP sync now updates Store Name/URL from visible shop content and stores shop vouchers, bundle deals, and promotion counts where readable. |
 | 2026-07-08 | Key Product Store Name stayed blank after PDP capture | Improved | PDP sync now targets Shopee's `.s112-pdp-product-shop` / `section.page-product__shop` area, using the shop anchor and adjacent visible store-name text before falling back to broader shop links. |
 | 2026-07-08 | Key Product Store Type showed invalid fallback labels | Fixed | Search-result Store Type extraction now uses product-card badge images only and displays only `Mall ORI`, `Star+`, or `Star`; stale fallback labels such as `Top-sales store` are hidden. |
+| 2026-07-08 | PDP Store Name still failed on Shopee's current shop panel | Fixed | Store Name extraction now walks from the PDP shop anchor to the following sibling name block inside `.s112-pdp-product-shop` / `section.page-product__shop`. |
+| 2026-07-08 | Store Type badge text existed only inside images | Improved | Search-result extraction now scores small rendered badge images and uses best-effort visual badge classification, while persistence accepts only `Mall ORI`, `Star+`, or `Star`. |
+| 2026-07-08 | Product Detail sub-actions were passive text | Fixed | Product Detail Qualified now has selectable guided sub-actions, including separate 5-star Positive Reviews and 1-star Negative Reviews collection passes. |
+| 2026-07-08 | 5-star and 1-star review passes could overwrite each other | Fixed | PDP review persistence now appends deduped review rows, so separate Positive and Negative Review collection passes remain together. |
 | 2026-07-08 | Collection progress did not preview product-detail sync results | Improved | The collection workspace now previews the active product, evidence status, and sub-actions for PDP screenshot, slides/media, description, reviews, user media, vouchers, bundle deals, and shop homepage. |
 | 2026-07-08 | Evaluation Phase forced a project-inspector context switch | Improved | Evaluation Phase can now open inside the collection workspace, show Potential Store scoring, run AI scoring, and then continue into Key Store collection. |
 | 2026-07-08 | Sidebar and inspector navigation scrolled away | Fixed | The main sidebar and Project Inspector outline are sticky; the inspector outline is grouped into collapsible dropdown sections matching the report hierarchy. |
@@ -237,7 +241,8 @@ Completed: 2026-07-03
 - Follow-up: protected slide/video extraction and dedicated parser fixtures remain open.
 - 2026-07-03 update: rendered-page capture now targets `#main`, formats HTML snapshots across lines, shows browser capture status, persists collection phase/progress, and localizes WebP thumbnails to JPG where possible.
 - 2026-07-07 update: guided PDP capture now syncs structured media, review, description, and raw Shopee metric text into product records; product dossiers expose videos and Media in User evidence.
-- 2026-07-08 update: PDP sync now prevents Shopee UI labels from replacing product titles, updates Store Name/URL from `.s112-pdp-product-shop` / `section.page-product__shop` where visible, records shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them, and shows a live collection preview for the current product.
+- 2026-07-08 update: PDP sync now prevents Shopee UI labels from replacing product titles, updates Store Name/URL from the shop-anchor sibling block under `.s112-pdp-product-shop` / `section.page-product__shop` where visible, records shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them, and shows a live collection preview for the current product.
+- 2026-07-08 update: Product Detail Qualified sub-actions are selectable, with separate guided 5-star Positive Reviews and 1-star Negative Reviews collection paths that append deduped review rows.
 
 ## Sprint 3 - Complete Store Detail
 
@@ -274,6 +279,7 @@ Status: Partial
 - Partial: voucher and promotion sections are captured as assets where visible, but voucher normalization is not complete.
 - Passed: store detail report sections have real evidence inputs and explicit empty states.
 - Passed: Product Detail capture now refreshes Store Name/URL from PDP shop content using the Shopee shop block before store evaluation begins.
+- Passed: Product Detail capture now targets Shopee's shop-anchor sibling layout for Store Name and can repair Store Type from valid Mall/Star badges when visible.
 - Passed: Key Store collection can start from the top Potential Store and targets Store Home Page, Products, Best Sellers, and Visual Style/banner evidence.
 - Passed: M2 store-related rows in `IMPLEMENTATION_STATUS.md` are updated.
 
