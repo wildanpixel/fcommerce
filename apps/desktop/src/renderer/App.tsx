@@ -139,6 +139,10 @@ type RenderedProductDetailSnapshot = {
   storeName?: string;
   storeUrl?: string;
   storeType?: string;
+  rating?: number;
+  ratingText?: string;
+  reviewText?: string;
+  totalSoldText?: string;
   activeReviewFilter?: string;
   images: string[];
   videos: string[];
@@ -4678,16 +4682,39 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         const metric = match[1] || match[2];
         return compact(match[0].match(/terjual|sold/i)?.index === 0 ? \`\${metric} \${match[0].match(/terjual|sold/i)?.[0] || ""}\` : match[0]);
       };
-      const extractRatingText = (text, soldText) => {
-        const metricText = compact(text);
-        const searchable = soldText && metricText.includes(soldText) ? metricText.slice(0, metricText.indexOf(soldText)) : metricText;
-        const candidates = Array.from(searchable.matchAll(/(?:^|\\s)([1-5](?:[.,]\\d)?)(?=\\s|$|\\||★|\\*)/gi))
-          .map((match) => match[1])
-          .filter((value) => {
-            const numeric = Number(value.replace(",", "."));
+      const firstRatingToken = (value) => {
+        const textValue = String(value || "");
+        const matches = Array.from(textValue.matchAll(/(^|[^\\d.,a-z])([1-5](?:[.,]\\d)?)(?![\\d.,a-z])/giu))
+          .map((match) => match[2])
+          .filter((candidate) => {
+            const numeric = Number(candidate.replace(",", "."));
             return numeric >= 1 && numeric <= 5;
           });
-        return candidates.at(-1);
+        return matches[0];
+      };
+      const extractReviewText = (text) => {
+        const metricText = compact(text);
+        const match = metricText.match(/([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)\\s*(ratings?|reviews?|penilaian|ulasan)/iu) ||
+          metricText.match(/(ratings?|reviews?|penilaian|ulasan)\\s*:?\\s*([\\d.,]+\\s*(?:rb|ribu|k|jt|juta|m)?\\+?)/iu);
+        if (!match) return undefined;
+        const value = /ratings?|reviews?|penilaian|ulasan/iu.test(match[1]) ? match[2] : match[1];
+        const label = /ratings?|reviews?|penilaian|ulasan/iu.test(match[1]) ? match[1] : match[2];
+        return compact(String(value || "") + " " + String(label || ""));
+      };
+      const extractRatingText = (text, soldText) => {
+        const rawLines = String(text || "")
+          .split(/\\n+/u)
+          .map(compact)
+          .filter(Boolean);
+        const metricLine = rawLines.find((line) => /(★|star|bintang)/iu.test(line)) ||
+          rawLines.find((line) => /(sold|terjual)/iu.test(line) && firstRatingToken(line)) ||
+          rawLines.find((line) => /(ratings?|reviews?|penilaian|ulasan)/iu.test(line) && firstRatingToken(line));
+        if (metricLine) {
+          return firstRatingToken(metricLine);
+        }
+        const metricText = compact(text);
+        const searchable = soldText && metricText.includes(soldText) ? metricText.slice(0, metricText.indexOf(soldText)) : metricText;
+        return firstRatingToken(searchable);
       };
       const prettyHtml = (value) => String(value || "")
         .replace(/></g, ">\\n<")
@@ -4752,6 +4779,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         const priceText = compact((text.match(/Rp\\s*[\\d.]+(?:\\s*-\\s*Rp\\s*[\\d.]+)?/i) || [])[0] || "");
         const soldText = extractSoldText(text);
         const ratingText = extractRatingText(text, soldText);
+        const reviewText = extractReviewText(text);
         products.push({
           rank: products.length + 1,
           title,
@@ -4761,7 +4789,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           priceAverage: parsePrice(priceText),
           rating: ratingText ? Number(ratingText.replace(",", ".")) : undefined,
           ratingText,
-          reviewText: undefined,
+          reviewText,
           soldCount: soldText ? parseHumanNumber(soldText) : undefined,
           soldText,
           productType: inferProductType(title),
@@ -4790,15 +4818,16 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         return normalized.length >= 2 &&
           normalized.length <= 120 &&
           !/(chat|chat now|follow|ikuti|active|aktif|view shop|lihat toko|rating|ratings|penilaian|produk|products|response|respon|followers|pengikut|seller centre|seller center|notifications?|notifikasi|laporkan|report|joined|bergabung|ago|yang lalu)/iu.test(lowered) &&
+          !/^(mall\\s*ori|star\\+?|official|resmi)$/iu.test(lowered) &&
           !/^\\d+(?:[.,]\\d+)?\\s*(rb|k|jt|juta|%|months?|bulan)?/iu.test(lowered);
       };
-      const storeNameLinesFrom = (element) => compact(element?.innerText || element?.textContent || "")
+      const storeNameLinesFrom = (element) => String(element?.innerText || element?.textContent || "")
         .split(/\\n|\\|/u)
         .map(compact)
         .filter(isGoodStoreName);
       const storeNameAfterAnchor = (anchor) => {
         const candidates = [];
-        let wrapper = anchor?.parentElement;
+        let wrapper = anchor;
         for (let depth = 0; depth < 5 && wrapper && shopSection?.contains?.(wrapper); depth += 1) {
           const sibling = wrapper.nextElementSibling;
           if (sibling) {
@@ -4829,6 +4858,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const shopNameCandidates = [
         ...storeNameAfterAnchor(storeAnchor),
         ...storeNameLinesFrom(storeAnchor),
+        ...storeNameLinesFrom(shopSection?.querySelector?.("[class*='shop-name'], [class*='ShopName'], [class*='name']")),
         ...storeNameLinesFrom(shopSection?.querySelector?.("a[href] + div")),
         ...storeNameLinesFrom(shopSection?.querySelector?.("a[href] ~ div")),
         storeAnchor?.getAttribute?.("title"),
@@ -4841,6 +4871,10 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const storeUrl = storeAnchor ? absoluteUrl(storeAnchor.getAttribute("href")) : undefined;
       const pdpBadgeImage = findStoreBadgeImage(productPageRoot || document.body, undefined);
       const storeType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
+      const productPageText = textFrom(productPageRoot);
+      const pdpSoldText = extractSoldText(productPageText);
+      const pdpRatingText = extractRatingText(productPageText, pdpSoldText);
+      const pdpReviewText = extractReviewText(productPageText);
       const voucherRoot = document.querySelector("section.mini-vouchers .mini-vouchers-with-popover") || document.querySelector("section.mini-vouchers");
       const shopVouchers = unique(textFrom(voucherRoot).split(/\\n|\\s{2,}|(?=Rp\\s)|(?=Diskon)|(?=Voucher)|(?=Cashback)/iu))
         .filter((value) => value.length >= 3)
@@ -4911,6 +4945,10 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         storeName,
         storeUrl,
         storeType,
+        rating: pdpRatingText ? Number(pdpRatingText.replace(",", ".")) : undefined,
+        ratingText: pdpRatingText,
+        reviewText: pdpReviewText,
+        totalSoldText: pdpSoldText,
         activeReviewFilter,
         images: productImages.slice(0, 12),
         videos: productVideos.slice(0, 6),

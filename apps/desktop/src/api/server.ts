@@ -976,6 +976,10 @@ type StructuredProductDetail = {
   storeName?: string;
   storeUrl?: string;
   storeType?: string;
+  rating?: number;
+  ratingText?: string;
+  reviewText?: string;
+  totalSoldText?: string;
   activeReviewFilter?: string;
   images: string[];
   videos: string[];
@@ -1399,7 +1403,7 @@ function extractProductEnrichment(
     priceAverage: price.average,
     originalPrice: price.original,
     discount: extractDiscount(text),
-    rating: extractRating(text),
+    rating: structured?.rating ?? extractRating(text),
     reviewCount: extractCountNear(text, ["ratings", "rating", "reviews", "review", "penilaian", "ulasan"]),
     totalSold: extractCountNear(text, ["sold", "terjual", "dijual"]),
     stock: extractCountNear(text, ["in stock", "stok", "tersedia"]),
@@ -1419,9 +1423,9 @@ function extractProductEnrichment(
     shopVouchers,
     bundleDeals,
     promotionCount: structured?.promotionCount ?? shopVouchers.length + bundleDeals.length,
-    ratingText: extractRatingTextValue(text),
-    reviewText: extractReviewTextValue(text),
-    totalSoldText: extractSoldTextValue(text)
+    ratingText: structured?.ratingText ?? extractRatingTextValue(text),
+    reviewText: structured?.reviewText ?? extractReviewTextValue(text),
+    totalSoldText: structured?.totalSoldText ?? extractSoldTextValue(text)
   };
 }
 
@@ -1523,6 +1527,10 @@ function readStructuredProductDetail(metadata?: Record<string, unknown>): Struct
     storeName: typeof raw.storeName === "string" && raw.storeName.trim() ? raw.storeName.trim() : undefined,
     storeUrl: typeof raw.storeUrl === "string" && raw.storeUrl.trim() ? raw.storeUrl.trim() : undefined,
     storeType: normalizeStoreType(typeof raw.storeType === "string" ? raw.storeType : undefined),
+    rating: typeof raw.rating === "number" && Number.isFinite(raw.rating) && raw.rating >= 1 && raw.rating <= 5 ? raw.rating : undefined,
+    ratingText: typeof raw.ratingText === "string" && raw.ratingText.trim() ? raw.ratingText.trim() : undefined,
+    reviewText: typeof raw.reviewText === "string" && raw.reviewText.trim() ? raw.reviewText.trim() : undefined,
+    totalSoldText: typeof raw.totalSoldText === "string" && raw.totalSoldText.trim() ? raw.totalSoldText.trim() : undefined,
     activeReviewFilter: typeof raw.activeReviewFilter === "string" && raw.activeReviewFilter.trim() ? raw.activeReviewFilter.trim() : undefined,
     images: extractStringArray(raw.images),
     videos: extractStringArray(raw.videos),
@@ -1580,8 +1588,26 @@ function reviewDedupeKey(reviewItem: ReviewEvidence): string {
 
 function extractRatingTextValue(text: string): string | undefined {
   const normalized = normalizeEvidenceText(text);
-  const candidate = normalized.match(/(?:rating|bintang|star|penilaian)\s*:?\s*([1-5](?:[.,]\d)?)/iu)?.[1] ??
-    normalized.match(/([1-5](?:[.,]\d)?)\s*(?:\/\s*5|★|star|bintang)/iu)?.[1];
+  const firstRatingToken = (value: string): string | undefined => {
+    const candidates = Array.from(value.matchAll(/(^|[^\d.,a-z])([1-5](?:[.,]\d)?)(?![\d.,a-z])/giu))
+      .map((match) => match[2])
+      .filter((candidateValue) => {
+        const numeric = Number(candidateValue.replace(",", "."));
+        return numeric >= 1 && numeric <= 5;
+      });
+    return candidates[0];
+  };
+  const lines = normalized
+    .split("\n")
+    .map((line) => cleanText(line))
+    .filter(Boolean);
+  const metricLine = lines.find((line) => /(★|star|bintang)/iu.test(line)) ??
+    lines.find((line) => /(sold|terjual)/iu.test(line) && firstRatingToken(line)) ??
+    lines.find((line) => /(ratings?|reviews?|penilaian|ulasan)/iu.test(line) && firstRatingToken(line));
+  const contextual = metricLine ? firstRatingToken(metricLine) : undefined;
+  const candidate = contextual ??
+    normalized.match(/(?:rating|bintang|star|penilaian)\s*:?\s*(?:^|[^\d.,])([1-5](?:[.,]\d)?)(?![\d.,])/iu)?.[1] ??
+    normalized.match(/(?:^|[^\d.,])([1-5](?:[.,]\d)?)(?![\d.,])\s*(?:\/\s*5|★|star|bintang)/iu)?.[1];
   return candidate ? candidate.replace(".", ",") : undefined;
 }
 
@@ -1653,11 +1679,11 @@ function extractDiscount(text: string): string | undefined {
 }
 
 function extractRating(text: string): number | undefined {
-  const ratingMatch = /(?:^|\s)([1-5](?:[.,]\d)?)\s*(?:★|star|stars|rating|ratings|penilaian)?/iu.exec(text);
-  if (!ratingMatch) {
+  const ratingText = extractRatingTextValue(text);
+  if (!ratingText) {
     return undefined;
   }
-  const rating = Number(ratingMatch[1].replace(",", "."));
+  const rating = Number(ratingText.replace(",", "."));
   return rating >= 1 && rating <= 5 ? rating : undefined;
 }
 
@@ -1753,7 +1779,7 @@ function isBadProductTitle(value: string): boolean {
 
 function safeStoreName(value: string | undefined): string | undefined {
   const cleaned = value ? cleanText(value) : "";
-  if (!cleaned || /(chat now|follow|rating|followers?|products?|seller centre|notifications?)/iu.test(cleaned)) {
+  if (!cleaned || /(chat now|follow|rating|followers?|products?|seller centre|notifications?)/iu.test(cleaned) || /^(mall\s*ori|star\+?|official|resmi)$/iu.test(cleaned)) {
     return undefined;
   }
   return cleaned.slice(0, 120);

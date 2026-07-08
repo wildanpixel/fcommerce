@@ -64,6 +64,8 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-08 | macOS artifact workflow failed during unit tests | Fixed | The desktop test script now uses `vitest run` and relies on `vitest.config.ts` for excludes, avoiding unquoted glob expansion on macOS shell runners. |
 | 2026-07-08 | Browser Download HTML kept failing | Fixed | The rendered snapshot script now runs as an async webview function and manual HTML saves go through `/api/html-snapshot` into the local project evidence folder. |
 | 2026-07-08 | Windows build failed under managed sandbox | Fixed | The desktop build script now uses Vite's `--configLoader runner`, avoiding esbuild parent-directory access failures. |
+| 2026-07-08 | Key Product rating showed `5` from review-count text | Fixed | Rating extraction now uses bounded star/rating tokens and structured PDP values, so counts such as `50,7k Ratings` are not parsed as a product rating. |
+| 2026-07-08 | PDP Store Name stayed blank after the shop panel changed | Fixed | Store Name extraction now preserves line breaks in Shopee's shop panel and reads the sibling name block after the shop anchor before filtering active/status metadata. |
 
 ## Sprint Overview
 
@@ -245,6 +247,7 @@ Completed: 2026-07-03
 - 2026-07-03 update: rendered-page capture now targets `#main`, formats HTML snapshots across lines, shows browser capture status, persists collection phase/progress, and localizes WebP thumbnails to JPG where possible.
 - 2026-07-07 update: guided PDP capture now syncs structured media, review, description, and raw Shopee metric text into product records; product dossiers expose videos and Media in User evidence.
 - 2026-07-08 update: PDP sync now prevents Shopee UI labels from replacing product titles, updates Store Name/URL from the shop-anchor sibling block under `.s112-pdp-product-shop` / `section.page-product__shop` where visible, records shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them, and shows a live collection preview for the current product.
+- 2026-07-08 update: PDP rating sync now avoids parsing review counts as ratings, and Store Name sync preserves visible line breaks before filtering noisy shop metadata.
 - 2026-07-08 update: Product Detail Qualified sub-actions are selectable, with separate guided 5-star Positive Reviews and 1-star Negative Reviews collection paths that append deduped review rows.
 
 ## Sprint 3 - Complete Store Detail

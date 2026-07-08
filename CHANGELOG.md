@@ -4,6 +4,9 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 ## Unreleased - 2026-07-08
 
+- Fixed Key Product rating extraction so review counts such as `50,7k Ratings` are no longer misread as rating `5`; ratings now come from bounded star/rating tokens and PDP structured evidence.
+- Fixed PDP Store Name extraction for Shopee shop panels where the store link is followed by a sibling name block, preserving line breaks before filtering noisy shop metadata.
+- Added structured PDP metric persistence for rating text, review text, and total-sold text so Product Detail capture can repair Key Product rows more accurately.
 - Fixed the browser `Download HTML` failure by changing the injected snapshot script to an async IIFE so badge-image analysis can run without a runtime syntax error.
 - Changed manual HTML download from fragile renderer blob downloads to an API-backed local snapshot save in the project `manual-evidence` folder.
 - Added `/api/html-snapshot` and renderer client support for saving standalone browser HTML/text snapshots.

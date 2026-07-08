@@ -98,6 +98,8 @@ Release blocker fixes:
 - 2026-07-08: macOS artifact workflow unit tests now rely on `vitest.config.ts` excludes instead of unquoted npm-script globs, avoiding shell expansion differences between Windows and macOS runners.
 - 2026-07-08: Fixed manual `Download HTML` by making the webview snapshot script async-safe and saving HTML through the local API into project evidence folders instead of using fragile renderer blob downloads.
 - 2026-07-08: Build scripts now use Vite's runner config loader so Windows validation does not fail when esbuild attempts to inspect inaccessible parent directories.
+- 2026-07-08: Fixed Key Product rating extraction so Shopee review-count text such as `50,7k Ratings` is not parsed as rating `5`, and PDP captures now persist structured rating/review/sold text.
+- 2026-07-08: Repaired Store Name extraction by preserving PDP shop-panel line breaks and reading the sibling name block after the Shopee shop anchor before noisy status text is filtered.
 
 ## M1 Product Experience
 
@@ -265,6 +267,8 @@ Implemented:
 - Product-specific evidence now keeps the existing product title unless the PDP exposes a high-confidence product title, preventing Shopee header/cart/accessibility labels from replacing the real product name.
 - Product-specific evidence now updates Store Name and Store URL from PDP shop content when browser-readable `#s112-product-shop`, `.s112-pdp-product-shop`, or `section.page-product__shop` content and equivalent shop links are visible.
 - Product-specific Store Name extraction now walks from the PDP shop anchor to the following sibling store-name block, matching Shopee's visible shop panel layout.
+- Product-specific Store Name extraction now preserves visible line breaks before filtering, so the real store name can be separated from `Active`, chat, product-count, and follower metadata.
+- Product-specific rating extraction now uses bounded star/rating tokens and structured PDP values so review-count strings are not mistaken for rating values.
 - Product-specific Store Type can be repaired during PDP capture when the page exposes a valid Mall/Star badge, and persisted product evidence rejects any Store Type outside `Mall ORI`, `Star+`, and `Star`.
 - Product image URLs are collected into product raw evidence for report rendering with a 3-column image grid.
 - Product Detail Qualified capture now records product videos, review media images/videos, shop vouchers, bundle deals, and a promotion count where the visible PDP HTML exposes those sections.
