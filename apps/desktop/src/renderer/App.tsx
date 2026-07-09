@@ -4810,14 +4810,16 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const descriptionRoot = document.querySelector(".page-product__content .page-product__content--left section:nth-of-type(2) div") ||
         document.querySelector(".page-product__content .page-product__content--left") ||
         document.querySelector(".page-product__content");
-      const shopRoot = document.querySelector("#s112-product-shop, .s112-pdp-product-shop, div[class*='s112-pdp-product-shop']");
-      const shopSection = shopRoot?.querySelector?.("section.page-product__shop") || shopRoot;
+      const shopRoot = document.querySelector("#s112-product-shop, #sll2-pdp-product-shop, [id*='pdp-product-shop'], [class*='pdp-product-shop'], section.page-product__shop");
+      const shopSection = shopRoot?.matches?.("section.page-product__shop")
+        ? shopRoot
+        : shopRoot?.querySelector?.("section.page-product__shop") || document.querySelector("section.page-product__shop") || shopRoot;
       const isGoodStoreName = (value) => {
         const normalized = compact(value);
         const lowered = normalized.toLowerCase();
         return normalized.length >= 2 &&
           normalized.length <= 120 &&
-          !/(chat|chat now|follow|ikuti|active|aktif|view shop|lihat toko|rating|ratings|penilaian|produk|products|response|respon|followers|pengikut|seller centre|seller center|notifications?|notifikasi|laporkan|report|joined|bergabung|ago|yang lalu)/iu.test(lowered) &&
+          !/(chat|chat now|follow|ikuti|active|aktif|online|offline|click here to visit shop|visit shop|view shop|lihat toko|rating|ratings|penilaian|produk|products|response|respon|followers|pengikut|seller centre|seller center|notifications?|notifikasi|laporkan|report|joined|bergabung|ago|yang lalu)/iu.test(lowered) &&
           !/^(mall\\s*ori|star\\+?|official|resmi)$/iu.test(lowered) &&
           !/^\\d+(?:[.,]\\d+)?\\s*(rb|k|jt|juta|%|months?|bulan)?/iu.test(lowered);
       };
@@ -4858,6 +4860,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const shopNameCandidates = [
         ...storeNameAfterAnchor(storeAnchor),
         ...storeNameLinesFrom(storeAnchor),
+        ...storeNameLinesFrom(shopSection?.querySelector?.(".fV3TIn")),
         ...storeNameLinesFrom(shopSection?.querySelector?.("[class*='shop-name'], [class*='ShopName'], [class*='name']")),
         ...storeNameLinesFrom(shopSection?.querySelector?.("a[href] + div")),
         ...storeNameLinesFrom(shopSection?.querySelector?.("a[href] ~ div")),

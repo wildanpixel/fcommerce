@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -66,6 +66,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-08 | Windows build failed under managed sandbox | Fixed | The desktop build script now uses Vite's `--configLoader runner`, avoiding esbuild parent-directory access failures. |
 | 2026-07-08 | Key Product rating showed `5` from review-count text | Fixed | Rating extraction now uses bounded star/rating tokens and structured PDP values, so counts such as `50,7k Ratings` are not parsed as a product rating. |
 | 2026-07-08 | PDP Store Name stayed blank after the shop panel changed | Fixed | Store Name extraction now preserves line breaks in Shopee's shop panel and reads the sibling name block after the shop anchor before filtering active/status metadata. |
+| 2026-07-09 | PDP Store Name still blank from saved Product Detail HTML | Fixed | The extractor now recognizes `sll2-pdp-product-shop` and generic `pdp-product-shop` containers, and project detail loading backfills missing product store fields from captured PDP HTML assets. |
 
 ## Sprint Overview
 
@@ -249,6 +250,7 @@ Completed: 2026-07-03
 - 2026-07-08 update: PDP sync now prevents Shopee UI labels from replacing product titles, updates Store Name/URL from the shop-anchor sibling block under `.s112-pdp-product-shop` / `section.page-product__shop` where visible, records shop vouchers, bundle deals, promotion count, videos, review rows, and review media where browser-readable HTML exposes them, and shows a live collection preview for the current product.
 - 2026-07-08 update: PDP rating sync now avoids parsing review counts as ratings, and Store Name sync preserves visible line breaks before filtering noisy shop metadata.
 - 2026-07-08 update: Product Detail Qualified sub-actions are selectable, with separate guided 5-star Positive Reviews and 1-star Negative Reviews collection paths that append deduped review rows.
+- 2026-07-09 update: Product Detail capture and project-detail repair now parse the current Shopee `sll2-pdp-product-shop` HTML shape, including visible store name, store URL, and Mall/Star badge signals.
 
 ## Sprint 3 - Complete Store Detail
 

@@ -2,6 +2,13 @@
 
 All notable changes to Marketplace Intelligence OS will be documented in this file.
 
+## Unreleased - 2026-07-09
+
+- Fixed Product Detail Qualified store-name sync for Shopee's current `sll2-pdp-product-shop` container, which was not covered by the previous `s112` selector.
+- Added a backend PDP HTML fallback parser so saved product-page HTML can fill `Store Name`, `Store URL`, and valid Mall/Star store type even when the renderer structured payload misses them.
+- Added an automatic project-detail repair pass that backfills missing product store fields from existing captured PDP HTML assets.
+- Added a regression test for the current Shopee PDP shop block so `iBox Official Shop` / similar visible store names are not replaced by shop chrome labels.
+
 ## Unreleased - 2026-07-08
 
 - Fixed Key Product rating extraction so review counts such as `50,7k Ratings` are no longer misread as rating `5`; ratings now come from bounded star/rating tokens and PDP structured evidence.

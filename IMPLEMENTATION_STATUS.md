@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -100,6 +100,7 @@ Release blocker fixes:
 - 2026-07-08: Build scripts now use Vite's runner config loader so Windows validation does not fail when esbuild attempts to inspect inaccessible parent directories.
 - 2026-07-08: Fixed Key Product rating extraction so Shopee review-count text such as `50,7k Ratings` is not parsed as rating `5`, and PDP captures now persist structured rating/review/sold text.
 - 2026-07-08: Repaired Store Name extraction by preserving PDP shop-panel line breaks and reading the sibling name block after the Shopee shop anchor before noisy status text is filtered.
+- 2026-07-09: Fixed Store Name extraction for Shopee's current `sll2-pdp-product-shop` container and added backend repair from captured PDP HTML so existing products with blank store names can be backfilled when the project detail is opened.
 
 ## M1 Product Experience
 
@@ -268,6 +269,8 @@ Implemented:
 - Product-specific evidence now updates Store Name and Store URL from PDP shop content when browser-readable `#s112-product-shop`, `.s112-pdp-product-shop`, or `section.page-product__shop` content and equivalent shop links are visible.
 - Product-specific Store Name extraction now walks from the PDP shop anchor to the following sibling store-name block, matching Shopee's visible shop panel layout.
 - Product-specific Store Name extraction now preserves visible line breaks before filtering, so the real store name can be separated from `Active`, chat, product-count, and follower metadata.
+- Product-specific Store Name extraction now recognizes Shopee's `sll2-pdp-product-shop` container and the generic `pdp-product-shop` id/class pattern used in saved PDP HTML.
+- Project detail loading repairs products with blank Store Name/URL from saved Product Detail Qualified HTML assets when the HTML contains a valid Shopee shop panel.
 - Product-specific rating extraction now uses bounded star/rating tokens and structured PDP values so review-count strings are not mistaken for rating values.
 - Product-specific Store Type can be repaired during PDP capture when the page exposes a valid Mall/Star badge, and persisted product evidence rejects any Store Type outside `Mall ORI`, `Star+`, and `Star`.
 - Product image URLs are collected into product raw evidence for report rendering with a 3-column image grid.

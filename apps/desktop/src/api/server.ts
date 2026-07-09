@@ -1,5 +1,5 @@
 import http from "node:http";
-import { copyFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
@@ -352,6 +352,7 @@ export function createApp(): Express {
 
   app.get("/api/projects/:id/detail", asyncRoute(async (request, response) => {
     const input = z.object({ id: z.string().uuid() }).parse(request.params);
+    await repairMissingProductStoresFromCapturedHtml(input.id);
     const detail = await dependencies.projectRepository.getDetail(input.id);
     if (!detail) {
       response.status(404).json({ error: "Project not found" });
@@ -870,6 +871,83 @@ function safeParseJson<T>(value: string, fallback: T): T {
   }
 }
 
+async function repairMissingProductStoresFromCapturedHtml(projectId: string): Promise<number> {
+  const products = await prisma.product.findMany({
+    where: {
+      projectId,
+      OR: [
+        { storeName: null },
+        { storeUrl: null }
+      ]
+    }
+  });
+  if (products.length === 0) {
+    return 0;
+  }
+
+  const productsById = new Map(products.map((product) => [product.id, product]));
+  const assets = await prisma.asset.findMany({
+    where: {
+      projectId,
+      ownerType: "PRODUCT",
+      ownerId: { not: null },
+      kind: { in: ["PRODUCT_PAGE", "PRODUCT_DESCRIPTION", "REVIEW_SECTION"] }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+  const repairedProductIds = new Set<string>();
+
+  for (const asset of assets) {
+    const productId = asset.ownerId;
+    if (!productId || repairedProductIds.has(productId)) {
+      continue;
+    }
+    const product = productsById.get(productId);
+    if (!product || (product.storeName && product.storeUrl)) {
+      continue;
+    }
+    const metadata = safeParseJson<Record<string, unknown>>(asset.metadataJson, {});
+    const htmlPath = typeof metadata.htmlPath === "string" ? metadata.htmlPath : undefined;
+    if (!htmlPath) {
+      continue;
+    }
+    const html = await readFile(htmlPath, "utf8").catch(() => undefined);
+    if (!html) {
+      continue;
+    }
+    const storeInfo = extractPdpStoreInfoFromHtml(html);
+    if (!storeInfo.storeName && !storeInfo.storeUrl && !storeInfo.storeType) {
+      continue;
+    }
+    const currentRaw = safeParseJson<Record<string, unknown>>(product.rawJson, {});
+    await prisma.product.update({
+      where: { id: product.id },
+      data: {
+        storeName: product.storeName ?? storeInfo.storeName,
+        storeUrl: product.storeUrl ?? storeInfo.storeUrl,
+        mallStatus: storeInfo.storeType === "Mall ORI" ? true : product.mallStatus,
+        officialStatus: storeInfo.storeType === "Mall ORI" ? true : product.officialStatus,
+        starSeller: storeInfo.storeType === "Star" || storeInfo.storeType === "Star+" ? true : product.starSeller,
+        rawJson: JSON.stringify({
+          ...currentRaw,
+          storeType: storeInfo.storeType ?? currentRaw.storeType,
+          storeName: product.storeName ?? storeInfo.storeName ?? currentRaw.storeName,
+          storeUrl: product.storeUrl ?? storeInfo.storeUrl ?? currentRaw.storeUrl,
+          storeRepair: {
+            source: "captured-pdp-html",
+            assetId: asset.id,
+            htmlPath,
+            repairedAt: new Date().toISOString()
+          }
+        })
+      }
+    });
+    repairedProductIds.add(product.id);
+  }
+
+  return repairedProductIds.size;
+}
+
 async function localizeManualEvidenceImages(
   input: ManualEvidencePayload,
   evidenceFolder: string,
@@ -1379,6 +1457,7 @@ function extractProductEnrichment(
   const text = normalizeEvidenceText(input.visibleText);
   const html = input.pageHtml ?? "";
   const structured = readStructuredProductDetail(input.metadata);
+  const htmlStoreInfo = extractPdpStoreInfoFromHtml(html);
   const price = extractMoneyRange(text);
   const images = mergeUnique([
     ...(structured?.images ?? []),
@@ -1417,9 +1496,9 @@ function extractProductEnrichment(
     reviewMediaImages: structured?.reviewMediaImages ?? [],
     reviewMediaVideos: structured?.reviewMediaVideos ?? [],
     reviews,
-    storeName: safeStoreName(structured?.storeName),
-    storeUrl: structured?.storeUrl ? normalizeUrl(structured.storeUrl) : undefined,
-    storeType: normalizeStoreType(structured?.storeType),
+    storeName: safeStoreName(structured?.storeName ?? htmlStoreInfo.storeName),
+    storeUrl: structured?.storeUrl ? normalizeUrl(structured.storeUrl) : htmlStoreInfo.storeUrl,
+    storeType: normalizeStoreType(structured?.storeType ?? htmlStoreInfo.storeType),
     shopVouchers,
     bundleDeals,
     promotionCount: structured?.promotionCount ?? shopVouchers.length + bundleDeals.length,
@@ -1578,6 +1657,24 @@ function normalizeStoreType(value?: string): "Mall ORI" | "Star+" | "Star" | und
   return undefined;
 }
 
+function normalizeStoreTypeFromBadge(value?: string): "Mall ORI" | "Star+" | "Star" | undefined {
+  const direct = normalizeStoreType(value);
+  if (direct) {
+    return direct;
+  }
+  const normalized = String(value ?? "").toLowerCase();
+  if (/mall/iu.test(normalized)) {
+    return "Mall ORI";
+  }
+  if (/star\s*(?:plus|\+)/iu.test(normalized)) {
+    return "Star+";
+  }
+  if (/star/iu.test(normalized)) {
+    return "Star";
+  }
+  return undefined;
+}
+
 function reviewDedupeKey(reviewItem: ReviewEvidence): string {
   return [
     reviewItem.sentiment,
@@ -1606,8 +1703,8 @@ function extractRatingTextValue(text: string): string | undefined {
     lines.find((line) => /(ratings?|reviews?|penilaian|ulasan)/iu.test(line) && firstRatingToken(line));
   const contextual = metricLine ? firstRatingToken(metricLine) : undefined;
   const candidate = contextual ??
-    normalized.match(/(?:rating|bintang|star|penilaian)\s*:?\s*(?:^|[^\d.,])([1-5](?:[.,]\d)?)(?![\d.,])/iu)?.[1] ??
-    normalized.match(/(?:^|[^\d.,])([1-5](?:[.,]\d)?)(?![\d.,])\s*(?:\/\s*5|★|star|bintang)/iu)?.[1];
+    normalized.match(/(?:rating|bintang|star|penilaian)\s*:?\s*(?:^|[^\d.,a-z])([1-5](?:[.,]\d)?)(?![\d.,a-z])/iu)?.[1] ??
+    normalized.match(/(?:^|[^\d.,a-z])([1-5](?:[.,]\d)?)(?![\d.,a-z])\s*(?:\/\s*5|★|star|bintang)/iu)?.[1];
   return candidate ? candidate.replace(".", ",") : undefined;
 }
 
@@ -1721,6 +1818,94 @@ function extractHtmlTitle(html: string): string | undefined {
   return title ? cleanProductTitleCandidate(cleanText(title).replace(/\s*\|\s*Shopee.*$/iu, "")) : undefined;
 }
 
+export function extractPdpStoreInfoFromHtml(html: string): {
+  storeName?: string;
+  storeUrl?: string;
+  storeType?: string;
+} {
+  if (!html) {
+    return {};
+  }
+  const marker = html.search(/(?:id|class)=["'][^"']*(?:pdp-product-shop|page-product__shop)[^"']*["']/iu);
+  if (marker < 0) {
+    return {};
+  }
+  const nextSection = html.slice(marker).search(/<div\s+class=["'][^"']*page-product__content/iu);
+  const block = html.slice(marker, marker + (nextSection > 0 ? nextSection : 24000));
+  const storeUrl =
+    extractHtmlAttribute(block, /<a\b(?=[^>]*\bentryPoint=ShopByPDP\b)[^>]*\bhref=["'](?<value>[^"']+)["'][^>]*>/iu) ??
+    extractHtmlAttribute(block, /<a\b(?=[^>]*#product_list\b)[^>]*\bhref=["'](?<value>[^"']+)["'][^>]*>/iu) ??
+    extractHtmlAttribute(block, /<a\b(?![^>]*\b(?:chat|cart|checkout|help|report|seller|login|verify|mall)\b)[^>]*\bhref=["'](?<value>\/[^"']+)["'][^>]*>/iu);
+  const storeType = normalizeStoreTypeFromBadge(
+    extractHtmlAttribute(block, /<img\b(?=[^>]*\balt=["'][^"']*(?:mall|star)[^"']*["'])[^>]*\balt=["'](?<value>[^"']+)["'][^>]*>/iu)
+  );
+  const candidates = [
+    ...extractHtmlClassTextCandidates(block, "fV3TIn"),
+    ...extractHtmlClassTextCandidates(block, "shop-name"),
+    ...extractHtmlClassTextCandidates(block, "ShopName"),
+    ...extractHtmlClassTextCandidates(block, "name"),
+    ...extractHtmlSiblingStoreNameCandidates(block),
+    ...extractHtmlTextCandidates(block)
+  ];
+  return {
+    storeName: mergeUnique(candidates).map(safeStoreName).find((value): value is string => Boolean(value)),
+    storeUrl: storeUrl ? normalizeUrl(storeUrl) : undefined,
+    storeType
+  };
+}
+
+function extractHtmlAttribute(html: string, pattern: RegExp): string | undefined {
+  const value = pattern.exec(html)?.groups?.value;
+  return value ? decodeHtmlText(value) : undefined;
+}
+
+function extractHtmlClassTextCandidates(html: string, classNeedle: string): string[] {
+  const candidates: string[] = [];
+  const pattern = new RegExp(`<(?:div|span|a)\\b(?=[^>]*\\bclass=["'][^"']*${escapeRegex(classNeedle)}[^"']*["'])[^>]*>(?<value>[\\s\\S]{0,600}?)<\\/(?:div|span|a)>`, "giu");
+  for (const match of html.matchAll(pattern)) {
+    if (match.groups?.value) {
+      candidates.push(htmlToText(match.groups.value));
+    }
+  }
+  return candidates;
+}
+
+function extractHtmlSiblingStoreNameCandidates(html: string): string[] {
+  const candidates: string[] = [];
+  const pattern = /<\/a>\s*<div\b[^>]*>\s*<div\b[^>]*>(?<value>[\s\S]{0,240}?)<\/div>/giu;
+  for (const match of html.matchAll(pattern)) {
+    if (match.groups?.value) {
+      candidates.push(htmlToText(match.groups.value));
+    }
+  }
+  return candidates;
+}
+
+function extractHtmlTextCandidates(html: string): string[] {
+  const candidates: string[] = [];
+  const pattern = /<(?:div|span)\b[^>]*>(?<value>[^<>]{2,160})<\/(?:div|span)>/giu;
+  for (const match of html.matchAll(pattern)) {
+    if (match.groups?.value) {
+      candidates.push(decodeHtmlText(match.groups.value));
+    }
+  }
+  return candidates;
+}
+
+function htmlToText(html: string): string {
+  return decodeHtmlText(html.replace(/<[^>]+>/gu, "\n"));
+}
+
+function decodeHtmlText(value: string): string {
+  return cleanText(value
+    .replace(/&nbsp;/giu, " ")
+    .replace(/&amp;/giu, "&")
+    .replace(/&quot;/giu, "\"")
+    .replace(/&#39;|&apos;/giu, "'")
+    .replace(/&lt;/giu, "<")
+    .replace(/&gt;/giu, ">"));
+}
+
 function inferTitleFromText(text: string, fallback: string): string | undefined {
   const line = text
     .split("\n")
@@ -1779,7 +1964,7 @@ function isBadProductTitle(value: string): boolean {
 
 function safeStoreName(value: string | undefined): string | undefined {
   const cleaned = value ? cleanText(value) : "";
-  if (!cleaned || /(chat now|follow|rating|followers?|products?|seller centre|notifications?)/iu.test(cleaned) || /^(mall\s*ori|star\+?|official|resmi)$/iu.test(cleaned)) {
+  if (!cleaned || /(chat now|follow|online|offline|click here to visit shop|visit shop|view shop|lihat toko|rating|followers?|products?|seller centre|notifications?)/iu.test(cleaned) || /^(mall\s*ori|star\+?|official|resmi)$/iu.test(cleaned)) {
     return undefined;
   }
   return cleaned.slice(0, 120);
