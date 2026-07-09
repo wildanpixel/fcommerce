@@ -67,6 +67,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-08 | Key Product rating showed `5` from review-count text | Fixed | Rating extraction now uses bounded star/rating tokens and structured PDP values, so counts such as `50,7k Ratings` are not parsed as a product rating. |
 | 2026-07-08 | PDP Store Name stayed blank after the shop panel changed | Fixed | Store Name extraction now preserves line breaks in Shopee's shop panel and reads the sibling name block after the shop anchor before filtering active/status metadata. |
 | 2026-07-09 | PDP Store Name still blank from saved Product Detail HTML | Fixed | The extractor now recognizes `sll2-pdp-product-shop` and generic `pdp-product-shop` containers, and project detail loading backfills missing product store fields from captured PDP HTML assets. |
+| 2026-07-09 | Product Detail collection UI was too text-heavy | Fixed | Product Detail collection now has direct Part 1/2/3 navigation, compact sub-action controls, richer active-product previews, screenshot-review zoom, and automatic return to Project Inspector after Product Details completion. |
 
 ## Sprint Overview
 
@@ -251,6 +252,7 @@ Completed: 2026-07-03
 - 2026-07-08 update: PDP rating sync now avoids parsing review counts as ratings, and Store Name sync preserves visible line breaks before filtering noisy shop metadata.
 - 2026-07-08 update: Product Detail Qualified sub-actions are selectable, with separate guided 5-star Positive Reviews and 1-star Negative Reviews collection paths that append deduped review rows.
 - 2026-07-09 update: Product Detail capture and project-detail repair now parse the current Shopee `sll2-pdp-product-shop` HTML shape, including visible store name, store URL, and Mall/Star badge signals.
+- 2026-07-09 update: Product Detail collection navigation now allows jumping between Part 1, Part 2, and Part 3; Part 2 guidance uses compact sub-action controls and previews synced product evidence before the user moves on.
 
 ## Sprint 3 - Complete Store Detail
 

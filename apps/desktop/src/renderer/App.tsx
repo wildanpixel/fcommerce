@@ -1,4 +1,4 @@
-import { FormEvent, PointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent, ReactNode, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -134,6 +134,8 @@ type BrowserCaptureStatus = {
   state: "idle" | "working" | "done" | "failed";
   actionLabel?: string;
 };
+
+const COLLECTION_STAGES: CollectionStage[] = ["KEYWORD_GENERAL", "PRODUCT_DETAILS", "EVALUATION_KEY_STORE"];
 
 type RenderedProductDetailSnapshot = {
   storeName?: string;
@@ -832,6 +834,7 @@ function GuidedBrowserCollector({
   browserUrl,
   onBrowserUrlChange,
   onNewAnalysis,
+  onCollectionCompleted,
   exitLabel = "New Analysis"
 }: {
   project: ProjectSummary;
@@ -839,6 +842,7 @@ function GuidedBrowserCollector({
   browserUrl: string;
   onBrowserUrlChange: (url: string) => void;
   onNewAnalysis: () => void;
+  onCollectionCompleted?: (projectId: string) => void;
   exitLabel?: string;
 }) {
   const webviewRef = useRef<WebviewElement | null>(null);
@@ -1045,10 +1049,24 @@ function GuidedBrowserCollector({
   }, [initialUrl]);
 
   useEffect(() => {
-    setActiveStepIndex(0);
     setReviewingKeyProducts(false);
     setReviewingEvaluation(false);
   }, [activeStage]);
+
+  function switchCollectionStage(stage: CollectionStage) {
+    const stageSteps = allSteps.filter((step) => step.stage === stage);
+    const firstIncompleteIndex = stageSteps.findIndex((step) => !collectedSteps[step.id]);
+    const nextIndex = firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0;
+    setActiveStage(stage);
+    setActiveStepIndex(nextIndex);
+    persistCollectionState({
+      stage,
+      stageLabel: collectionStageLabel(stage),
+      currentStepId: stageSteps[nextIndex]?.id,
+      browserUrl: currentUrl,
+      viewMode
+    });
+  }
 
   useEffect(() => {
     const webview = webviewRef.current;
@@ -1147,6 +1165,9 @@ function GuidedBrowserCollector({
         currentStepId: allSteps.find((step) => step.stage === nextStage)?.id
       });
       appendLog(setActivityLog, `${collectionStageLabel(activeStage)} completed. Continue with ${collectionStageLabel(nextStage)}.`);
+      if (activeStage === "PRODUCT_DETAILS") {
+        window.setTimeout(() => onCollectionCompleted?.(project.id), 500);
+      }
       return;
     }
     persistCollectionState({
@@ -1157,6 +1178,7 @@ function GuidedBrowserCollector({
       currentStepId: activeStep?.id
     });
     appendLog(setActivityLog, "Shopee collection flow marked complete. Review the project inspector before generating the report.");
+    window.setTimeout(() => onCollectionCompleted?.(project.id), 500);
   }
 
   function openKeyProductTableReview() {
@@ -1539,6 +1561,30 @@ function GuidedBrowserCollector({
           </Panel>
 
           <Panel title="Collection Progress" icon={ListChecks}>
+            <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl border border-white/8 bg-white/5 p-1">
+              {COLLECTION_STAGES.map((stage) => {
+                const stageSteps = allSteps.filter((step) => step.stage === stage);
+                const stageDoneCount = stageSteps.filter((step) => collectedSteps[step.id]).length;
+                const isActive = stage === activeStage;
+                return (
+                  <button
+                    key={stage}
+                    type="button"
+                    className={[
+                      "rounded-lg px-2 py-2 text-left transition",
+                      isActive ? "mio-stage-tab-active bg-signal-blue text-white shadow-sm" : "text-ink-400 hover:bg-white/8 hover:text-white"
+                    ].join(" ")}
+                    onClick={() => switchCollectionStage(stage)}
+                    title={collectionStageLabel(stage)}
+                  >
+                    <div className="text-[11px] font-semibold">{collectionStageShortLabel(stage)}</div>
+                    <div className={["mt-0.5 text-[10px]", isActive ? "text-white/80" : "text-ink-500"].join(" ")}>
+                      {stageDoneCount}/{stageSteps.length}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
             <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
@@ -1561,31 +1607,49 @@ function GuidedBrowserCollector({
             </div>
             <div className="mt-4 max-h-[420px] space-y-2 overflow-auto pr-1">
               {steps.map((step, index) => (
-                <button
+                <div
                   key={step.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   className={[
-                    "mio-step-card w-full rounded-md border px-3 py-2 text-left text-xs transition",
+                    "mio-step-card w-full cursor-pointer rounded-md border px-3 py-2 text-left text-xs transition",
                     index === activeStepIndex ? "mio-step-card-active border-signal-blue/40 bg-signal-blue/12" : "border-white/8 bg-white/5 hover:bg-white/8"
                   ].join(" ")}
                   onClick={() => setActiveStepIndex(index)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setActiveStepIndex(index);
+                    }
+                  }}
                 >
                   <div className="mb-1 flex items-center justify-between gap-2 text-white">
                     <span>Step {index + 1}</span>
                     {collectedSteps[step.id] ? <CheckCircle2 size={14} className="text-signal-green" /> : <Circle size={12} className="text-ink-500" />}
                   </div>
                   <div className="text-ink-300">{step.label}</div>
-                  {index === activeStepIndex && step.substeps && step.substeps.length > 0 && (
-                    <div className="mt-2 space-y-1 border-t border-white/8 pt-2">
-                      {step.substeps.map((substep) => (
-                        <div key={substep} className="flex items-start gap-2 text-[11px] leading-4 text-ink-400">
-                          <CheckCircle2 size={11} className="mt-0.5 shrink-0 text-signal-blue" />
-                          <span>{substep}</span>
-                        </div>
+                  {index === activeStepIndex && step.subActions && step.subActions.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/8 pt-2">
+                      {step.subActions.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          className={[
+                            "rounded-full border px-2 py-1 text-[10px] transition",
+                            activeSubAction?.id === action.id ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : "border-white/8 bg-white/[0.04] text-ink-400 hover:bg-white/8"
+                          ].join(" ")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setActiveStepIndex(index);
+                            setActiveSubActionId(action.id);
+                          }}
+                        >
+                          {action.label}
+                        </button>
                       ))}
                     </div>
                   )}
-                </button>
+                </div>
               ))}
             </div>
             <CollectionStepPreview
@@ -1672,16 +1736,30 @@ function CollectionStepPreview({
   if (product) {
     const productAssets = detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id);
     const productReviews = detail.reviews.filter((review) => review.productId === product.id);
+    const previewImage = product.images[0] ?? product.imageUrl;
     return (
       <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <div className="truncate font-semibold text-white">{displayProductTitle(product)}</div>
-            <div className="mt-0.5 truncate text-[11px] text-ink-500">{product.storeName ?? "Store name pending PDP sync"}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            {previewImage && (
+              <img src={previewImage} alt="" className="h-10 w-10 shrink-0 rounded border border-white/8 bg-white object-cover" />
+            )}
+            <div className="min-w-0">
+              <div className="truncate font-semibold text-white">{displayProductTitle(product)}</div>
+              <div className="mt-0.5 truncate text-[11px] text-ink-500">{product.storeName ?? "Store name pending PDP sync"}</div>
+            </div>
           </div>
           <span className={["shrink-0 rounded-full px-2 py-1 text-[10px]", collected ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-400"].join(" ")}>
             {collected ? "saved" : "open PDP"}
           </span>
+        </div>
+        <div className="mb-3 grid grid-cols-2 gap-2 rounded-md border border-white/8 bg-white/[0.04] p-2 text-[11px]">
+          <InfoLine label="Store" value={product.storeName ?? "-"} />
+          <InfoLine label="Store Type" value={product.storeType ?? "-"} />
+          <InfoLine label="Rating" value={product.ratingText ?? (product.rating ? String(product.rating) : "-")} />
+          <InfoLine label="Reviews" value={product.reviewText ?? product.reviewCount?.toLocaleString() ?? "-"} />
+          <InfoLine label="Sold" value={product.totalSoldText ?? product.monthlySoldText ?? "-"} />
+          <InfoLine label="Media" value={`${product.images.length} images · ${product.videos.length} videos`} />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <EvidenceStatusPill label="First page" done={productAssets.some((asset) => asset.kind === "PRODUCT_PAGE")} />
@@ -1692,16 +1770,41 @@ function CollectionStepPreview({
           <EvidenceStatusPill label="Shop vouchers" done={product.shopVouchers.length > 0 || product.bundleDeals.length > 0} />
         </div>
         {step.subActions && step.subActions.length > 0 && (
-          <div className="mt-3 space-y-1 border-t border-white/8 pt-3">
+          <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-white/8 pt-3">
             {step.subActions.map((action) => (
-              <div key={action.id} className="rounded border border-white/8 bg-white/[0.04] px-2 py-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-white">{action.label}</span>
-                  <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-400">{action.mode}</span>
-                </div>
-                <div className="mt-1 text-[11px] leading-4 text-ink-500">{action.description}</div>
+              <div key={action.id} className="flex items-center justify-between gap-2 rounded border border-white/8 bg-white/[0.04] px-2 py-1.5">
+                <span className="truncate font-medium text-white">{action.label}</span>
+                <span className="shrink-0 rounded-full bg-white/8 px-2 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-400">{action.mode}</span>
               </div>
             ))}
+          </div>
+        )}
+        {product.description && (
+          <div className="mt-3 rounded border border-white/8 bg-white/[0.04] p-2 text-[11px] leading-4 text-ink-400">
+            <div className="mb-1 font-semibold text-white">Description preview</div>
+            {product.description.slice(0, 220)}{product.description.length > 220 ? "..." : ""}
+          </div>
+        )}
+        {productReviews.length > 0 && (
+          <div className="mt-3 overflow-hidden rounded border border-white/8">
+            <table className="w-full text-left text-[11px]">
+              <thead>
+                <tr className="bg-white/[0.04] text-ink-500">
+                  <th className="px-2 py-1.5">Type</th>
+                  <th className="px-2 py-1.5">Star</th>
+                  <th className="px-2 py-1.5">Comment - timepost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productReviews.slice(0, 3).map((review) => (
+                  <tr key={review.id} className="border-t border-white/8">
+                    <td className="px-2 py-1.5">{review.sentiment === "NEGATIVE" ? "Negative Reviews" : "Positive Reviews"}</td>
+                    <td className="px-2 py-1.5">{review.rating ? `${review.rating} Star` : "-"}</td>
+                    <td className="px-2 py-1.5">{[review.reviewDate, review.variation, review.comment].filter(Boolean).join(" | ").slice(0, 180)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -1855,6 +1958,9 @@ function FloatingStepController({
   const [compact, setCompact] = useState(true);
   const activeSubAction = step.subActions?.find((action) => action.id === activeSubActionId) ?? step.subActions?.[0];
   const collectLabel = activeSubAction?.collectLabel ?? (activeSubAction?.mode === "download" ? "Download Data" : activeSubAction?.mode === "sync" ? "Collect Data" : undefined);
+  const compactInstruction = step.stage === "PRODUCT_DETAILS"
+    ? "Choose the sub-action, confirm the target page, then collect."
+    : step.instruction;
   if (compact) {
     return (
       <motion.div
@@ -1928,19 +2034,9 @@ function FloatingStepController({
             {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "waiting"}
           </span>
         </div>
-        {step.instruction}
-        {step.substeps && step.substeps.length > 0 && (
-          <ul className="mt-2 space-y-1 border-t border-white/8 pt-2">
-            {step.substeps.map((substep) => (
-              <li key={substep} className="flex gap-2 text-[11px] text-ink-400">
-                <CheckCircle2 size={12} className="mt-0.5 shrink-0 text-signal-blue" />
-                <span>{substep}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="text-[11px] leading-4 text-ink-400">{compactInstruction}</div>
         {step.subActions && step.subActions.length > 0 && (
-          <div className="mt-2 space-y-1 border-t border-white/8 pt-2">
+          <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-white/8 pt-2">
             {step.subActions.map((action) => (
               <button
                 key={action.id}
@@ -1952,15 +2048,14 @@ function FloatingStepController({
                 onClick={() => onSelectSubAction(action.id)}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-medium text-white">{action.label}</span>
+                  <span className="truncate text-[11px] font-medium text-white">{action.label}</span>
                   <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{action.mode}</span>
                 </div>
-                <div className="mt-1 text-[10px] leading-4 text-ink-500">{action.description}</div>
-                {action.guidance && <div className="mt-1 text-[10px] leading-4 text-signal-blue">{action.guidance}</div>}
               </button>
             ))}
           </div>
         )}
+        {activeSubAction?.guidance && <div className="mt-2 rounded-md border border-signal-blue/20 bg-signal-blue/10 px-2 py-1.5 text-[10px] leading-4 text-signal-blue">{activeSubAction.guidance}</div>}
       </div>
       <div className="mt-2 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-2">
         <button className="secondary-button h-9 w-10 px-0" type="button" onClick={onPrevious} aria-label="Previous step">
@@ -2024,6 +2119,22 @@ function ScreenshotReviewModal({
   const imageRef = useRef<HTMLImageElement | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [selection, setSelection] = useState<CropRect | null>(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
+
+  useEffect(() => {
+    setPreviewZoom(1);
+    setSelection(null);
+  }, [capture.payload.imageDataUrl]);
+
+  function applyPreviewZoom(nextZoom: number) {
+    setPreviewZoom(Math.max(0.35, Math.min(4, Number(nextZoom.toFixed(2)))));
+  }
+
+  function handlePreviewWheel(event: WheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const delta = event.deltaY < 0 ? 0.12 : -0.12;
+    applyPreviewZoom(previewZoom + delta);
+  }
 
   function pointerPosition(event: PointerEvent<HTMLDivElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -2084,18 +2195,37 @@ function ScreenshotReviewModal({
             <div className="text-sm font-semibold text-white">Review Screenshot</div>
             <div className="mt-1 text-xs text-ink-400">{capture.stepLabel}</div>
           </div>
-          <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onCancel} disabled={saving}>
-            Redo
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="secondary-button h-9 w-9 px-0" type="button" onClick={() => applyPreviewZoom(previewZoom - 0.2)} aria-label="Zoom screenshot out" title="Zoom out">
+              <ZoomOut size={15} />
+            </button>
+            <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => applyPreviewZoom(1)}>
+              {Math.round(previewZoom * 100)}%
+            </button>
+            <button className="secondary-button h-9 w-9 px-0" type="button" onClick={() => applyPreviewZoom(previewZoom + 0.2)} aria-label="Zoom screenshot in" title="Zoom in">
+              <ZoomIn size={15} />
+            </button>
+            <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onCancel} disabled={saving}>
+              Redo
+            </button>
+          </div>
         </div>
         <div
           className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/12 bg-black/85"
+          onWheel={handlePreviewWheel}
           onPointerDown={startSelection}
           onPointerMove={updateSelection}
           onPointerUp={endSelection}
           onPointerCancel={endSelection}
         >
-          <img ref={imageRef} src={capture.payload.imageDataUrl} alt="Captured evidence preview" className="block h-full max-h-[72vh] w-full select-none object-contain" draggable={false} />
+          <img
+            ref={imageRef}
+            src={capture.payload.imageDataUrl}
+            alt="Captured evidence preview"
+            className="block h-full max-h-[72vh] w-full select-none object-contain transition-transform duration-150 ease-out"
+            draggable={false}
+            style={{ transform: `scale(${previewZoom})`, transformOrigin: "center center" }}
+          />
           {selection && selection.width > 2 && selection.height > 2 && (
             <div
               className="pointer-events-none absolute border-2 border-signal-blue bg-signal-blue/15"
@@ -2110,7 +2240,7 @@ function ScreenshotReviewModal({
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-ink-400">
-            The full captured page is scaled to fit this preview. Drag over the focused area to crop; use Redo if the capture is wrong.
+            Scroll or pinch to zoom. Drag over the focused area to crop; use Redo if the capture is wrong.
           </div>
           <div className="flex items-center gap-2">
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => onSave(capture.payload)} disabled={saving}>
@@ -2173,6 +2303,16 @@ function ProjectsView() {
     ]);
   }
 
+  function finishProjectCollection(projectId: string) {
+    setCollectingProject(null);
+    setInspectingProjectId(projectId);
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["project-detail", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["project-detail"] })
+    ]);
+  }
+
   if (collectingProject) {
     if (collectingProject.marketplace === "TIKTOK_SHOP") {
       return (
@@ -2192,6 +2332,7 @@ function ProjectsView() {
         browserUrl={collectionBrowserUrl}
         onBrowserUrlChange={setCollectionBrowserUrl}
         onNewAnalysis={closeProjectCollection}
+        onCollectionCompleted={finishProjectCollection}
         exitLabel="Back to Projects"
       />
     );
@@ -3581,6 +3722,18 @@ function collectionStageLabel(stage: CollectionStage): string {
     case "KEYWORD_GENERAL":
     default:
       return "Part 1 - Keyword General";
+  }
+}
+
+function collectionStageShortLabel(stage: CollectionStage): string {
+  switch (stage) {
+    case "PRODUCT_DETAILS":
+      return "Part 2";
+    case "EVALUATION_KEY_STORE":
+      return "Part 3";
+    case "KEYWORD_GENERAL":
+    default:
+      return "Part 1";
   }
 }
 

@@ -101,6 +101,7 @@ Release blocker fixes:
 - 2026-07-08: Fixed Key Product rating extraction so Shopee review-count text such as `50,7k Ratings` is not parsed as rating `5`, and PDP captures now persist structured rating/review/sold text.
 - 2026-07-08: Repaired Store Name extraction by preserving PDP shop-panel line breaks and reading the sibling name block after the Shopee shop anchor before noisy status text is filtered.
 - 2026-07-09: Fixed Store Name extraction for Shopee's current `sll2-pdp-product-shop` container and added backend repair from captured PDP HTML so existing products with blank store names can be backfilled when the project detail is opened.
+- 2026-07-09: Improved the Product Detail collection workspace with Part 1/2/3 jump controls, compact sub-action guidance, richer active-product previews, screenshot-review zoom, and automatic return to Project Inspector after Product Details completion.
 
 ## M1 Product Experience
 
@@ -249,6 +250,10 @@ Implemented:
 - Product Detail Qualified collection steps now use product titles as section/step labels instead of generic Product 1/Product 2 labels.
 - Product Detail Qualified collection now captures only the visible first viewport and syncs structured PDP evidence in the background: slides/images, videos, description, review rows, review media, shop vouchers, and bundle deals.
 - Product Detail Qualified collection progress now previews the active product, evidence status, and sub-actions for first page, slides/images, description, reviews, media in user, and shop homepage so users can verify whether the current PDP data looks correct before moving on.
+- Collection Progress now exposes direct Part 1/Part 2/Part 3 navigation so a user can return to unfinished Keyword General, Product Details, or Evaluation/Key Store work from any current phase.
+- Product Detail Qualified guidance is now action-first: the floating collector and progress panel show compact sub-action buttons instead of long instructional text blocks.
+- Active Product Detail previews now show synced store, store type, rating, review, sold, media, description, and review-table evidence so users can confirm a product before moving to the next item.
+- Completing Product Details saves the next stage, closes the browser workspace, and opens the Project Inspector so the just-collected evidence can be reviewed immediately.
 - Product dossiers now show collected videos plus Media in User image/video evidence when browser-readable Shopee HTML exposes it.
 - Browser capture status is visible to the user with `targeted page received`, `downloading HTML`, done, and failed states plus a manual `Download HTML` fallback action.
 - Relevance and top-sales snapshots extract rendered product cards from the visible browser page and persist product rows with thumbnail, product URL, price estimate, rating, sold count, source, and selection reason.

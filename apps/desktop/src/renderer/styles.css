@@ -440,6 +440,11 @@ webview {
   box-shadow: inset 3px 0 0 #2563eb;
 }
 
+.mio-light .mio-stage-tab-active,
+.mio-light .mio-stage-tab-active .text-white\/80 {
+  color: #ffffff;
+}
+
 .mio-light .mio-report-section,
 .mio-light .mio-report-section details,
 .mio-light table {

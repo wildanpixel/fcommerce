@@ -4,6 +4,11 @@ All notable changes to Marketplace Intelligence OS will be documented in this fi
 
 ## Unreleased - 2026-07-09
 
+- Added Part 1/Part 2/Part 3 jump controls in Collection Progress so users can return to unfinished collection phases without losing saved state.
+- Simplified Product Detail Qualified guidance by replacing long instructions with compact sub-action controls in the floating collector and progress panel.
+- Added richer Product Detail preview cards showing store, store type, rating, reviews, sold text, media counts, description snippets, and collected review rows before moving to the next product.
+- Added screenshot review zoom controls plus mouse-wheel/trackpad pinch zoom support before saving full or cropped evidence.
+- After completing Product Details or the final collection phase, the app now closes the collection workspace and opens the project inspector for immediate evidence review.
 - Fixed Product Detail Qualified store-name sync for Shopee's current `sll2-pdp-product-shop` container, which was not covered by the previous `s112` selector.
 - Added a backend PDP HTML fallback parser so saved product-page HTML can fill `Store Name`, `Store URL`, and valid Mall/Star store type even when the renderer structured payload misses them.
 - Added an automatic project-detail repair pass that backfills missing product store fields from existing captured PDP HTML assets.
