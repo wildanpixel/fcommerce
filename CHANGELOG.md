@@ -1,9 +1,17 @@
 # Changelog
 
-All notable changes to Marketplace Intelligence OS will be documented in this file.
+All notable changes to MarketPlace Keyword Competitor Analysis will be documented in this file.
 
 ## Unreleased - 2026-07-10
 
+- Renamed the visible desktop product to MarketPlace Keyword Competitor Analysis and renamed Projects to Keyword Projects in the product shell.
+- Changed Product Detail slide collection from bulk gallery scraping to a user-selected HD media workflow: each click saves the currently visible main product image/video and advances the button from Download to Download 2 through Download 9.
+- Fixed Product Detail Shop Home Page persistence so product-level store homepage screenshots remain visible inside the matching Product Detailed Qualified section while store records are still updated.
+- Added independent Product Detail sub-action progress keys so a product is not marked complete after only one sub-action.
+- Added a collapsed-by-default right-side Activity sidebar for collection actions.
+- Added Keyword Projects category filtering, card/list view switching, typed project-delete confirmation, completed/incomplete status labels, and completed-project collection behavior.
+- Changed Project Inspector metrics from Evidence/Ready to Media-focused metrics, added clickable saved URL display, and improved Product Detail media de-duplication and broken-image hiding.
+- Added report preview, copy-to-docs, HTML open/download, and DOCX export actions backed by local API endpoints.
 - Changed Product Detail Shop Home Page collection to request full-page screenshots while keeping First Page as visible-viewport capture.
 - Moved Product Detail Open Target controls into each sub-action row and made folded collector target/action buttons follow the selected sub-action.
 - Preserved Shopee description line breaks during PDP extraction and added description image persistence/display in Project Inspector.

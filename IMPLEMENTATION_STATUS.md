@@ -31,8 +31,8 @@ The overall percentage is a weighted product estimate based on foundation readin
 | --- | --- | ---: | --- |
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
-| M2 | Shopee Desktop | [###################-] 95% | Partial |
-| M3 | Intelligence | [##############------] 70% | Partial |
+| M2 | Shopee Desktop | [###################-] 96% | Partial |
+| M3 | Intelligence | [###############-----] 75% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -103,6 +103,10 @@ Release blocker fixes:
 - 2026-07-09: Fixed Store Name extraction for Shopee's current `sll2-pdp-product-shop` container and added backend repair from captured PDP HTML so existing products with blank store names can be backfilled when the project detail is opened.
 - 2026-07-09: Improved the Product Detail collection workspace with Part 1/2/3 jump controls, compact sub-action guidance, richer active-product previews, screenshot-review zoom, and automatic return to Project Inspector after Product Details completion.
 - 2026-07-10: Corrected Product Detail sub-action capture behavior so Shop Home Page uses full-page screenshots, sub-actions own their target buttons, descriptions preserve Shopee line breaks and image evidence, and review extraction/display is limited to clean 3 positive + 2 low-star rows.
+- 2026-07-10: Renamed the visible app to MarketPlace Keyword Competitor Analysis, changed Projects to Keyword Projects, added category filtering/list view/delete confirmation/completed status, and moved collection activity into a collapsed right sidebar.
+- 2026-07-10: Changed Product Detail slide collection to a user-selected HD media cycle that saves the currently visible main product image/video one at a time up to 9 items.
+- 2026-07-10: Fixed Product Detail shop-home screenshot ownership so saved Shop Home Page evidence appears inside the matching Product Detailed Qualified product.
+- 2026-07-10: Added report preview, copy-to-docs, local HTML opening, and DOCX export actions from Report History.
 
 ## M1 Product Experience
 
@@ -148,6 +152,8 @@ Release blocker fixes:
 | Key Stores inside project inspector | Completed | Product UI | Project detail evidence assets | Done | P0 |
 | Reports screen | Completed | Product UI and Reporting | Report sections, PDF generation | Done | P0 |
 | Report history download/delete | Completed | Product UI and API | Report repository, platform open path | Done | P0 |
+| Report preview and copy | Completed | Product UI and Reporting | Generated HTML reports, clipboard | Done | P1 |
+| HTML and DOCX report exports | Completed | Product UI and API | Report repository, local file writer | Done | P1 |
 | Settings screen | Completed | Product UI and Platform | Settings repository, platform service | Done | P0 |
 
 Implemented:
@@ -203,7 +209,7 @@ M1 scope boundary:
 
 ## M2 Shopee Desktop
 
-[###################-] 95%
+[###################-] 96%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -318,7 +324,7 @@ Sprint 1 completion evidence:
 
 ## M3 Intelligence
 
-[##############------] 70%
+[###############-----] 75%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |

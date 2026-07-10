@@ -20,6 +20,8 @@ import type {
   ProjectDetailPayload,
   ReportGenerationPayload,
   ReportGenerationResult,
+  ReportDocxResult,
+  ReportHtmlPayload,
   ReportSummary,
   SaveSettingsPayload,
   SettingsPayload
@@ -126,6 +128,12 @@ export const apiClient = {
       body: JSON.stringify(payload)
     }),
   reports: () => request<ReportSummary[]>("/reports"),
+  reportHtml: (reportId: string) => request<ReportHtmlPayload>(`/reports/${reportId}/html`),
+  exportReportDocx: (reportId: string) =>
+    request<ReportDocxResult>(`/reports/${reportId}/docx`, {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
   deleteReport: (reportId: string) =>
     request<{ ok: true }>(`/reports/${reportId}`, {
       method: "DELETE"

@@ -69,6 +69,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-09 | PDP Store Name still blank from saved Product Detail HTML | Fixed | The extractor now recognizes `sll2-pdp-product-shop` and generic `pdp-product-shop` containers, and project detail loading backfills missing product store fields from captured PDP HTML assets. |
 | 2026-07-09 | Product Detail collection UI was too text-heavy | Fixed | Product Detail collection now has direct Part 1/2/3 navigation, compact sub-action controls, richer active-product previews, screenshot-review zoom, and automatic return to Project Inspector after Product Details completion. |
 | 2026-07-10 | Product Detail evidence saved incorrect scope | Fixed | Shop Home Page now uses full-page capture, per-sub-action target buttons drive Part 2 collection, descriptions preserve Shopee line breaks and description images, and review extraction/display is constrained to 3 positive plus 2 low-star rows. |
+| 2026-07-10 | Product Detail media collection saved blurry/duplicate gallery assets | Fixed | Slides are now collected through a user-selected HD media cycle: the user selects the main Shopee gallery image/video and each Download click saves one visible media item up to 9 total. |
+| 2026-07-10 | Product Detail shop homepage evidence did not appear in Project Inspector | Fixed | Product-owned Shop Home Page captures now stay attached to the product while still updating store records, and the inspector can show compatible existing store-owned captures. |
+| 2026-07-10 | Keyword project management and report export gaps | Improved | Keyword Projects now support category filtering, card/list views, typed delete confirmation, completed/incomplete status, report preview/copy, HTML open, and DOCX export. |
 
 ## Sprint Overview
 
@@ -255,6 +258,8 @@ Completed: 2026-07-03
 - 2026-07-09 update: Product Detail capture and project-detail repair now parse the current Shopee `sll2-pdp-product-shop` HTML shape, including visible store name, store URL, and Mall/Star badge signals.
 - 2026-07-09 update: Product Detail collection navigation now allows jumping between Part 1, Part 2, and Part 3; Part 2 guidance uses compact sub-action controls and previews synced product evidence before the user moves on.
 - 2026-07-10 update: Product Detail sub-actions now own target navigation, Shop Home Page captures full-page evidence, descriptions preserve readable Shopee formatting and images, and review rows are filtered to report-grade 3 positive plus 2 negative samples.
+- 2026-07-10 update: Product Detail slide collection now saves user-selected main HD media one item at a time, and product shop-home captures now appear in the correct Product Detailed Qualified section.
+- 2026-07-10 update: Keyword Projects and Reports gained category filtering, cards/list view, typed deletion, completed-state behavior, report preview/copy, HTML open, and DOCX export.
 
 ## Sprint 3 - Complete Store Detail
 

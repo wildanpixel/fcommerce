@@ -1,7 +1,7 @@
 {
   "name": "@marketplace-intelligence-os/desktop",
   "version": "1.0.0",
-  "description": "Marketplace Intelligence OS desktop application for marketplace research, automation, AI analysis, and consulting report generation.",
+  "description": "MarketPlace Keyword Competitor Analysis desktop application for marketplace research, evidence collection, AI analysis, and consulting report generation.",
   "author": "Wildan Ega",
   "private": true,
   "type": "module",
@@ -77,7 +77,7 @@
   },
   "build": {
     "appId": "com.wildanega.marketplace-intelligence-os",
-    "productName": "Marketplace Intelligence OS",
+    "productName": "MarketPlace Keyword Competitor Analysis",
     "directories": {
       "buildResources": "buildResources",
       "output": "release"

@@ -238,7 +238,7 @@ export type BrowserOption = {
 
 export type HealthPayload = {
   ok: true;
-  product: "Marketplace Intelligence OS";
+  product: "MarketPlace Keyword Competitor Analysis";
   version: string;
 };
 
@@ -263,6 +263,19 @@ export type ReportGenerationResult = {
   reportId: string;
   htmlPath: string;
   pdfPath: string;
+};
+
+export type ReportHtmlPayload = {
+  reportId: string;
+  htmlPath: string;
+  html: string;
+  text: string;
+};
+
+export type ReportDocxResult = {
+  ok: true;
+  reportId: string;
+  docxPath: string;
 };
 
 export type ReportSummary = {

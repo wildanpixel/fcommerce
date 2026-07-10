@@ -22,6 +22,7 @@ import type {
   NewProjectInput,
   PlatformPayload,
   ReportGenerationPayload,
+  ReportHtmlPayload,
   SaveSettingsPayload
 } from "../shared/contracts.js";
 import type { ProductDetail, ReviewEvidence, StoreProfile } from "../domain/models.js";
@@ -256,7 +257,7 @@ export function createApp(): Express {
   app.use((request, response, next) => {
     response.header("Access-Control-Allow-Origin", request.headers.origin ?? "*");
     response.header("Access-Control-Allow-Headers", "Content-Type");
-    response.header("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
+    response.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
     if (request.method === "OPTIONS") {
       response.sendStatus(204);
       return;
@@ -267,7 +268,7 @@ export function createApp(): Express {
   app.get("/api/health", (_request, response) => {
     response.json({
       ok: true,
-      product: "Marketplace Intelligence OS",
+      product: "MarketPlace Keyword Competitor Analysis",
       version: process.env.MIO_APP_VERSION ?? "1.0.0"
     });
   });
@@ -706,6 +707,35 @@ export function createApp(): Express {
     response.json(await dependencies.reportRepository.list());
   }));
 
+  app.get("/api/reports/:id/html", asyncRoute(async (request, response) => {
+    const input = z.object({ id: z.string().uuid() }).parse(request.params);
+    const report = await dependencies.reportRepository.get(input.id);
+    if (!report?.htmlPath) {
+      response.status(404).json({ error: "Report HTML not found" });
+      return;
+    }
+    const html = await readFile(report.htmlPath, "utf8");
+    response.json({
+      reportId: report.id,
+      htmlPath: report.htmlPath,
+      html,
+      text: htmlToPlainText(html)
+    } satisfies ReportHtmlPayload);
+  }));
+
+  app.post("/api/reports/:id/docx", asyncRoute(async (request, response) => {
+    const input = z.object({ id: z.string().uuid() }).parse(request.params);
+    const report = await dependencies.reportRepository.get(input.id);
+    if (!report?.htmlPath) {
+      response.status(404).json({ error: "Report HTML not found" });
+      return;
+    }
+    const html = await readFile(report.htmlPath, "utf8");
+    const docxPath = report.htmlPath.replace(/\.html$/iu, ".docx");
+    await writeFile(docxPath, createDocxFromHtml(html));
+    response.json({ ok: true, reportId: report.id, docxPath });
+  }));
+
   app.delete("/api/reports/:id", asyncRoute(async (request, response) => {
     const input = z.object({ id: z.string().uuid() }).parse(request.params);
     const deleted = await dependencies.reportRepository.delete(input.id);
@@ -713,7 +743,11 @@ export function createApp(): Express {
       response.status(404).json({ error: "Report not found" });
       return;
     }
-    await safeRemoveFiles([deleted.htmlPath, deleted.pdfPath]);
+    await safeRemoveFiles([
+      deleted.htmlPath,
+      deleted.pdfPath,
+      deleted.htmlPath ? deleted.htmlPath.replace(/\.html$/iu, ".docx") : undefined
+    ]);
     response.json({ ok: true });
   }));
 
@@ -869,6 +903,134 @@ function safeParseJson<T>(value: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function htmlToPlainText(html: string): string {
+  return decodeHtmlText(html
+    .replace(/<script\b[\s\S]*?<\/script>/giu, "")
+    .replace(/<style\b[\s\S]*?<\/style>/giu, "")
+    .replace(/<\/(?:h1|h2|h3|h4|p|li|tr|details|section|div)>/giu, "\n")
+    .replace(/<br\s*\/?>/giu, "\n")
+    .replace(/<[^>]+>/gu, " ")
+    .replace(/[ \t\f\v]+/gu, " ")
+    .replace(/\n[ \t]+/gu, "\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim());
+}
+
+function createDocxFromHtml(html: string): Buffer {
+  const paragraphs = htmlToPlainText(html)
+    .split(/\n{1,}/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 900)
+    .map((line) => `<w:p><w:r><w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r></w:p>`)
+    .join("");
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${paragraphs || "<w:p><w:r><w:t>No report content available.</w:t></w:r></w:p>"}
+    <w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720"/></w:sectPr>
+  </w:body>
+</w:document>`;
+  return createStoredZip([
+    {
+      name: "[Content_Types].xml",
+      data: `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`
+    },
+    {
+      name: "_rels/.rels",
+      data: `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`
+    },
+    {
+      name: "word/document.xml",
+      data: documentXml
+    }
+  ]);
+}
+
+function createStoredZip(entries: Array<{ name: string; data: string | Buffer }>): Buffer {
+  const chunks: Buffer[] = [];
+  const centralDirectory: Buffer[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name, "utf8");
+    const data = typeof entry.data === "string" ? Buffer.from(entry.data, "utf8") : entry.data;
+    const checksum = crc32(data);
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(0, 10);
+    localHeader.writeUInt16LE(0, 12);
+    localHeader.writeUInt32LE(checksum, 14);
+    localHeader.writeUInt32LE(data.length, 18);
+    localHeader.writeUInt32LE(data.length, 22);
+    localHeader.writeUInt16LE(name.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+    chunks.push(localHeader, name, data);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(0, 12);
+    centralHeader.writeUInt16LE(0, 14);
+    centralHeader.writeUInt32LE(checksum, 16);
+    centralHeader.writeUInt32LE(data.length, 20);
+    centralHeader.writeUInt32LE(data.length, 24);
+    centralHeader.writeUInt16LE(name.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralDirectory.push(centralHeader, name);
+    offset += localHeader.length + name.length + data.length;
+  }
+  const centralSize = centralDirectory.reduce((sum, chunk) => sum + chunk.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat([...chunks, ...centralDirectory, end]);
+}
+
+function crc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;")
+    .replace(/'/gu, "&apos;");
 }
 
 async function repairMissingProductStoresFromCapturedHtml(projectId: string): Promise<number> {
@@ -1115,7 +1277,7 @@ async function persistCapturedPageData(
       const mergedImages = mergeUnique([
         ...extractRawImages(currentRaw),
         ...enrichment.images
-      ]).slice(0, 12);
+      ]).slice(0, 9);
       const mergedVideos = mergeUnique([
         ...extractStringArray(currentRaw.videos),
         ...enrichment.videos
@@ -1240,8 +1402,13 @@ async function persistCapturedPageData(
     const storeId = await intelligenceRepository.saveStore(projectId, store);
     result.normalizedRecordCount += 1;
     result.storeId = storeId;
-    result.ownerType = "STORE";
-    result.ownerId = storeId;
+    if (input.ownerType === "PRODUCT" && input.ownerId) {
+      result.ownerType = "PRODUCT";
+      result.ownerId = input.ownerId;
+    } else {
+      result.ownerType = "STORE";
+      result.ownerId = storeId;
+    }
   }
 
   return result;
@@ -1630,7 +1797,7 @@ function readStructuredProductDetail(metadata?: Record<string, unknown>): Struct
             variation: typeof reviewItem.variation === "string" ? reviewItem.variation : undefined
           };
         })
-        .filter((reviewItem) => reviewItem.comment.trim().length > 0)
+        .filter((reviewItem) => isStructuredShopeeReviewComment(reviewItem.comment))
     : [];
 
   return {
@@ -1669,6 +1836,15 @@ function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): Re
       ratingLabel: input.ratingLabel
     }
   };
+}
+
+function isStructuredShopeeReviewComment(comment: string): boolean {
+  const value = cleanText(comment);
+  return value.length >= 20 &&
+    value.length <= 1000 &&
+    /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2})?\b/u.test(value) &&
+    !/^https?:\/\//iu.test(value) &&
+    !/(product ratings|all\s*\(|semua\s*\(|comments?\s*\(|with media|dengan media|repeat purchase|shop vouchers|bundle deals|barcode|bpom sesuai|dermatologically tested|add to cart|buy now)/iu.test(value);
 }
 
 function metadataFlag(metadata: Record<string, unknown> | undefined, key: string): boolean {

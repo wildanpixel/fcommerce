@@ -1,6 +1,6 @@
-# Marketplace Intelligence OS
+# MarketPlace Keyword Competitor Analysis
 
-Marketplace Intelligence OS is a local-first desktop application for marketplace research, Shopee Indonesia competitive intelligence, browser automation, AI-assisted analysis, and professional report generation.
+MarketPlace Keyword Competitor Analysis is a local-first desktop application for marketplace keyword research, Shopee Indonesia competitive intelligence, guided evidence collection, AI-assisted analysis, and professional report generation.
 
 The current desktop target is Shopee Indonesia. The architecture keeps marketplace-specific behavior behind adapter interfaces so TikTok Shop, Tokopedia, Lazada, Amazon, Alibaba, and future marketplaces can be added without rewriting the core workflow.
 
@@ -16,7 +16,9 @@ The current desktop target is Shopee Indonesia. The architecture keeps marketpla
 - Modular HTML report generation with Puppeteer PDF export.
 - Cross-platform browser discovery for Chromium, Google Chrome, Microsoft Edge, and Brave.
 - Platform service for application folders, native dialogs, notifications, shell actions, and shortcuts.
-- Product-led start screen, research wizard, project tabs, key-store scoring, and report workflow matching the reference research report sequence.
+- Product-led start screen, guided keyword projects, category filtering, project inspection, key-store scoring, and report workflow matching the reference research report sequence.
+- Product Detail guided sub-actions for viewport evidence, user-selected HD product media, reviews, user media, descriptions, promotions, and shop homepage capture.
+- Report preview with copy-to-docs support plus PDF, HTML, and DOCX export options.
 - Android Emulator Workspace for TikTok mobile evidence, with ADB tooling detection, emulator launch, user-selected APK install, TikTok app launch, screenshot capture, and UIAutomator visible-text extraction.
 
 ## Repository Layout
