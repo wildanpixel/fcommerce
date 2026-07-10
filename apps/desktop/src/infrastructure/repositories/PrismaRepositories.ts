@@ -152,6 +152,7 @@ export class PrismaProjectRepository implements ProjectRepository {
         bundleDeals: extractProductStringArray(product.rawJson, "bundleDeals"),
         promotionCount: extractProductNumber(product.rawJson, "promotionCount"),
         description: product.description,
+        descriptionImages: extractProductStringArray(product.rawJson, "descriptionImages"),
         variants: parseJsonArray(product.variantsJson),
         specifications: parseStringRecord(product.specificationsJson),
         images: extractProductImages(product.rawJson),

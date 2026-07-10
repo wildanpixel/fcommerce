@@ -978,12 +978,14 @@ async function localizeManualEvidenceImages(
     ? {
         ...structured,
         images: await localizeImageArray(structured.images, imageFolder, "product-slide", 24),
+        descriptionImages: await localizeImageArray(structured.descriptionImages, imageFolder, "description-image", 24),
         reviewMediaImages: await localizeImageArray(structured.reviewMediaImages, imageFolder, "review-media", 30)
       }
     : undefined;
   if (structured && localizedStructured) {
     localizedImageCount +=
       localizedStructured.images.filter((image, index) => image !== structured.images[index]).length +
+      localizedStructured.descriptionImages.filter((image, index) => image !== structured.descriptionImages[index]).length +
       localizedStructured.reviewMediaImages.filter((image, index) => image !== structured.reviewMediaImages[index]).length;
   }
 
@@ -1062,6 +1064,7 @@ type StructuredProductDetail = {
   images: string[];
   videos: string[];
   description?: string;
+  descriptionImages: string[];
   shopVouchers: string[];
   bundleDeals: string[];
   promotionCount?: number;
@@ -1125,6 +1128,10 @@ async function persistCapturedPageData(
         ...extractStringArray(currentRaw.reviewMediaVideos),
         ...enrichment.reviewMediaVideos
       ]).slice(0, 16);
+      const mergedDescriptionImages = mergeUnique([
+        ...extractStringArray(currentRaw.descriptionImages),
+        ...enrichment.descriptionImages
+      ]).slice(0, 24);
 
       await prisma.product.update({
         where: { id: product.id },
@@ -1156,6 +1163,7 @@ async function persistCapturedPageData(
             ...currentRaw,
             images: mergedImages,
             videos: mergedVideos,
+            descriptionImages: mergedDescriptionImages,
             reviewMediaImages: mergedReviewMediaImages,
             reviewMediaVideos: mergedReviewMediaVideos,
             imageUrl: mergedImages[0] ?? currentRaw.imageUrl,
@@ -1196,7 +1204,11 @@ async function persistCapturedPageData(
         (metadataFlag(input.metadata, "syncProductDetail") &&
           (!productDetailAction || productDetailAction === "positive-reviews" || productDetailAction === "negative-reviews"));
       if (shouldSaveProductReviews) {
-        const reviews = enrichment.reviews.length > 0 ? enrichment.reviews : parseReviewEvidence(input.visibleText ?? "");
+        const reviews = enrichment.reviews.length > 0
+          ? enrichment.reviews
+          : productDetailAction === "positive-reviews" || productDetailAction === "negative-reviews"
+            ? []
+            : parseReviewEvidence(input.visibleText ?? "");
         const existingReviews = await prisma.review.findMany({ where: { productId: product.id } });
         const existingKeys = new Set(existingReviews.map((reviewRow) => reviewDedupeKey({
           sentiment: reviewRow.sentiment as ReviewEvidence["sentiment"],
@@ -1443,6 +1455,7 @@ function extractProductEnrichment(
   variants: string[];
   specifications: Record<string, string>;
   description?: string;
+  descriptionImages: string[];
   images: string[];
   videos: string[];
   reviewMediaImages: string[];
@@ -1508,6 +1521,7 @@ function extractProductEnrichment(
     variants: extractVariants(text),
     specifications: extractSpecifications(text),
     description: collectDescriptionPromotions ? structured?.description ?? extractDescription(input.kind, text) : undefined,
+    descriptionImages: collectDescriptionPromotions ? structured?.descriptionImages ?? [] : [],
     images,
     videos,
     reviewMediaImages: collectReviewMedia ? structured?.reviewMediaImages ?? [] : [],
@@ -1631,6 +1645,7 @@ function readStructuredProductDetail(metadata?: Record<string, unknown>): Struct
     images: extractStringArray(raw.images),
     videos: extractStringArray(raw.videos),
     description: typeof raw.description === "string" && raw.description.trim() ? raw.description.trim() : undefined,
+    descriptionImages: extractStringArray(raw.descriptionImages),
     shopVouchers: extractStringArray(raw.shopVouchers),
     bundleDeals: extractStringArray(raw.bundleDeals),
     promotionCount: typeof raw.promotionCount === "number" && Number.isFinite(raw.promotionCount) ? raw.promotionCount : undefined,

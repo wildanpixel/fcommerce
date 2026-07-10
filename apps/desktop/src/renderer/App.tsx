@@ -92,6 +92,7 @@ type CollectionSubAction = {
   mode: "screenshot" | "download" | "collect" | "sync" | "background";
   description: string;
   collectLabel?: string;
+  captureMode?: "viewport" | "full-page";
   guidance?: string;
   targetUrl?: string;
   preferredViewMode?: PlatformViewMode;
@@ -152,6 +153,7 @@ type RenderedProductDetailSnapshot = {
   images: string[];
   videos: string[];
   description?: string;
+  descriptionImages: string[];
   shopVouchers: string[];
   bundleDeals: string[];
   promotionCount?: number;
@@ -1283,8 +1285,9 @@ function GuidedBrowserCollector({
     if (!webview?.capturePage) {
       throw new Error("The embedded browser cannot capture this page in the current runtime.");
     }
-    setCaptureStatus({ message: step.captureMode === "viewport" ? "Capturing visible viewport" : "Capturing full page screenshot", state: "working" });
-    const screenshot = step.captureMode === "viewport"
+    const captureMode = subAction?.captureMode ?? step.captureMode ?? "full-page";
+    setCaptureStatus({ message: captureMode === "viewport" ? "Capturing visible viewport" : "Capturing full page screenshot", state: "working" });
+    const screenshot = captureMode === "viewport"
       ? await captureViewportScreenshot(webview)
       : await captureFullPageScreenshot(webview);
     const sourceUrl = webview.getURL?.() ?? currentUrl;
@@ -1311,6 +1314,7 @@ function GuidedBrowserCollector({
             activeReviewFilter: undefined,
             images: [],
             videos: [],
+            descriptionImages: [],
             shopVouchers: [],
             bundleDeals: [],
             promotionCount: 0,
@@ -1347,7 +1351,8 @@ function GuidedBrowserCollector({
         marketplace: platform,
         viewMode,
         zoomFactor,
-        screenshotMode: screenshot.mode,
+        screenshotMode: captureMode,
+        actualScreenshotMode: screenshot.mode,
         screenshotClipped: screenshot.clipped,
         productDetailSubsteps: step.substeps,
         productDetailSubAction: subAction?.id,
@@ -1520,7 +1525,18 @@ function GuidedBrowserCollector({
           targetUrl={activeTargetUrl}
           captured={Boolean(collectedSteps[activeStep.id])}
           saving={saveEvidence.isPending}
-          onOpenTarget={() => activeTargetUrl && navigateTo(activeTargetUrl)}
+          onOpenTarget={(subActionId) => {
+            const selectedSubAction = subActionId
+              ? activeStep.subActions?.find((action) => action.id === subActionId)
+              : activeSubAction;
+            if (selectedSubAction) {
+              selectSubAction(selectedSubAction.id);
+            }
+            const selectedTargetUrl = selectedSubAction?.targetUrl ?? activeStep.targetUrl;
+            if (selectedTargetUrl) {
+              navigateTo(selectedTargetUrl);
+            }
+          }}
           onCollect={(subActionId) => {
             const selectedSubAction = subActionId
               ? activeStep.subActions?.find((action) => action.id === subActionId)
@@ -1770,7 +1786,7 @@ function CollectionStepPreview({
     : undefined;
   if (product) {
     const productAssets = detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id);
-    const productReviews = detail.reviews.filter((review) => review.productId === product.id);
+    const productReviews = curatedShopeeReviews(detail.reviews.filter((review) => review.productId === product.id));
     const previewImage = product.images[0] ?? product.imageUrl;
     return (
       <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
@@ -1821,11 +1837,11 @@ function CollectionStepPreview({
                 </tr>
               </thead>
               <tbody>
-                {productReviews.slice(0, 3).map((review) => (
+                {productReviews.map((review) => (
                   <tr key={review.id} className="border-t border-white/8">
                     <td className="px-2 py-1.5">{review.sentiment === "NEGATIVE" ? "Negative Reviews" : "Positive Reviews"}</td>
                     <td className="px-2 py-1.5">{review.rating ? `${review.rating} Star` : "-"}</td>
-                    <td className="px-2 py-1.5">{[review.reviewDate, review.variation, review.comment].filter(Boolean).join(" | ").slice(0, 180)}</td>
+                    <td className="px-2 py-1.5">{reviewCommentCell(review).slice(0, 180)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1972,7 +1988,7 @@ function FloatingStepController({
   targetUrl?: string;
   captured: boolean;
   saving: boolean;
-  onOpenTarget: () => void;
+  onOpenTarget: (subActionId?: string) => void;
   onCollect: (subActionId?: string) => void;
   onSelectSubAction: (id: string) => void;
   onAttachFile?: () => void;
@@ -2012,7 +2028,7 @@ function FloatingStepController({
           <button
             className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
             type="button"
-            onClick={onOpenTarget}
+            onClick={() => onOpenTarget(activeSubAction?.id)}
             disabled={!targetUrl}
             aria-label="Open target page"
             title="Open target page"
@@ -2063,51 +2079,67 @@ function FloatingStepController({
         <div className="text-[11px] leading-4 text-ink-400">{compactInstruction}</div>
         {step.subActions && step.subActions.length > 0 && (
           <div className="mt-2 space-y-1.5 border-t border-white/8 pt-2">
-            {step.subActions.map((action) => (
-              <div
-                key={action.id}
-                className={[
-                  "w-full rounded-md border px-2 py-1.5 text-left transition",
-                  activeSubAction?.id === action.id ? "border-signal-blue/45 bg-signal-blue/12" : "border-white/8 bg-white/[0.04] hover:bg-white/8"
-                ].join(" ")}
-              >
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-                  <button className="min-w-0 text-left" type="button" onClick={() => onSelectSubAction(action.id)}>
-                    <span className="truncate text-[11px] font-medium text-white">{action.label}</span>
-                  </button>
-                  <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{subActionModeLabel(action)}</span>
-                </div>
-                <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-                  <div className="truncate text-[10px] text-ink-500">{action.description}</div>
-                  {usesSubActionCollectButtons && (
+            {step.subActions.map((action) => {
+              const actionTargetUrl = action.targetUrl ?? targetUrl;
+              return (
+                <div
+                  key={action.id}
+                  className={[
+                    "w-full rounded-md border px-2 py-1.5 text-left transition",
+                    activeSubAction?.id === action.id ? "border-signal-blue/45 bg-signal-blue/12" : "border-white/8 bg-white/[0.04] hover:bg-white/8"
+                  ].join(" ")}
+                >
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                    <button className="min-w-0 text-left" type="button" onClick={() => onSelectSubAction(action.id)}>
+                      <span className="truncate text-[11px] font-medium text-white">{action.label}</span>
+                    </button>
+                    <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{subActionModeLabel(action)}</span>
+                  </div>
+                  <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+                    <div className="truncate text-[10px] text-ink-500">{action.description}</div>
                     <button
-                      className="secondary-button h-7 w-auto px-3 text-[10px]"
+                      className="secondary-button h-7 w-8 px-0 text-[10px]"
                       type="button"
-                      disabled={saving || !step.ready}
+                      disabled={!actionTargetUrl}
                       onClick={() => {
                         onSelectSubAction(action.id);
-                        onCollect(action.id);
+                        onOpenTarget(action.id);
                       }}
+                      aria-label={`Open target for ${action.label}`}
+                      title={`Open target for ${action.label}`}
                     >
-                      {subActionButtonLabel(action)}
+                      <ExternalLink size={12} />
                     </button>
-                  )}
+                    {usesSubActionCollectButtons && (
+                      <button
+                        className="secondary-button h-7 w-auto px-3 text-[10px]"
+                        type="button"
+                        disabled={saving || !step.ready}
+                        onClick={() => {
+                          onSelectSubAction(action.id);
+                          onCollect(action.id);
+                        }}
+                      >
+                        {subActionButtonLabel(action)}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         {activeSubAction?.guidance && <div className="mt-2 rounded-md border border-signal-blue/20 bg-signal-blue/10 px-2 py-1.5 text-[10px] leading-4 text-signal-blue">{activeSubAction.guidance}</div>}
       </div>
-      <div className="mt-2 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-2">
+      <div className={["mt-2 grid gap-2", usesSubActionCollectButtons ? "grid-cols-2" : "grid-cols-[auto_auto_minmax(0,1fr)]"].join(" ")}>
         <button className="secondary-button h-9 w-10 px-0" type="button" onClick={onPrevious} aria-label="Previous step">
           <ChevronLeft size={15} />
         </button>
         <button className="secondary-button h-9 w-10 px-0" type="button" onClick={onNext} aria-label="Next step">
           <ChevronRight size={15} />
         </button>
-        {targetUrl && (
-          <button className="secondary-button h-9 px-3" type="button" onClick={onOpenTarget}>
+        {!usesSubActionCollectButtons && targetUrl && (
+          <button className="secondary-button h-9 px-3" type="button" onClick={() => onOpenTarget()}>
             <ExternalLink size={14} />
             Open Target
           </button>
@@ -2214,6 +2246,7 @@ function scopeProductDetailSnapshot(
     activeReviewFilter: snapshot.activeReviewFilter,
     images: [],
     videos: [],
+    descriptionImages: [],
     shopVouchers: [],
     bundleDeals: [],
     promotionCount: 0,
@@ -2252,6 +2285,7 @@ function scopeProductDetailSnapshot(
       return {
         ...metricOnly,
         description: snapshot.description,
+        descriptionImages: snapshot.descriptionImages,
         shopVouchers: snapshot.shopVouchers,
         bundleDeals: snapshot.bundleDeals,
         promotionCount: snapshot.promotionCount
@@ -3253,6 +3287,11 @@ function ProductQualifiedSection({
             {product.description ?? "No browser-readable product description captured yet."}
           </p>
         </div>
+        {product.descriptionImages.length > 0 && (
+          <div className="mt-3">
+            <ProductImageGrid images={product.descriptionImages} />
+          </div>
+        )}
         <ProductPromotionSignals product={product} />
       </NestedReportSection>
 
@@ -3338,6 +3377,11 @@ function _ProductDossierSummary({
         <p className="line-clamp-6 text-sm leading-6 text-ink-300">
           {product.description ?? "No browser-readable product description captured yet. Save Product Description evidence from the guided collector."}
         </p>
+        {product.descriptionImages.length > 0 && (
+          <div className="mt-3">
+            <ProductImageGrid images={product.descriptionImages} />
+          </div>
+        )}
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
@@ -3407,8 +3451,38 @@ function ProductVideoGrid({ videos }: { videos: string[] }) {
   );
 }
 
+function curatedShopeeReviews(reviews: ProjectDetailPayload["reviews"]): ProjectDetailPayload["reviews"] {
+  const cleanReviews = reviews.filter((review) => isReadableShopeeReview(review.comment));
+  const positiveReviews = cleanReviews
+    .filter((review) => review.sentiment === "POSITIVE" || (typeof review.rating === "number" && review.rating >= 5))
+    .slice(0, 3);
+  const negativeReviews = cleanReviews
+    .filter((review) => review.sentiment === "NEGATIVE" || (typeof review.rating === "number" && review.rating <= 3))
+    .slice(0, 2);
+  return [...positiveReviews, ...negativeReviews].slice(0, 5);
+}
+
+function isReadableShopeeReview(comment: string): boolean {
+  const value = comment.trim();
+  return value.length >= 20 &&
+    /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2})?\b/u.test(value) &&
+    !/^https?:\/\//iu.test(value) &&
+    !/(product ratings|all\s*\(|semua\s*\(|comments?\s*\(|with media|dengan media|repeat purchase|shop vouchers|bundle deals|barcode|bpom sesuai|dermatologically tested|add to cart|buy now)/iu.test(value);
+}
+
+function reviewCommentCell(review: ProjectDetailPayload["reviews"][number]): string {
+  const comment = review.comment.trim();
+  const hasDate = review.reviewDate ? comment.includes(review.reviewDate) : /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}/u.test(comment);
+  const prefix = [
+    hasDate ? undefined : review.reviewDate,
+    review.variation && !comment.includes(review.variation) ? review.variation : undefined
+  ].filter(Boolean);
+  return [...prefix, comment].join(" | ");
+}
+
 function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["reviews"] }) {
-  if (reviews.length === 0) {
+  const curatedReviews = curatedShopeeReviews(reviews);
+  if (curatedReviews.length === 0) {
     return <EmptyState label="No review text collected yet. Capture the review section with 3 positive and 2 negative examples visible." />;
   }
   return (
@@ -3422,12 +3496,12 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
           </tr>
         </thead>
         <tbody>
-          {reviews.map((review) => (
+          {curatedReviews.map((review) => (
             <tr key={review.id} className="border-t border-white/8">
               <td className="px-3 py-2">{review.sentiment === "NEGATIVE" ? "Negative Reviews" : review.sentiment === "POSITIVE" ? "Positive Reviews" : "Neutral Reviews"}</td>
               <td className="px-3 py-2">{review.rating ? `${review.rating} Star` : "-"}</td>
               <td className="px-3 py-2">
-                {[review.reviewDate, review.variation, review.comment].filter(Boolean).join(" | ")}
+                {reviewCommentCell(review)}
               </td>
             </tr>
           ))}
@@ -4075,7 +4149,7 @@ function buildShopeeSteps(
         "First page: capture visible first viewport only",
         "Slides: download images and videos from page-product picture/source/video elements",
         "Description: sync from page-product__content in the background",
-        "Reviews: open 5-star tab and collect 3 positive rows, then open 1-star tab and collect 2 negative rows",
+        "Reviews: open 5-star tab and collect 3 positive rows, then open 1-star tab or the nearest available 2/3-star tab and collect 2 negative rows",
         "Media in User: download review image/video carousel URLs",
         "Shop vouchers and bundle deals: sync in the background",
         "Shop Home Page: open the shop page later for store evidence"
@@ -4105,11 +4179,11 @@ function buildShopeeSteps(
         },
         {
           id: "negative-reviews",
-          label: "Negative reviews: 1 star",
+          label: "Negative reviews: 1-3 star",
           mode: "collect",
           collectLabel: "Collect Data",
-          guidance: "Open the Shopee 1-star review tab first, then click Collect.",
-          description: "Collect up to 2 negative reviews from product-ratings and product-comment-list."
+          guidance: "Open the Shopee 1-star tab first. If it has no rows, open 2-star or 3-star, then click Collect.",
+          description: "Collect up to 2 negative reviews from the selected low-star tab."
         },
         {
           id: "media-in-user",
@@ -4130,6 +4204,7 @@ function buildShopeeSteps(
           label: "Shop Home Page",
           mode: "screenshot",
           collectLabel: "Capture Shop Page",
+          captureMode: "full-page",
           description: product.storeUrl ? "Open the synced shop page in mobile view and capture it." : "Open the PDP, visit View Shop manually, then capture the shop page.",
           guidance: product.storeUrl ? "Open Target switches to the store page. Mobile view is preferred for this capture." : "Store URL is not synced yet. Open the product page, use View Shop manually, then capture.",
           targetUrl: product.storeUrl ?? productUrl,
@@ -4429,6 +4504,7 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
     imageUrl: preferred.imageUrl ?? base.imageUrl,
     images: preferred.images.length > 0 ? preferred.images : base.images,
     videos: preferred.videos.length > 0 ? preferred.videos : base.videos,
+    descriptionImages: preferred.descriptionImages.length > 0 ? preferred.descriptionImages : base.descriptionImages,
     reviewMediaImages: preferred.reviewMediaImages.length > 0 ? preferred.reviewMediaImages : base.reviewMediaImages,
     reviewMediaVideos: preferred.reviewMediaVideos.length > 0 ? preferred.reviewMediaVideos : base.reviewMediaVideos
   };
@@ -4807,6 +4883,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         activeReviewFilter: undefined,
         images: [],
         videos: [],
+        descriptionImages: [],
         shopVouchers: [],
         bundleDeals: [],
         promotionCount: 0,
@@ -5115,6 +5192,20 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         });
       }
       const textFrom = (element) => compact(element?.innerText || element?.textContent || "");
+      const blockTextFromHtml = (element) => {
+        if (!element) return "";
+        const clone = element.cloneNode(true);
+        clone.querySelectorAll?.("script, style, noscript, button").forEach((node) => node.remove());
+        clone.querySelectorAll?.("br").forEach((node) => node.replaceWith("\\n"));
+        clone.querySelectorAll?.("p, li, div, h1, h2, h3, h4, section").forEach((node) => {
+          if (node !== clone) node.append(document.createTextNode("\\n"));
+        });
+        return String(clone.textContent || "")
+          .replace(/[ \\t]+\\n/g, "\\n")
+          .replace(/\\n[ \\t]+/g, "\\n")
+          .replace(/\\n{3,}/g, "\\n\\n")
+          .trim();
+      };
       const productPageRoot = document.querySelector(".page-product") || document.querySelector('[role="main"]') || htmlRoot || document.body;
       const galleryRoot = document.querySelector(".page-product [role='main'] > section > section") ||
         productPageRoot?.querySelector?.('[role="main"] section section') ||
@@ -5207,11 +5298,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const reviewRoot = document.querySelector(".product-ratings");
       const commentRoot = document.querySelector(".product-comment-list") || reviewRoot;
       const activeReviewFilter = textFrom(reviewRoot?.querySelector?.(".product-rating-overview__filter--active") || document.querySelector(".product-rating-overview__filter--active"));
-      const activeReviewRating = /(?:^|\\s)1\\s*(?:star|bintang)?(?:\\s|$)/iu.test(activeReviewFilter)
-        ? 1
-        : /(?:^|\\s)5\\s*(?:star|bintang)?(?:\\s|$)/iu.test(activeReviewFilter)
-          ? 5
-          : undefined;
+      const activeReviewRatingMatch = activeReviewFilter.match(/(?:^|\\s)([1-5])\\s*(?:star|bintang)?(?:\\s|$)/iu);
+      const activeReviewRating = activeReviewRatingMatch ? Number(activeReviewRatingMatch[1]) : undefined;
       const isReviewMediaElement = (element) => Boolean(element?.closest?.(".product-ratings, .product-comment-list, .rating-media-list-image-carousel__item-list-wrapper, [class*='rating-media']"));
       const isProductGalleryElement = (element) => Boolean(element?.closest?.(".page-product [role='main'] > section > section"));
       const productImages = unique(Array.from(galleryRoot?.querySelectorAll?.("picture._displayContents_, picture, source[srcset], img[srcset], img[src]") || [])
@@ -5220,6 +5308,10 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const productVideos = unique(Array.from(galleryRoot?.querySelectorAll?.("video") || [])
         .filter((element) => !isReviewMediaElement(element))
         .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || "")));
+      const descriptionImages = descriptionRoot
+        ? unique(Array.from(descriptionRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
+          .map(imageUrlFrom))
+        : [];
       const mediaRoot = document.querySelector(".rating-media-list-image-carousel__item-list-wrapper") || reviewRoot;
       const reviewMediaImages = mediaRoot
         ? unique(Array.from(mediaRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
@@ -5231,14 +5323,37 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
           .filter((element) => !isProductGalleryElement(element))
           .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || "")))
         : [];
-      const reviewBlocks = unique(
-        Array.from(commentRoot?.querySelectorAll?.(".product-comment-list > div, [class*='product-comment'], [class*='shopee-product-rating'], [class*='rating']") || [])
-          .map(textFrom)
-          .filter((value) => value.length >= 24)
-          .filter((value) => !/(semua|all|dengan media|with media|filter|urutkan|sort by|rating overview)/iu.test(value))
-      ).slice(0, 20);
-      const positiveWords = /(bagus|suka|sesuai|cepat|mantap|puas|recommended|rekomen|good|love|worth|cantik|rapi|halus|natural|baik)/iu;
-      const negativeWords = /(kecewa|rusak|jelek|kurang|lama|bad|tidak sesuai|gagal|patah|lepas|mahal|tipis|buruk)/iu;
+      const looksLikeReviewRow = (element) => {
+        const text = textFrom(element);
+        if (text.length < 20) return false;
+        if (!/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u.test(text)) return false;
+        if (/^https?:\\/\\//iu.test(text)) return false;
+        if (/(product ratings|all\\s*\\(|semua\\s*\\(|with media|dengan media|repeat purchase|comments?\\s*\\(|filter|urutkan|sort by|rating overview|shop vouchers|bundle deals|add to cart|buy now)/iu.test(text)) return false;
+        return true;
+      };
+      const cleanReviewComment = (value) => {
+        const dateMatch = String(value || "").match(/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u);
+        let cleaned = dateMatch ? String(value || "").slice(dateMatch.index) : String(value || "");
+        cleaned = cleaned
+          .replace(/Seller's Response:[\\s\\S]*$/iu, "")
+          .replace(/Respons Penjual:[\\s\\S]*$/iu, "")
+          .replace(/Penjual Membalas:[\\s\\S]*$/iu, "")
+          .replace(/\\s*(?:Helpful|Membantu)\\s*[\\d.,kkrb]*\\s*$/iu, "")
+          .replace(/\\s+/g, " ")
+          .trim();
+        return cleaned.slice(0, 900);
+      };
+      const isCleanReviewComment = (value) => {
+        const normalized = compact(value);
+        if (normalized.length < 20) return false;
+        if (!/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u.test(normalized)) return false;
+        if (/^https?:\\/\\//iu.test(normalized)) return false;
+        if (/(product ratings|all\\s*\\(|semua\\s*\\(|with media|dengan media|repeat purchase|comments?\\s*\\(|shop vouchers|bundle deals|barcode|bpom sesuai|dermatologically tested|add to cart|buy now)/iu.test(normalized)) return false;
+        return true;
+      };
+      const reviewRows = Array.from(commentRoot?.querySelectorAll?.(".product-comment-list > div, .shopee-product-rating, [class*='shopee-product-rating']") || [])
+        .filter(looksLikeReviewRow);
+      const reviewBlocks = unique(reviewRows.map((row) => cleanReviewComment(textFrom(row))).filter(isCleanReviewComment)).slice(0, 8);
       const toReview = (type, rating, comment) => {
         const normalized = compact(comment);
         const dateMatch = normalized.match(/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u);
@@ -5256,21 +5371,9 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       let negativeReviews = [];
       if (activeReviewRating === 5) {
         positiveReviews = reviewBlocks.slice(0, 3).map((comment) => toReview("Positive Reviews", 5, comment));
-      } else if (activeReviewRating === 1) {
-        negativeReviews = reviewBlocks.slice(0, 2).map((comment) => toReview("Negative Reviews", 1, comment));
-      } else {
-        positiveReviews = reviewBlocks
-          .filter((value) => positiveWords.test(value) && !negativeWords.test(value))
-          .slice(0, 3)
-          .map((comment) => toReview("Positive Reviews", 5, comment));
-        negativeReviews = reviewBlocks
-          .filter((value) => negativeWords.test(value))
-          .slice(0, 2)
-          .map((comment) => toReview("Negative Reviews", 1, comment));
+      } else if ([1, 2, 3].includes(activeReviewRating)) {
+        negativeReviews = reviewBlocks.slice(0, 2).map((comment) => toReview("Negative Reviews", activeReviewRating, comment));
       }
-      const fallbackReviews = positiveReviews.length + negativeReviews.length === 0
-        ? reviewBlocks.slice(0, 3).map((comment) => toReview("Positive Reviews", 5, comment))
-        : [];
       const productDetail = {
         storeName,
         storeUrl,
@@ -5282,11 +5385,12 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         activeReviewFilter,
         images: productImages.slice(0, 12),
         videos: productVideos.slice(0, 6),
-        description: textFrom(descriptionRoot).slice(0, 8000) || undefined,
+        description: blockTextFromHtml(descriptionRoot).slice(0, 8000) || undefined,
+        descriptionImages: descriptionImages.slice(0, 24),
         shopVouchers,
         bundleDeals,
         promotionCount: shopVouchers.length + bundleDeals.length,
-        reviews: [...positiveReviews, ...negativeReviews, ...fallbackReviews],
+        reviews: [...positiveReviews.slice(0, 3), ...negativeReviews.slice(0, 2)],
         reviewMediaImages: reviewMediaImages.slice(0, 30),
         reviewMediaVideos: reviewMediaVideos.slice(0, 12)
       };

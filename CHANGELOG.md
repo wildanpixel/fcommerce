@@ -2,6 +2,14 @@
 
 All notable changes to Marketplace Intelligence OS will be documented in this file.
 
+## Unreleased - 2026-07-10
+
+- Changed Product Detail Shop Home Page collection to request full-page screenshots while keeping First Page as visible-viewport capture.
+- Moved Product Detail Open Target controls into each sub-action row and made folded collector target/action buttons follow the selected sub-action.
+- Preserved Shopee description line breaks during PDP extraction and added description image persistence/display in Project Inspector.
+- Tightened review extraction so Product Detail review sub-actions save only real dated Shopee review rows, with 5-star positives and 1/2/3-star negatives capped to 3 positive plus 2 negative display rows.
+- Stopped Product Detail review sub-actions from falling back to broad visible-text parsing when no clean review rows are found, preventing product metadata and URLs from appearing as reviews.
+
 ## Unreleased - 2026-07-09
 
 - Added Part 1/Part 2/Part 3 jump controls in Collection Progress so users can return to unfinished collection phases without losing saved state.

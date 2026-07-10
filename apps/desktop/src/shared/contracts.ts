@@ -116,6 +116,7 @@ export type ProjectDetailPayload = {
     bundleDeals: string[];
     promotionCount?: number | null;
     description?: string | null;
+    descriptionImages: string[];
     variants: string[];
     specifications: Record<string, string>;
     images: string[];

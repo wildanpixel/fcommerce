@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-09
+Last updated: 2026-07-10
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -102,6 +102,7 @@ Release blocker fixes:
 - 2026-07-08: Repaired Store Name extraction by preserving PDP shop-panel line breaks and reading the sibling name block after the Shopee shop anchor before noisy status text is filtered.
 - 2026-07-09: Fixed Store Name extraction for Shopee's current `sll2-pdp-product-shop` container and added backend repair from captured PDP HTML so existing products with blank store names can be backfilled when the project detail is opened.
 - 2026-07-09: Improved the Product Detail collection workspace with Part 1/2/3 jump controls, compact sub-action guidance, richer active-product previews, screenshot-review zoom, and automatic return to Project Inspector after Product Details completion.
+- 2026-07-10: Corrected Product Detail sub-action capture behavior so Shop Home Page uses full-page screenshots, sub-actions own their target buttons, descriptions preserve Shopee line breaks and image evidence, and review extraction/display is limited to clean 3 positive + 2 low-star rows.
 
 ## M1 Product Experience
 
@@ -254,6 +255,9 @@ Implemented:
 - Product Detail Qualified guidance is now action-first: the floating collector and progress panel show compact sub-action buttons instead of long instructional text blocks.
 - Active Product Detail previews now show synced store, store type, rating, review, sold, media, description, and review-table evidence so users can confirm a product before moving to the next item.
 - Completing Product Details saves the next stage, closes the browser workspace, and opens the Project Inspector so the just-collected evidence can be reviewed immediately.
+- Product Detail Shop Home Page capture now requests a full-page screenshot while First Page remains visible-viewport only.
+- Product Detail descriptions now preserve Shopee-style line breaks and can display collected description images in Project Inspector.
+- Product Detail review collection now avoids broad visible-text fallbacks for review sub-actions and displays only up to 3 positive reviews plus 2 low-star negative reviews.
 - Product dossiers now show collected videos plus Media in User image/video evidence when browser-readable Shopee HTML exposes it.
 - Browser capture status is visible to the user with `targeted page received`, `downloading HTML`, done, and failed states plus a manual `Download HTML` fallback action.
 - Relevance and top-sales snapshots extract rendered product cards from the visible browser page and persist product rows with thumbnail, product URL, price estimate, rating, sold count, source, and selection reason.
