@@ -107,6 +107,7 @@ Release blocker fixes:
 - 2026-07-10: Changed Product Detail slide collection to a user-selected HD media cycle that saves the currently visible main product image/video one at a time up to 9 items.
 - 2026-07-10: Fixed Product Detail shop-home screenshot ownership so saved Shop Home Page evidence appears inside the matching Product Detailed Qualified product.
 - 2026-07-10: Added report preview, copy-to-docs, local HTML opening, and DOCX export actions from Report History.
+- 2026-07-10: Reduced Product Detail inspect-page friction with compact circular saved-progress display, nested per-product outline navigation, collapsed Analysis Session, vertical-safe video cards, desktop-friendly shop-home collection, and calmer dark-mode borders.
 
 ## M1 Product Experience
 

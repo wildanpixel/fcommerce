@@ -1281,7 +1281,7 @@ async function persistCapturedPageData(
       const mergedVideos = mergeUnique([
         ...extractStringArray(currentRaw.videos),
         ...enrichment.videos
-      ]).slice(0, 8);
+      ]).slice(0, 9);
       const mergedReviewMediaImages = mergeUnique([
         ...extractStringArray(currentRaw.reviewMediaImages),
         ...enrichment.reviewMediaImages
@@ -1659,9 +1659,9 @@ function extractProductEnrichment(
     : [];
   const videos = collectProductMedia
     ? mergeUnique([
-        ...structuredVideos,
-        ...(structuredVideos.length > 0 ? [] : extractVideoUrls(html))
-      ]).slice(0, 8)
+        ...structuredVideos.slice(0, 1),
+        ...(structuredVideos.length > 0 ? [] : extractVideoUrls(html).slice(0, 1))
+      ]).slice(0, 1)
     : [];
   const reviews = collectReviews && structured?.reviews.length
     ? structured.reviews.map(toReviewEvidence)

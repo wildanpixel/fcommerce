@@ -3,11 +3,11 @@
 Release date: 2026-07-10
 Version: 1.0.0
 Local platform: Windows
-Release task: Product Detail collection, Keyword Projects, and report export update
+Release task: Product Detail collection UI and media evidence refinement
 
 ## Summary
 
-This release fixes Product Detail evidence round-tripping and changes slide collection into a user-selected HD media workflow. It also renames the visible app, upgrades Keyword Projects management, adds report preview/copy/HTML/DOCX export actions, and keeps collection activity in a collapsed right sidebar.
+This release refines the Product Detail collection and inspection experience. It keeps media collection user-selected, makes saved progress compact, preserves vertical Shopee videos, makes product outline navigation easier to collapse, reduces the Analysis Session footprint, and softens dark-mode borders.
 
 ## Completed
 
@@ -21,6 +21,13 @@ This release fixes Product Detail evidence round-tripping and changes slide coll
 - Kept review extraction constrained to dated Shopee rows and 3 positive plus 2 low-star negative display rows.
 - Added report Preview, Copy Report, HTML open, and DOCX export actions.
 - Added local API endpoints for report HTML and DOCX export.
+- Compact Project Inspector saved progress into a smaller circular-progress summary.
+- Preserved vertical Shopee product videos with object-contained portrait preview cards.
+- Limited product video extraction to the currently selected video per download action.
+- Made Product Detail Qualified outline navigation collapsible per product.
+- Made Analysis Session collapsed by default in the collection workspace.
+- Removed forced mobile-view switching from Shop Home Page collection.
+- Reduced high-contrast white border noise in dark mode.
 - Updated `CHANGELOG.md`, `IMPLEMENTATION_STATUS.md`, `ROADMAP.md`, `README.md`, and this release report.
 
 ## Release Checklist

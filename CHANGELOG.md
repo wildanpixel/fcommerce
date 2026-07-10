@@ -17,6 +17,11 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 - Preserved Shopee description line breaks during PDP extraction and added description image persistence/display in Project Inspector.
 - Tightened review extraction so Product Detail review sub-actions save only real dated Shopee review rows, with 5-star positives and 1/2/3-star negatives capped to 3 positive plus 2 negative display rows.
 - Stopped Product Detail review sub-actions from falling back to broad visible-text parsing when no clean review rows are found, preventing product metadata and URLs from appearing as reviews.
+- Compact Project Inspector saved progress into a smaller circular-progress summary so it no longer dominates the inspect page.
+- Updated Product Detail video evidence display to preserve vertical Shopee videos with object-contained portrait frames and one selected video per download action.
+- Made the Product Detail Qualified inspector navigation collapsible per product, so each product can reveal or hide its own First Page, Slides, Reviews, Media, and Shop Home Page links.
+- Made Analysis Session collapsed by default in the collection workspace and reduced the collapsed footprint.
+- Removed the forced mobile-view preference from Shop Home Page collection and reduced noisy white borders in dark mode.
 
 ## Unreleased - 2026-07-09
 

@@ -873,7 +873,7 @@ function GuidedBrowserCollector({
   const [reviewingKeyProducts, setReviewingKeyProducts] = useState(false);
   const [reviewingEvaluation, setReviewingEvaluation] = useState(false);
   const [activeSubActionId, setActiveSubActionId] = useState<string | undefined>(undefined);
-  const [analysisSessionCollapsed, setAnalysisSessionCollapsed] = useState(false);
+  const [analysisSessionCollapsed, setAnalysisSessionCollapsed] = useState(true);
   const [activitySidebarOpen, setActivitySidebarOpen] = useState(false);
   const [pageTextPreview, setPageTextPreview] = useState("");
   const [zoomFactor, setZoomFactor] = useState(1);
@@ -1621,6 +1621,7 @@ function GuidedBrowserCollector({
           <Panel
             title="Analysis Session"
             icon={ClipboardCheck}
+            className={analysisSessionCollapsed ? "mio-analysis-session-collapsed" : undefined}
             action={
               <button
                 className="secondary-button mio-round-icon-button h-8 w-8 px-0"
@@ -2767,20 +2768,14 @@ function ProjectInspectionPanel({
         <Metric icon={FileDown} label="Reports" value={detail.reports.length} />
       </div>
 
-      <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-4">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <div>
+      <div className="mio-saved-progress-compact mt-4 rounded-md border border-white/8 bg-white/5 p-3">
+        <div className="grid items-center gap-3 md:grid-cols-[auto_minmax(0,1.1fr)_minmax(0,1.4fr)_auto]">
+          <CircularProgress value={collectionState.progressPercent} />
+          <div className="min-w-0">
             <div className="text-sm font-semibold text-white">Saved Collection Progress</div>
-            <div className="mt-1 text-xs text-ink-500">{collectionState.stageLabel}</div>
+            <div className="mt-1 truncate text-xs text-ink-500">{collectionState.stageLabel}</div>
           </div>
-          <span className="rounded-full bg-signal-blue/12 px-3 py-1 text-xs font-semibold text-signal-blue">
-            {collectionState.progressPercent}%
-          </span>
-        </div>
-        <ProgressBar value={collectionState.progressPercent} />
-        <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-ink-400 md:grid-cols-3">
-          <InfoLine label="Current Step" value={collectionState.currentStepId ?? "Not selected"} />
-          <div>
+          <div className="min-w-0">
             <div className="mb-1 text-[11px] uppercase tracking-[0.12em] text-ink-500">Saved URL</div>
             {collectionState.browserUrl ? (
               <button className="secondary-button h-8 w-auto max-w-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(collectionState.browserUrl ?? "")}>
@@ -2788,10 +2783,13 @@ function ProjectInspectionPanel({
                 <span className="truncate">{collectionState.browserUrl}</span>
               </button>
             ) : (
-              <div>No browser URL saved</div>
+              <div className="text-xs text-ink-400">No browser URL saved</div>
             )}
           </div>
-          <InfoLine label="View Mode" value={collectionState.viewMode ?? "Default"} />
+          <div className="grid grid-cols-2 gap-3 text-xs text-ink-400 md:grid-cols-1">
+            <InfoLine label="Current Step" value={collectionState.currentStepId ?? "Not selected"} />
+            <InfoLine label="View Mode" value={collectionState.viewMode ?? "Default"} />
+          </div>
         </div>
       </div>
 
@@ -3138,15 +3136,28 @@ function ProjectOutlineNav({
               <a href={`#${group.id}`} onClick={(event) => event.stopPropagation()}>{group.label}</a>
             </summary>
             <div className="mt-1 space-y-1">
-              {group.children.map((item) => (
+              {group.children.map((item) => item.children.length > 0 ? (
+                <details key={`${item.id}-${item.label}`} className="mio-outline-subgroup ml-3 rounded-md">
+                  <summary className="cursor-pointer select-none rounded px-2 py-1.5 text-xs font-medium text-ink-300 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
+                    <a href={`#${item.id}`} onClick={(event) => event.stopPropagation()}>{item.label}</a>
+                  </summary>
+                  <div className="mt-1 space-y-1">
+                    {item.children.map((child) => (
+                      <a
+                        key={`${child.id}-${child.label}`}
+                        href={`#${child.id}`}
+                        className="block rounded px-2 py-1.5 pl-5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
+                      >
+                        {child.label}
+                      </a>
+                    ))}
+                  </div>
+                </details>
+              ) : (
                 <a
                   key={`${item.id}-${item.label}`}
                   href={`#${item.id}`}
-                  className={[
-                    "block rounded px-2 py-1.5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white",
-                    item.depth === 1 ? "ml-3" : "",
-                    item.depth >= 2 ? "ml-6" : ""
-                  ].join(" ")}
+                  className="ml-3 block rounded px-2 py-1.5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
                 >
                   {item.label}
                 </a>
@@ -3160,13 +3171,26 @@ function ProjectOutlineNav({
 }
 
 function groupProjectOutlineItems(items: Array<{ id: string; label: string; depth: number }>) {
-  const groups: Array<{ id: string; label: string; children: Array<{ id: string; label: string; depth: number }> }> = [];
+  const groups: Array<{
+    id: string;
+    label: string;
+    children: Array<{
+      id: string;
+      label: string;
+      children: Array<{ id: string; label: string }>;
+    }>;
+  }> = [];
   for (const item of items) {
     if (item.depth === 0 || groups.length === 0) {
       groups.push({ id: item.id, label: item.label, children: [] });
       continue;
     }
-    groups[groups.length - 1].children.push(item);
+    const currentGroup = groups[groups.length - 1];
+    if (item.depth === 1 || currentGroup.children.length === 0) {
+      currentGroup.children.push({ id: item.id, label: item.label, children: [] });
+      continue;
+    }
+    currentGroup.children[currentGroup.children.length - 1].children.push({ id: item.id, label: item.label });
   }
   return groups;
 }
@@ -3587,10 +3611,10 @@ function ProductVideoGrid({ videos }: { videos: string[] }) {
   }
   return (
     <div className="grid grid-cols-3 gap-3">
-      {visibleVideos.slice(0, 6).map((video, index) => (
+      {visibleVideos.slice(0, 9).map((video, index) => (
         <button key={`${video}-${index}`} type="button" className="overflow-hidden rounded-md border border-white/8 bg-white/5" onClick={() => void apiClient.openUrl(video)}>
-          <div className="aspect-video bg-black">
-            <video src={video} className="h-full w-full object-cover" muted controls />
+          <div className="mio-product-video-frame bg-black">
+            <video src={video} className="h-full w-full object-contain" muted controls playsInline />
           </div>
           <div className="px-2 py-1 text-left text-[11px] text-ink-500">Video {index + 1}</div>
         </button>
@@ -4488,10 +4512,9 @@ function buildShopeeSteps(
           mode: "screenshot",
           collectLabel: "Capture Shop Page",
           captureMode: "full-page",
-          description: product.storeUrl ? "Open the synced shop page in mobile view and capture it." : "Open the PDP, visit View Shop manually, then capture the shop page.",
-          guidance: product.storeUrl ? "Open Target switches to the store page. Mobile view is preferred for this capture." : "Store URL is not synced yet. Open the product page, use View Shop manually, then capture.",
-          targetUrl: product.storeUrl ?? productUrl,
-          preferredViewMode: "mobile"
+          description: product.storeUrl ? "Open the synced shop page and capture the full shop page." : "Open the PDP, visit View Shop manually, then capture the shop page.",
+          guidance: product.storeUrl ? "Open Target switches to the store page. Capture the shop page after it is visible." : "Store URL is not synced yet. Open the product page, use View Shop manually, then capture.",
+          targetUrl: product.storeUrl ?? productUrl
         }
       ],
       ready: productCurrent
@@ -5694,7 +5717,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         totalSoldText: pdpSoldText,
         activeReviewFilter,
         images: productImages.slice(0, 12),
-        videos: productVideos.slice(0, 6),
+        videos: productVideos.slice(0, 1),
         description: blockTextFromHtml(descriptionRoot).slice(0, 8000) || undefined,
         descriptionImages: descriptionImages.slice(0, 24),
         shopVouchers,

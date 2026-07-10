@@ -224,6 +224,43 @@ webview {
   color: #f8fbff;
 }
 
+.mio-dark .border-white\/8,
+.mio-dark .border-white\/10,
+.mio-dark .border-white\/12,
+.mio-dark .border-white\/14,
+.mio-dark .border-white\/16 {
+  border-color: rgba(77, 98, 130, 0.24);
+}
+
+.mio-dark .mio-panel,
+.mio-dark .mio-glass,
+.mio-dark .mio-metric-card,
+.mio-dark .mio-report-section {
+  border-color: rgba(77, 98, 130, 0.28);
+}
+
+.mio-dark .mio-panel:hover {
+  border-color: rgba(98, 168, 255, 0.32);
+}
+
+.mio-analysis-session-collapsed {
+  padding: 1rem !important;
+}
+
+.mio-analysis-session-collapsed > div:first-child {
+  margin-bottom: 0 !important;
+}
+
+.mio-saved-progress-compact .secondary-button {
+  justify-content: flex-start;
+}
+
+.mio-product-video-frame {
+  aspect-ratio: 9 / 16;
+  max-height: 360px;
+  width: 100%;
+}
+
 .mio-sidebar {
   position: sticky;
   top: 0;

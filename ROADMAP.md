@@ -260,6 +260,7 @@ Completed: 2026-07-03
 - 2026-07-10 update: Product Detail sub-actions now own target navigation, Shop Home Page captures full-page evidence, descriptions preserve readable Shopee formatting and images, and review rows are filtered to report-grade 3 positive plus 2 negative samples.
 - 2026-07-10 update: Product Detail slide collection now saves user-selected main HD media one item at a time, and product shop-home captures now appear in the correct Product Detailed Qualified section.
 - 2026-07-10 update: Keyword Projects and Reports gained category filtering, cards/list view, typed deletion, completed-state behavior, report preview/copy, HTML open, and DOCX export.
+- 2026-07-10 update: Product Detail inspection now uses compact circular saved-progress, nested per-product outline navigation, collapsed Analysis Session by default, vertical-safe video evidence cards, and shop-home collection without forcing mobile view.
 
 ## Sprint 3 - Complete Store Detail
 
