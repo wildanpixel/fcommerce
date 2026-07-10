@@ -1191,7 +1191,11 @@ async function persistCapturedPageData(
         }
       });
 
-      if (input.kind === "REVIEW_SECTION" || metadataFlag(input.metadata, "syncProductDetail")) {
+      const productDetailAction = productDetailSubAction(input.metadata);
+      const shouldSaveProductReviews = input.kind === "REVIEW_SECTION" ||
+        (metadataFlag(input.metadata, "syncProductDetail") &&
+          (!productDetailAction || productDetailAction === "positive-reviews" || productDetailAction === "negative-reviews"));
+      if (shouldSaveProductReviews) {
         const reviews = enrichment.reviews.length > 0 ? enrichment.reviews : parseReviewEvidence(input.visibleText ?? "");
         const existingReviews = await prisma.review.findMany({ where: { productId: product.id } });
         const existingKeys = new Set(existingReviews.map((reviewRow) => reviewDedupeKey({
@@ -1457,24 +1461,37 @@ function extractProductEnrichment(
   const text = normalizeEvidenceText(input.visibleText);
   const html = input.pageHtml ?? "";
   const structured = readStructuredProductDetail(input.metadata);
+  const subAction = productDetailSubAction(input.metadata);
+  const collectEverything = !subAction;
+  const collectProductMedia = collectEverything || subAction === "slides";
+  const collectReviews = collectEverything || subAction === "positive-reviews" || subAction === "negative-reviews";
+  const collectReviewMedia = collectEverything || subAction === "media-in-user";
+  const collectDescriptionPromotions = collectEverything || subAction === "description-promotions";
   const htmlStoreInfo = extractPdpStoreInfoFromHtml(html);
   const price = extractMoneyRange(text);
-  const images = mergeUnique([
-    ...(structured?.images ?? []),
-    ...extractProductImageUrls(html),
-    ...extractImageUrls(html),
-    ...extractImageUrls(text)
-  ]).slice(0, 12);
-  const videos = mergeUnique([
-    ...(structured?.videos ?? []),
-    ...extractVideoUrls(html),
-    ...extractVideoUrls(text)
-  ]).slice(0, 8);
-  const reviews = structured?.reviews.length
+  const structuredImages = structured?.images ?? [];
+  const structuredVideos = structured?.videos ?? [];
+  const images = collectProductMedia
+    ? mergeUnique([
+        ...structuredImages,
+        ...(structuredImages.length > 0 ? [] : extractProductImageUrls(html))
+      ]).slice(0, 12)
+    : [];
+  const videos = collectProductMedia
+    ? mergeUnique([
+        ...structuredVideos,
+        ...(structuredVideos.length > 0 ? [] : extractVideoUrls(html))
+      ]).slice(0, 8)
+    : [];
+  const reviews = collectReviews && structured?.reviews.length
     ? structured.reviews.map(toReviewEvidence)
     : [];
-  const shopVouchers = mergeUnique(structured?.shopVouchers ?? extractSectionKeywords(text, ["voucher", "diskon", "cashback"], 8));
-  const bundleDeals = mergeUnique(structured?.bundleDeals ?? extractSectionKeywords(text, ["bundle deals", "paket hemat", "bundling"], 8));
+  const shopVouchers = collectDescriptionPromotions
+    ? mergeUnique(structured?.shopVouchers ?? extractSectionKeywords(text, ["voucher", "diskon", "cashback"], 8))
+    : [];
+  const bundleDeals = collectDescriptionPromotions
+    ? mergeUnique(structured?.bundleDeals ?? extractSectionKeywords(text, ["bundle deals", "paket hemat", "bundling"], 8))
+    : [];
   return {
     title: safeProductTitle(extractHtmlTitle(html) ?? inferTitleFromText(text, product.title), product.title),
     priceMin: price.min,
@@ -1490,11 +1507,11 @@ function extractProductEnrichment(
     shippingText: findLine(text, ["shipping", "pengiriman", "ongkir", "garansi", "cod"]),
     variants: extractVariants(text),
     specifications: extractSpecifications(text),
-    description: structured?.description ?? extractDescription(input.kind, text),
+    description: collectDescriptionPromotions ? structured?.description ?? extractDescription(input.kind, text) : undefined,
     images,
     videos,
-    reviewMediaImages: structured?.reviewMediaImages ?? [],
-    reviewMediaVideos: structured?.reviewMediaVideos ?? [],
+    reviewMediaImages: collectReviewMedia ? structured?.reviewMediaImages ?? [] : [],
+    reviewMediaVideos: collectReviewMedia ? structured?.reviewMediaVideos ?? [] : [],
     reviews,
     storeName: safeStoreName(structured?.storeName ?? htmlStoreInfo.storeName),
     storeUrl: structured?.storeUrl ? normalizeUrl(structured.storeUrl) : htmlStoreInfo.storeUrl,
@@ -1641,6 +1658,11 @@ function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): Re
 
 function metadataFlag(metadata: Record<string, unknown> | undefined, key: string): boolean {
   return metadata?.[key] === true;
+}
+
+function productDetailSubAction(metadata: Record<string, unknown> | undefined): string | undefined {
+  const value = metadata?.productDetailSubAction;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 function normalizeStoreType(value?: string): "Mall ORI" | "Star+" | "Star" | undefined {
@@ -1878,6 +1900,19 @@ function extractHtmlSiblingStoreNameCandidates(html: string): string[] {
       candidates.push(htmlToText(match.groups.value));
     }
   }
+  const siblingBlockPattern = /<a\b[^>]*\bhref=["'][^"']+["'][^>]*>[\s\S]{0,2400}?<\/a>\s*(?<block><div\b[\s\S]{0,1800}?<\/div>\s*<\/div>)/giu;
+  for (const match of html.matchAll(siblingBlockPattern)) {
+    if (!match.groups?.block) {
+      continue;
+    }
+    candidates.push(...extractHtmlTextCandidates(match.groups.block));
+    candidates.push(
+      ...htmlToText(match.groups.block)
+        .split(/\n|\|/u)
+        .map((value) => value.trim())
+        .filter(Boolean)
+    );
+  }
   return candidates;
 }
 
@@ -1964,7 +1999,7 @@ function isBadProductTitle(value: string): boolean {
 
 function safeStoreName(value: string | undefined): string | undefined {
   const cleaned = value ? cleanText(value) : "";
-  if (!cleaned || /(chat now|follow|online|offline|click here to visit shop|visit shop|view shop|lihat toko|rating|followers?|products?|seller centre|notifications?)/iu.test(cleaned) || /^(mall\s*ori|star\+?|official|resmi)$/iu.test(cleaned)) {
+  if (!cleaned || /(chat now|follow|ikuti|active|aktif|online|offline|click here to visit shop|visit shop|view shop|lihat toko|rating|penilaian|followers?|pengikut|products?|produk|response|respon|joined|bergabung|months?|bulan|ago|yang lalu|seller centre|notifications?)/iu.test(cleaned) || /^(mall\s*ori|star\+?|official|resmi)$/iu.test(cleaned)) {
     return undefined;
   }
   return cleaned.slice(0, 120);

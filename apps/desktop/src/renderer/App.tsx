@@ -88,7 +88,7 @@ type AnalysisFormState = {
 type CollectionSubAction = {
   id: string;
   label: string;
-  mode: "screenshot" | "download" | "sync" | "background";
+  mode: "screenshot" | "download" | "collect" | "sync" | "background";
   description: string;
   collectLabel?: string;
   guidance?: string;
@@ -1292,6 +1292,7 @@ function GuidedBrowserCollector({
     const printPdfDataUrl = await webview.printToPDF?.({ printBackground: true })
       .then((data) => `data:application/pdf;base64,${uint8ArrayToBase64(data)}`)
       .catch(() => undefined);
+    const structuredProductDetail = scopeProductDetailSnapshot(snapshot.productDetail, subAction?.id);
     return {
       projectId: project.id,
       stepId: step.id,
@@ -1322,7 +1323,7 @@ function GuidedBrowserCollector({
         productDetailSubActionLabel: subAction?.label,
         productDetailSubActionMode: subAction?.mode,
         syncProductDetail: step.stage === "PRODUCT_DETAILS",
-        structuredProductDetail: snapshot.productDetail,
+        structuredProductDetail,
         extractedText: snapshot.visibleText,
         extractedProductCount: snapshot.products.length,
         capturedAt: new Date().toISOString()
@@ -1489,7 +1490,13 @@ function GuidedBrowserCollector({
           captured={Boolean(collectedSteps[activeStep.id])}
           saving={saveEvidence.isPending}
           onOpenTarget={() => activeStep.targetUrl && navigateTo(activeStep.targetUrl)}
-          onCollect={() => {
+          onCollect={(subActionId) => {
+            const selectedSubAction = subActionId
+              ? activeStep.subActions?.find((action) => action.id === subActionId)
+              : activeSubAction;
+            if (selectedSubAction) {
+              setActiveSubActionId(selectedSubAction.id);
+            }
             if (activeStep.mode === "PROCESS") {
               if (activeStep.id === "evaluation-phase-scoring") {
                 openEvaluationReview();
@@ -1498,7 +1505,7 @@ function GuidedBrowserCollector({
               }
               return;
             }
-            void captureAndSaveEvidence(activeStep, activeSubAction);
+            void captureAndSaveEvidence(activeStep, selectedSubAction);
           }}
           onSelectSubAction={setActiveSubActionId}
           onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
@@ -1649,15 +1656,17 @@ function GuidedBrowserCollector({
                       ))}
                     </div>
                   )}
+                  {index === activeStepIndex && (
+                    <CollectionStepPreview
+                      step={step}
+                      detail={projectDetail.data}
+                      selectedProducts={selectedKeyProducts}
+                      collected={Boolean(collectedSteps[step.id])}
+                    />
+                  )}
                 </div>
               ))}
             </div>
-            <CollectionStepPreview
-              step={activeStep}
-              detail={projectDetail.data}
-              selectedProducts={selectedKeyProducts}
-              collected={Boolean(collectedSteps[activeStep.id])}
-            />
           </Panel>
 
           <Panel title="Activity" icon={Gauge}>
@@ -1769,16 +1778,6 @@ function CollectionStepPreview({
           <EvidenceStatusPill label="Media in user" done={product.reviewMediaImages.length > 0 || product.reviewMediaVideos.length > 0} />
           <EvidenceStatusPill label="Shop vouchers" done={product.shopVouchers.length > 0 || product.bundleDeals.length > 0} />
         </div>
-        {step.subActions && step.subActions.length > 0 && (
-          <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-white/8 pt-3">
-            {step.subActions.map((action) => (
-              <div key={action.id} className="flex items-center justify-between gap-2 rounded border border-white/8 bg-white/[0.04] px-2 py-1.5">
-                <span className="truncate font-medium text-white">{action.label}</span>
-                <span className="shrink-0 rounded-full bg-white/8 px-2 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-400">{action.mode}</span>
-              </div>
-            ))}
-          </div>
-        )}
         {product.description && (
           <div className="mt-3 rounded border border-white/8 bg-white/[0.04] p-2 text-[11px] leading-4 text-ink-400">
             <div className="mb-1 font-semibold text-white">Description preview</div>
@@ -1948,7 +1947,7 @@ function FloatingStepController({
   captured: boolean;
   saving: boolean;
   onOpenTarget: () => void;
-  onCollect: () => void;
+  onCollect: (subActionId?: string) => void;
   onSelectSubAction: (id: string) => void;
   onAttachFile?: () => void;
   onOpenAndroid?: () => void;
@@ -1957,10 +1956,11 @@ function FloatingStepController({
 }) {
   const [compact, setCompact] = useState(true);
   const activeSubAction = step.subActions?.find((action) => action.id === activeSubActionId) ?? step.subActions?.[0];
-  const collectLabel = activeSubAction?.collectLabel ?? (activeSubAction?.mode === "download" ? "Download Data" : activeSubAction?.mode === "sync" ? "Collect Data" : undefined);
+  const collectLabel = activeSubAction?.collectLabel ?? (activeSubAction?.mode === "download" ? "Download Data" : activeSubAction?.mode === "sync" || activeSubAction?.mode === "collect" ? "Collect Data" : undefined);
   const compactInstruction = step.stage === "PRODUCT_DETAILS"
     ? "Choose the sub-action, confirm the target page, then collect."
     : step.instruction;
+  const usesSubActionCollectButtons = step.stage === "PRODUCT_DETAILS" && Boolean(step.subActions?.length);
   if (compact) {
     return (
       <motion.div
@@ -1970,7 +1970,7 @@ function FloatingStepController({
         transition={{ duration: 0.18 }}
       >
         <div className="flex items-center gap-2">
-          <button className="secondary-button h-8 w-8 rounded-full px-0" type="button" onClick={() => setCompact(false)} aria-label="Expand collector">
+          <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={() => setCompact(false)} aria-label="Expand collector">
             <Maximize2 size={13} />
           </button>
           <div className="min-w-0">
@@ -1984,7 +1984,7 @@ function FloatingStepController({
             {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "wait"}
           </span>
           <button
-            className="secondary-button h-8 w-8 shrink-0 rounded-full px-0"
+            className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
             type="button"
             onClick={onOpenTarget}
             disabled={!targetUrl}
@@ -1994,10 +1994,10 @@ function FloatingStepController({
             <ExternalLink size={13} />
           </button>
           <button
-            className="primary-button h-8 w-8 shrink-0 rounded-full px-0"
+            className="primary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
             type="button"
             disabled={saving || !step.ready}
-            onClick={onCollect}
+            onClick={() => onCollect(activeSubAction?.id)}
             aria-label={step.mode === "PROCESS" ? "Process step" : "Collect step"}
             title={step.mode === "PROCESS" ? "Process step" : "Collect step"}
           >
@@ -2022,7 +2022,7 @@ function FloatingStepController({
           </div>
           <div className="truncate text-sm font-semibold text-white">{step.label}</div>
         </div>
-        <button className="secondary-button h-8 w-8 rounded-full px-0" type="button" onClick={() => setCompact(true)} aria-label="Collapse collector">
+        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={() => setCompact(true)} aria-label="Collapse collector">
           <Minimize2 size={13} />
         </button>
       </div>
@@ -2038,20 +2038,33 @@ function FloatingStepController({
         {step.subActions && step.subActions.length > 0 && (
           <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-white/8 pt-2">
             {step.subActions.map((action) => (
-              <button
+              <div
                 key={action.id}
                 className={[
                   "w-full rounded-md border px-2 py-1.5 text-left transition",
                   activeSubAction?.id === action.id ? "border-signal-blue/45 bg-signal-blue/12" : "border-white/8 bg-white/[0.04] hover:bg-white/8"
                 ].join(" ")}
-                type="button"
-                onClick={() => onSelectSubAction(action.id)}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[11px] font-medium text-white">{action.label}</span>
-                  <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{action.mode}</span>
-                </div>
-              </button>
+                <button className="w-full text-left" type="button" onClick={() => onSelectSubAction(action.id)}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[11px] font-medium text-white">{action.label}</span>
+                    <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{subActionModeLabel(action)}</span>
+                  </div>
+                </button>
+                {usesSubActionCollectButtons && (
+                  <button
+                    className="secondary-button mt-1.5 h-7 w-full px-2 text-[10px]"
+                    type="button"
+                    disabled={saving || !step.ready}
+                    onClick={() => {
+                      onSelectSubAction(action.id);
+                      onCollect(action.id);
+                    }}
+                  >
+                    {subActionButtonLabel(action)}
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -2071,8 +2084,8 @@ function FloatingStepController({
           </button>
         )}
       </div>
-      {step.ready ? (
-        <button className="primary-button mt-2 h-9" type="button" disabled={saving} onClick={onCollect}>
+      {!usesSubActionCollectButtons && (step.ready ? (
+        <button className="primary-button mt-2 h-9" type="button" disabled={saving} onClick={() => onCollect(activeSubAction?.id)}>
           <ClipboardCheck size={16} />
           {step.mode === "PROCESS"
             ? captured ? "Review Process Again" : step.id === "evaluation-phase-scoring" ? "Open Evaluation Phase" : "Build Key Product Table"
@@ -2083,6 +2096,11 @@ function FloatingStepController({
           {step.mode === "PROCESS"
             ? "Capture both Relevance and Top Sales first. The table builder appears when product rows exist."
             : "Open the target page or complete Shopee login/verification manually. The collect button appears when this step is ready."}
+        </div>
+      ))}
+      {usesSubActionCollectButtons && !step.ready && (
+        <div className="mt-2 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
+          Open the matching product page before collecting Product Detail data.
         </div>
       )}
       {(onAttachFile || onOpenAndroid) && (
@@ -2103,6 +2121,93 @@ function FloatingStepController({
       )}
     </motion.div>
   );
+}
+
+function subActionModeLabel(action: CollectionSubAction): string {
+  if (action.mode === "collect" || action.mode === "sync") {
+    return "collect";
+  }
+  return action.mode;
+}
+
+function subActionButtonLabel(action: CollectionSubAction): string {
+  if (action.collectLabel) {
+    return action.collectLabel;
+  }
+  switch (action.mode) {
+    case "screenshot":
+      return "Capture";
+    case "download":
+      return "Download";
+    case "background":
+      return "Collect Data";
+    case "collect":
+    case "sync":
+    default:
+      return "Collect Data";
+  }
+}
+
+function scopeProductDetailSnapshot(
+  snapshot: RenderedProductDetailSnapshot,
+  subActionId?: string
+): RenderedProductDetailSnapshot {
+  const metricOnly: RenderedProductDetailSnapshot = {
+    storeName: snapshot.storeName,
+    storeUrl: snapshot.storeUrl,
+    storeType: snapshot.storeType,
+    rating: snapshot.rating,
+    ratingText: snapshot.ratingText,
+    reviewText: snapshot.reviewText,
+    totalSoldText: snapshot.totalSoldText,
+    activeReviewFilter: snapshot.activeReviewFilter,
+    images: [],
+    videos: [],
+    shopVouchers: [],
+    bundleDeals: [],
+    promotionCount: 0,
+    reviews: [],
+    reviewMediaImages: [],
+    reviewMediaVideos: []
+  };
+
+  switch (subActionId) {
+    case "first-page":
+    case "shop-homepage":
+      return metricOnly;
+    case "slides":
+      return {
+        ...metricOnly,
+        images: snapshot.images,
+        videos: snapshot.videos
+      };
+    case "positive-reviews":
+      return {
+        ...metricOnly,
+        reviews: snapshot.reviews.filter((review) => review.type === "Positive Reviews")
+      };
+    case "negative-reviews":
+      return {
+        ...metricOnly,
+        reviews: snapshot.reviews.filter((review) => review.type === "Negative Reviews")
+      };
+    case "media-in-user":
+      return {
+        ...metricOnly,
+        reviewMediaImages: snapshot.reviewMediaImages,
+        reviewMediaVideos: snapshot.reviewMediaVideos
+      };
+    case "description-promotions":
+      return {
+        ...metricOnly,
+        description: snapshot.description,
+        shopVouchers: snapshot.shopVouchers,
+        bundleDeals: snapshot.bundleDeals,
+        promotionCount: snapshot.promotionCount
+      };
+    default:
+      return snapshot;
+  }
 }
 
 function ScreenshotReviewModal({
@@ -3927,31 +4032,31 @@ function buildShopeeSteps(
       subActions: [
         {
           id: "first-page",
-          label: "First page",
+          label: "First page screenshot",
           mode: "screenshot",
-          collectLabel: "Capture First Page",
+          collectLabel: "Capture",
           description: "Capture only the visible first viewport frame."
         },
         {
           id: "slides",
           label: "Slides and images",
           mode: "download",
-          collectLabel: "Download Slides",
-          description: "Extract product picture/source URLs and product video URLs from page-product."
+          collectLabel: "Download Images",
+          description: "Extract first-page product gallery image and video URLs only."
         },
         {
           id: "positive-reviews",
           label: "Positive reviews: 5 star",
-          mode: "sync",
-          collectLabel: "Collect 5 Star Reviews",
+          mode: "collect",
+          collectLabel: "Collect Data",
           guidance: "Open the Shopee 5-star review tab first, then click Collect.",
           description: "Collect up to 3 positive reviews from product-ratings and product-comment-list."
         },
         {
           id: "negative-reviews",
           label: "Negative reviews: 1 star",
-          mode: "sync",
-          collectLabel: "Collect 1 Star Reviews",
+          mode: "collect",
+          collectLabel: "Collect Data",
           guidance: "Open the Shopee 1-star review tab first, then click Collect.",
           description: "Collect up to 2 negative reviews from product-ratings and product-comment-list."
         },
@@ -3959,14 +4064,14 @@ function buildShopeeSteps(
           id: "media-in-user",
           label: "Media in user",
           mode: "download",
-          collectLabel: "Download User Media",
-          description: "Extract review carousel image and video URLs."
+          collectLabel: "Download Review Media",
+          description: "Extract image and video URLs from review media only."
         },
         {
           id: "description-promotions",
           label: "Description, vouchers, bundle deals",
           mode: "background",
-          collectLabel: "Sync Details",
+          collectLabel: "Collect Data",
           description: "Sync description, mini vouchers, and Bundle Deals from readable HTML."
         },
         {
@@ -4957,9 +5062,9 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       }
       const textFrom = (element) => compact(element?.innerText || element?.textContent || "");
       const productPageRoot = document.querySelector(".page-product") || document.querySelector('[role="main"]') || htmlRoot || document.body;
-      const galleryRoot = productPageRoot?.querySelector?.('[role="main"] section section') ||
-        productPageRoot?.querySelector?.("section section") ||
-        productPageRoot;
+      const galleryRoot = document.querySelector(".page-product [role='main'] > section > section") ||
+        productPageRoot?.querySelector?.('[role="main"] section section') ||
+        productPageRoot?.querySelector?.("section section");
       const descriptionRoot = document.querySelector(".page-product__content .page-product__content--left section:nth-of-type(2) div") ||
         document.querySelector(".page-product__content .page-product__content--left") ||
         document.querySelector(".page-product__content");
@@ -5048,15 +5153,25 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         : /(?:^|\\s)5\\s*(?:star|bintang)?(?:\\s|$)/iu.test(activeReviewFilter)
           ? 5
           : undefined;
+      const isReviewMediaElement = (element) => Boolean(element?.closest?.(".product-ratings, .product-comment-list, .rating-media-list-image-carousel__item-list-wrapper, [class*='rating-media']"));
+      const isProductGalleryElement = (element) => Boolean(element?.closest?.(".page-product [role='main'] > section > section"));
       const productImages = unique(Array.from(galleryRoot?.querySelectorAll?.("picture._displayContents_, picture, source[srcset], img[srcset], img[src]") || [])
+        .filter((element) => !isReviewMediaElement(element))
         .map(imageUrlFrom));
       const productVideos = unique(Array.from(galleryRoot?.querySelectorAll?.("video") || [])
+        .filter((element) => !isReviewMediaElement(element))
         .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || "")));
-      const mediaRoot = document.querySelector(".rating-media-list-image-carousel__item-list-wrapper") || reviewRoot || document;
-      const reviewMediaImages = unique(Array.from(mediaRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
-        .map(imageUrlFrom));
-      const reviewMediaVideos = unique(Array.from(mediaRoot.querySelectorAll("video"))
-        .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || "")));
+      const mediaRoot = document.querySelector(".rating-media-list-image-carousel__item-list-wrapper") || reviewRoot;
+      const reviewMediaImages = mediaRoot
+        ? unique(Array.from(mediaRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
+          .filter((element) => !isProductGalleryElement(element))
+          .map(imageUrlFrom))
+        : [];
+      const reviewMediaVideos = mediaRoot
+        ? unique(Array.from(mediaRoot.querySelectorAll("video"))
+          .filter((element) => !isProductGalleryElement(element))
+          .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || "")))
+        : [];
       const reviewBlocks = unique(
         Array.from(commentRoot?.querySelectorAll?.(".product-comment-list > div, [class*='product-comment'], [class*='shopee-product-rating'], [class*='rating']") || [])
           .map(textFrom)

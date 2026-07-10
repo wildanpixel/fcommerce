@@ -604,6 +604,14 @@ webview {
   min-width: 244px;
 }
 
+.mio-round-icon-button {
+  min-width: 2rem !important;
+  width: 2rem !important;
+  height: 2rem !important;
+  border-radius: 999px !important;
+  padding: 0 !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
