@@ -1998,7 +1998,12 @@ function isBadProductTitle(value: string): boolean {
 }
 
 function safeStoreName(value: string | undefined): string | undefined {
-  const cleaned = value ? cleanText(value) : "";
+  const cleaned = value
+    ? cleanText(value)
+        .replace(/\s+(active|aktif)\b[\s\S]*$/iu, "")
+        .replace(/\s+(chat now|view shop|lihat toko|ratings?|penilaian|products?|produk|response|respon|joined|bergabung|followers?|pengikut)\b[\s\S]*$/iu, "")
+        .trim()
+    : "";
   if (!cleaned || /(chat now|follow|ikuti|active|aktif|online|offline|click here to visit shop|visit shop|view shop|lihat toko|rating|penilaian|followers?|pengikut|products?|produk|response|respon|joined|bergabung|months?|bulan|ago|yang lalu|seller centre|notifications?)/iu.test(cleaned) || /^(mall\s*ori|star\+?|official|resmi)$/iu.test(cleaned)) {
     return undefined;
   }

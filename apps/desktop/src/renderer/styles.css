@@ -604,6 +604,11 @@ webview {
   min-width: 244px;
 }
 
+.mio-floating-collector-expanded {
+  max-height: calc(100% - 1.5rem);
+  overflow: hidden;
+}
+
 .mio-round-icon-button {
   min-width: 2rem !important;
   width: 2rem !important;

@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Brain,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Circle,
@@ -92,6 +93,8 @@ type CollectionSubAction = {
   description: string;
   collectLabel?: string;
   guidance?: string;
+  targetUrl?: string;
+  preferredViewMode?: PlatformViewMode;
 };
 
 type CollectionStep = {
@@ -862,6 +865,7 @@ function GuidedBrowserCollector({
   const [reviewingKeyProducts, setReviewingKeyProducts] = useState(false);
   const [reviewingEvaluation, setReviewingEvaluation] = useState(false);
   const [activeSubActionId, setActiveSubActionId] = useState<string | undefined>(undefined);
+  const [analysisSessionCollapsed, setAnalysisSessionCollapsed] = useState(false);
   const [pageTextPreview, setPageTextPreview] = useState("");
   const [zoomFactor, setZoomFactor] = useState(1);
   const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
@@ -899,6 +903,15 @@ function GuidedBrowserCollector({
   const steps = useMemo(() => allSteps.filter((step) => step.stage === activeStage), [activeStage, allSteps]);
   const activeStep = steps[activeStepIndex] ?? steps[0] ?? allSteps[0];
   const activeSubAction = activeStep?.subActions?.find((action) => action.id === activeSubActionId) ?? activeStep?.subActions?.[0];
+  const activeSubActionReady = activeSubAction?.id === "shop-homepage" ? isShopeeStorePage(currentUrl) : activeStep?.ready;
+  const activeTargetUrl = activeSubAction?.targetUrl ?? activeStep?.targetUrl;
+  const controllerStep = activeStep
+    ? {
+        ...activeStep,
+        ready: Boolean(activeSubActionReady),
+        targetUrl: activeTargetUrl
+      }
+    : activeStep;
   const selectedKeyProducts = useMemo(
     () => selectKeyProductCandidates(projectDetail.data?.products ?? []),
     [projectDetail.data?.products]
@@ -980,11 +993,14 @@ function GuidedBrowserCollector({
       const nextCollectedSteps = { ...collectedSteps, [step.id]: result.assetPath };
       setCollectedSteps(nextCollectedSteps);
       setPendingCapture(null);
+      const productDetailSubAction = typeof payload.metadata?.productDetailSubAction === "string" ? payload.metadata.productDetailSubAction : undefined;
+      const productDetailSubActionLabel = typeof payload.metadata?.productDetailSubActionLabel === "string" ? payload.metadata.productDetailSubActionLabel : undefined;
       appendLog(
         setActivityLog,
-        `Captured ${step.label}${result.extractedProductCount ? ` and extracted ${result.extractedProductCount} product rows` : ""}.`
+        `Captured ${step.label}${productDetailSubActionLabel ? ` / ${productDetailSubActionLabel}` : ""}${result.extractedProductCount ? ` and extracted ${result.extractedProductCount} product rows` : ""}.`
       );
-      const nextStepIndex = Math.min(activeStepIndex + 1, steps.length - 1);
+      const stayOnProductDetail = step.stage === "PRODUCT_DETAILS" && Boolean(productDetailSubAction);
+      const nextStepIndex = stayOnProductDetail ? activeStepIndex : Math.min(activeStepIndex + 1, steps.length - 1);
       setActiveStepIndex(nextStepIndex);
       persistCollectionState({
         stepAssetPaths: nextCollectedSteps,
@@ -1066,6 +1082,15 @@ function GuidedBrowserCollector({
       browserUrl: currentUrl,
       viewMode
     });
+  }
+
+  function selectSubAction(actionId: string) {
+    setActiveSubActionId(actionId);
+    const action = activeStep?.subActions?.find((item) => item.id === actionId);
+    if (action?.preferredViewMode) {
+      setViewMode(action.preferredViewMode);
+      persistCollectionState({ viewMode: action.preferredViewMode });
+    }
   }
 
   useEffect(() => {
@@ -1237,11 +1262,17 @@ function GuidedBrowserCollector({
     try {
       setCaptureStatus({ message: "Targeted page received", state: "working" });
       appendLog(setActivityLog, `Capturing rendered page snapshot for ${subAction ? `${step.label} / ${subAction.label}` : step.label}...`);
-      setPendingCapture({
-        payload: await buildManualEvidencePayload(step, subAction),
-        stepLabel: subAction ? `${step.label} / ${subAction.label}` : step.label
-      });
-      appendLog(setActivityLog, "Review the screenshot, crop if needed, then save the evidence.");
+      const payload = await buildManualEvidencePayload(step, subAction);
+      if (!subAction || subAction.mode === "screenshot") {
+        setPendingCapture({
+          payload,
+          stepLabel: subAction ? `${step.label} / ${subAction.label}` : step.label
+        });
+        appendLog(setActivityLog, "Review the screenshot, crop if needed, then save the evidence.");
+        return;
+      }
+      appendLog(setActivityLog, `Saving ${subAction.label} data from the current page.`);
+      saveEvidence.mutate(payload);
     } catch (error) {
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not prepare rendered page snapshot.");
     }
@@ -1297,7 +1328,7 @@ function GuidedBrowserCollector({
       projectId: project.id,
       stepId: step.id,
       label: step.label,
-      kind: step.kind,
+      kind: subActionEvidenceKind(step, subAction),
       ownerType: step.ownerType,
       ownerId: step.ownerId,
       sourceUrl: sourceUrl === "about:blank" ? undefined : sourceUrl,
@@ -1481,21 +1512,21 @@ function GuidedBrowserCollector({
         </AnimatePresence>
         <BrowserCaptureStatusPill status={captureStatus} onAction={() => void downloadCurrentHtml()} />
         <FloatingStepController
-          step={activeStep}
+          step={controllerStep}
           activeSubActionId={activeSubAction?.id}
           stepNumber={activeStepIndex + 1}
           stepTotal={steps.length}
           stageCollectedCount={stageCollectedCount}
-          targetUrl={activeStep.targetUrl}
+          targetUrl={activeTargetUrl}
           captured={Boolean(collectedSteps[activeStep.id])}
           saving={saveEvidence.isPending}
-          onOpenTarget={() => activeStep.targetUrl && navigateTo(activeStep.targetUrl)}
+          onOpenTarget={() => activeTargetUrl && navigateTo(activeTargetUrl)}
           onCollect={(subActionId) => {
             const selectedSubAction = subActionId
               ? activeStep.subActions?.find((action) => action.id === subActionId)
               : activeSubAction;
             if (selectedSubAction) {
-              setActiveSubActionId(selectedSubAction.id);
+              selectSubAction(selectedSubAction.id);
             }
             if (activeStep.mode === "PROCESS") {
               if (activeStep.id === "evaluation-phase-scoring") {
@@ -1507,7 +1538,7 @@ function GuidedBrowserCollector({
             }
             void captureAndSaveEvidence(activeStep, selectedSubAction);
           }}
-          onSelectSubAction={setActiveSubActionId}
+          onSelectSubAction={selectSubAction}
           onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
           onOpenAndroid={activeStep.id === "tiktok-brand-search" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
           onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
@@ -1554,17 +1585,33 @@ function GuidedBrowserCollector({
     <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : "grid grid-cols-[360px_minmax(0,1fr)] gap-5"}>
       {!expanded && (
         <aside className="space-y-5">
-          <Panel title="Analysis Session" icon={ClipboardCheck}>
-            <div className="space-y-3 text-sm text-ink-300">
-              <InfoLine label="Keyword" value={project.keyword} />
-              <InfoLine label="Category" value={project.productCategory ?? productCategory} />
-              <InfoLine label="Platform" value={project.marketplace === "SHOPEE_ID" ? "Shopee" : "TikTok Shop"} />
-              <InfoLine label="Created" value={formatDateTime(project.createdAt)} />
-            </div>
-            <button className="secondary-button mt-5" type="button" onClick={onNewAnalysis}>
-              <ClipboardCheck size={16} />
-              {exitLabel}
-            </button>
+          <button className="secondary-button" type="button" onClick={onNewAnalysis}>
+            <ClipboardCheck size={16} />
+            {exitLabel}
+          </button>
+          <Panel
+            title="Analysis Session"
+            icon={ClipboardCheck}
+            action={
+              <button
+                className="secondary-button mio-round-icon-button h-8 w-8 px-0"
+                type="button"
+                onClick={() => setAnalysisSessionCollapsed((value) => !value)}
+                aria-label={analysisSessionCollapsed ? "Expand analysis session" : "Collapse analysis session"}
+                title={analysisSessionCollapsed ? "Expand analysis session" : "Collapse analysis session"}
+              >
+                {analysisSessionCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+              </button>
+            }
+          >
+            {!analysisSessionCollapsed && (
+              <div className="space-y-3 text-sm text-ink-300">
+                <InfoLine label="Keyword" value={project.keyword} />
+                <InfoLine label="Category" value={project.productCategory ?? productCategory} />
+                <InfoLine label="Platform" value={project.marketplace === "SHOPEE_ID" ? "Shopee" : "TikTok Shop"} />
+                <InfoLine label="Created" value={formatDateTime(project.createdAt)} />
+              </div>
+            )}
           </Panel>
 
           <Panel title="Collection Progress" icon={ListChecks}>
@@ -1635,27 +1682,6 @@ function GuidedBrowserCollector({
                     {collectedSteps[step.id] ? <CheckCircle2 size={14} className="text-signal-green" /> : <Circle size={12} className="text-ink-500" />}
                   </div>
                   <div className="text-ink-300">{step.label}</div>
-                  {index === activeStepIndex && step.subActions && step.subActions.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/8 pt-2">
-                      {step.subActions.map((action) => (
-                        <button
-                          key={action.id}
-                          type="button"
-                          className={[
-                            "rounded-full border px-2 py-1 text-[10px] transition",
-                            activeSubAction?.id === action.id ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : "border-white/8 bg-white/[0.04] text-ink-400 hover:bg-white/8"
-                          ].join(" ")}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setActiveStepIndex(index);
-                            setActiveSubActionId(action.id);
-                          }}
-                        >
-                          {action.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                   {index === activeStepIndex && (
                     <CollectionStepPreview
                       step={step}
@@ -2010,7 +2036,7 @@ function FloatingStepController({
 
   return (
     <motion.div
-      className="mio-floating-collector absolute left-4 top-4 z-20 w-[304px] rounded-[18px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl"
+      className="mio-floating-collector mio-floating-collector-expanded absolute left-4 top-4 z-20 flex w-[320px] flex-col rounded-[18px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl"
       initial={{ opacity: 0, y: -10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.18 }}
@@ -2027,7 +2053,7 @@ function FloatingStepController({
         </button>
       </div>
       <ProgressBar value={(stageCollectedCount / Math.max(stepTotal, 1)) * 100} />
-      <div className="mt-2 rounded-2xl border border-white/8 bg-white/6 p-3 text-xs leading-5 text-ink-300">
+      <div className="mt-2 min-h-0 flex-1 overflow-y-auto rounded-2xl border border-white/8 bg-white/6 p-3 text-xs leading-5 text-ink-300">
         <div className="mb-1 flex items-center justify-between gap-2">
           <span className="font-medium text-white">{step.section}</span>
           <span className={["rounded-full px-2 py-0.5 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
@@ -2036,7 +2062,7 @@ function FloatingStepController({
         </div>
         <div className="text-[11px] leading-4 text-ink-400">{compactInstruction}</div>
         {step.subActions && step.subActions.length > 0 && (
-          <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-white/8 pt-2">
+          <div className="mt-2 space-y-1.5 border-t border-white/8 pt-2">
             {step.subActions.map((action) => (
               <div
                 key={action.id}
@@ -2045,25 +2071,28 @@ function FloatingStepController({
                   activeSubAction?.id === action.id ? "border-signal-blue/45 bg-signal-blue/12" : "border-white/8 bg-white/[0.04] hover:bg-white/8"
                 ].join(" ")}
               >
-                <button className="w-full text-left" type="button" onClick={() => onSelectSubAction(action.id)}>
-                  <div className="flex items-center justify-between gap-2">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                  <button className="min-w-0 text-left" type="button" onClick={() => onSelectSubAction(action.id)}>
                     <span className="truncate text-[11px] font-medium text-white">{action.label}</span>
-                    <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{subActionModeLabel(action)}</span>
-                  </div>
-                </button>
-                {usesSubActionCollectButtons && (
-                  <button
-                    className="secondary-button mt-1.5 h-7 w-full px-2 text-[10px]"
-                    type="button"
-                    disabled={saving || !step.ready}
-                    onClick={() => {
-                      onSelectSubAction(action.id);
-                      onCollect(action.id);
-                    }}
-                  >
-                    {subActionButtonLabel(action)}
                   </button>
-                )}
+                  <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{subActionModeLabel(action)}</span>
+                </div>
+                <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                  <div className="truncate text-[10px] text-ink-500">{action.description}</div>
+                  {usesSubActionCollectButtons && (
+                    <button
+                      className="secondary-button h-7 w-auto px-3 text-[10px]"
+                      type="button"
+                      disabled={saving || !step.ready}
+                      onClick={() => {
+                        onSelectSubAction(action.id);
+                        onCollect(action.id);
+                      }}
+                    >
+                      {subActionButtonLabel(action)}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -2145,6 +2174,28 @@ function subActionButtonLabel(action: CollectionSubAction): string {
     case "sync":
     default:
       return "Collect Data";
+  }
+}
+
+function subActionEvidenceKind(step: CollectionStep, action?: CollectionSubAction): ManualEvidenceKind {
+  if (!action) {
+    return step.kind;
+  }
+  switch (action.id) {
+    case "slides":
+      return "PRODUCT_IMAGE";
+    case "positive-reviews":
+    case "negative-reviews":
+      return "REVIEW_SECTION";
+    case "media-in-user":
+      return "REVIEW_IMAGE";
+    case "description-promotions":
+      return "PRODUCT_DESCRIPTION";
+    case "shop-homepage":
+      return "STORE_HOME";
+    case "first-page":
+    default:
+      return step.kind;
   }
 }
 
@@ -4079,7 +4130,10 @@ function buildShopeeSteps(
           label: "Shop Home Page",
           mode: "screenshot",
           collectLabel: "Capture Shop Page",
-          description: "Use the synced store link later in Key Store collection."
+          description: product.storeUrl ? "Open the synced shop page in mobile view and capture it." : "Open the PDP, visit View Shop manually, then capture the shop page.",
+          guidance: product.storeUrl ? "Open Target switches to the store page. Mobile view is preferred for this capture." : "Store URL is not synced yet. Open the product page, use View Shop manually, then capture.",
+          targetUrl: product.storeUrl ?? productUrl,
+          preferredViewMode: "mobile"
         }
       ],
       ready: productCurrent
@@ -5072,8 +5126,12 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const shopSection = shopRoot?.matches?.("section.page-product__shop")
         ? shopRoot
         : shopRoot?.querySelector?.("section.page-product__shop") || document.querySelector("section.page-product__shop") || shopRoot;
+      const cleanStoreNameCandidate = (value) => compact(value)
+        .replace(/\\s+(active|aktif)\\b[\\s\\S]*$/iu, "")
+        .replace(/\\s+(chat now|view shop|lihat toko|ratings?|penilaian|products?|produk|response|respon|joined|bergabung|followers?|pengikut)\\b[\\s\\S]*$/iu, "")
+        .trim();
       const isGoodStoreName = (value) => {
-        const normalized = compact(value);
+        const normalized = cleanStoreNameCandidate(value);
         const lowered = normalized.toLowerCase();
         return normalized.length >= 2 &&
           normalized.length <= 120 &&
@@ -5084,6 +5142,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
       const storeNameLinesFrom = (element) => String(element?.innerText || element?.textContent || "")
         .split(/\\n|\\|/u)
         .map(compact)
+        .map(cleanStoreNameCandidate)
         .filter(isGoodStoreName);
       const storeNameAfterAnchor = (anchor) => {
         const candidates = [];
