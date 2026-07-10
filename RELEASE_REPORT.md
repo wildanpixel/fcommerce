@@ -55,9 +55,9 @@ This release completes the next Key Store collection pass. Product Detail comple
 | Verify UI reflects latest implementation | Passed by packaged startup smoke under the renamed app |
 | Verify packaged application version | Passed: package version `1.0.0` |
 | Update changelog | Completed |
-| Commit | Pending after this report update |
-| Push | Pending after commit |
-| Verify GitHub Actions | Pending after push |
+| Commit | Completed: `f2620a55ae72f439a1efd4ce1747f34267ccfa3b` |
+| Push | Completed to `origin/main` |
+| Verify GitHub Actions | Passed: CI and Build Desktop Artifacts succeeded |
 
 ## Local Validation So Far
 
@@ -76,6 +76,13 @@ This release completes the next Key Store collection pass. Product Detail comple
 - `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 146.41 MB.
 - `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 146.19 MB.
 - `apps/desktop/release/win-unpacked/MarketPlace Keyword Competitor Analysis.exe` - 191.91 MB.
+- GitHub Actions artifact `marketplace-intelligence-os-windows` - uploaded from [Build Desktop Artifacts](https://github.com/wildanpixel/fcommerce/actions/runs/29108162918).
+- GitHub Actions artifact `marketplace-intelligence-os-macos` - uploaded from [Build Desktop Artifacts](https://github.com/wildanpixel/fcommerce/actions/runs/29108162918).
+
+## GitHub Actions
+
+- CI: passed at [run 29108162913](https://github.com/wildanpixel/fcommerce/actions/runs/29108162913).
+- Build Desktop Artifacts: passed at [run 29108162918](https://github.com/wildanpixel/fcommerce/actions/runs/29108162918).
 
 ## Remaining Notes
 
