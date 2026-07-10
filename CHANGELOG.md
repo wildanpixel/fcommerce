@@ -4,6 +4,12 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-10
 
+- Changed the transition after Product Detail completion so the collection workspace automatically opens Part 3 Evaluation Phase instead of closing back to the project inspector.
+- Scoped Part 3 Store Home Page screenshots to `.shop-decoration` and Store Products/Best Sellers screenshots to `.shop-page__all-products-section`.
+- Persisted Part 3 store-grid product rows as `Store Products` and `Store Best Sellers` so the Key Store inspector can display store-specific product matrices without polluting the Key Product table.
+- Added store-decoration banner download/localization for the Visual Style step, including readable carousel banner images.
+- Changed Key Store Overall from score cards to conclusion sentences and changed the selected store URL into an Open Store Page button.
+- Added a TikTok brand/store search target for the final Key Store evidence step using the selected store name.
 - Renamed the visible desktop product to MarketPlace Keyword Competitor Analysis and renamed Projects to Keyword Projects in the product shell.
 - Changed Product Detail slide collection from bulk gallery scraping to a user-selected HD media workflow: each click saves the currently visible main product image/video and advances the button from Download to Download 2 through Download 9.
 - Fixed Product Detail Shop Home Page persistence so product-level store homepage screenshots remain visible inside the matching Product Detailed Qualified section while store records are still updated.

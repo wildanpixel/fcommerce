@@ -72,6 +72,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-10 | Product Detail media collection saved blurry/duplicate gallery assets | Fixed | Slides are now collected through a user-selected HD media cycle: the user selects the main Shopee gallery image/video and each Download click saves one visible media item up to 9 total. |
 | 2026-07-10 | Product Detail shop homepage evidence did not appear in Project Inspector | Fixed | Product-owned Shop Home Page captures now stay attached to the product while still updating store records, and the inspector can show compatible existing store-owned captures. |
 | 2026-07-10 | Keyword project management and report export gaps | Improved | Keyword Projects now support category filtering, card/list views, typed delete confirmation, completed/incomplete status, report preview/copy, HTML open, and DOCX export. |
+| 2026-07-10 | Part 3 Key Store collection captured broad pages and did not persist store product matrices | Fixed | Evaluation opens in-place after Product Details, store captures target `.shop-decoration` and `.shop-page__all-products-section`, store rows persist as Store Products/Store Best Sellers, visual-style banners save as assets, and TikTok search opens by selected store name. |
 
 ## Sprint Overview
 
@@ -299,6 +300,11 @@ Status: Partial
 - Passed: Product Detail capture now refreshes Store Name/URL from PDP shop content using the Shopee shop block before store evaluation begins.
 - Passed: Product Detail capture now targets Shopee's shop-anchor sibling layout for Store Name and can repair Store Type from valid Mall/Star badges when visible.
 - Passed: Key Store collection can start from the top Potential Store and targets Store Home Page, Products, Best Sellers, and Visual Style/banner evidence.
+- Passed: Product Detail completion now opens Evaluation Phase inside the collection workspace, so Part 3 begins without an extra Finish click.
+- Passed: Store Home Page screenshots are scoped to `.shop-decoration`, and Store Products/Best Sellers screenshots are scoped to `.shop-page__all-products-section`.
+- Passed: Store product rows persist as `Store Products` and `Store Best Sellers` and do not overwrite the Key Product table.
+- Passed: Visual Style downloads readable `.shop-decoration` banner images into local `STORE_BANNER` assets.
+- Passed: The final TikTok cross-platform step opens TikTok search for the selected Key Store name.
 - Passed: M2 store-related rows in `IMPLEMENTATION_STATUS.md` are updated.
 
 ## Sprint 4 - Complete Key Stores AI

@@ -99,6 +99,7 @@ type CollectionSubAction = {
   description: string;
   collectLabel?: string;
   captureMode?: "viewport" | "full-page";
+  targetSelector?: string;
   guidance?: string;
   targetUrl?: string;
   preferredViewMode?: PlatformViewMode;
@@ -112,6 +113,7 @@ type CollectionStep = {
   kind: ManualEvidenceKind;
   mode?: "CAPTURE" | "PROCESS";
   captureMode?: "viewport" | "full-page";
+  targetSelector?: string;
   substeps?: string[];
   subActions?: CollectionSubAction[];
   ownerType?: ManualEvidencePayload["ownerType"];
@@ -132,6 +134,17 @@ type FullPageScreenshot = {
   height: number;
   mode: "viewport" | "full-page";
   clipped?: boolean;
+};
+
+type ElementPageRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  pageHeight: number;
+  scrollY: number;
 };
 
 type PendingEvidenceCapture = {
@@ -1013,6 +1026,17 @@ function GuidedBrowserCollector({
         setActivityLog,
         `Captured ${step.label}${productDetailSubActionLabel ? ` / ${productDetailSubActionLabel}` : ""}${result.extractedProductCount ? ` and extracted ${result.extractedProductCount} product rows` : ""}.`
       );
+      const completedStageSteps = steps.every((item) => isCollectionStepComplete(item, nextCollectedSteps));
+      if (step.stage === "EVALUATION_KEY_STORE" && completedStageSteps) {
+        persistCollectionState({
+          stepAssetPaths: nextCollectedSteps,
+          completedStepIds: Object.keys(nextCollectedSteps),
+          progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+          currentStepId: step.id
+        });
+        completeCurrentStage(nextCollectedSteps);
+        return;
+      }
       const stayOnProductDetail = step.stage === "PRODUCT_DETAILS" && Boolean(productDetailSubAction);
       const nextStepIndex = stayOnProductDetail ? activeStepIndex : Math.min(activeStepIndex + 1, steps.length - 1);
       setActiveStepIndex(nextStepIndex);
@@ -1079,8 +1103,12 @@ function GuidedBrowserCollector({
   }, [initialUrl]);
 
   useEffect(() => {
-    setReviewingKeyProducts(false);
-    setReviewingEvaluation(false);
+    if (activeStage !== "KEYWORD_GENERAL") {
+      setReviewingKeyProducts(false);
+    }
+    if (activeStage !== "EVALUATION_KEY_STORE") {
+      setReviewingEvaluation(false);
+    }
   }, [activeStage]);
 
   function switchCollectionStage(stage: CollectionStage) {
@@ -1089,6 +1117,12 @@ function GuidedBrowserCollector({
     const nextIndex = firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0;
     setActiveStage(stage);
     setActiveStepIndex(nextIndex);
+    setReviewingKeyProducts(false);
+    const showEvaluation = stage === "EVALUATION_KEY_STORE" && (stageSteps[nextIndex]?.id === "evaluation-phase-scoring" || !stageSteps.some((step) => step.id === "evaluation-phase-scoring" && isCollectionStepComplete(step, collectedSteps)));
+    setReviewingEvaluation(showEvaluation);
+    if (showEvaluation) {
+      setExpanded(false);
+    }
     persistCollectionState({
       stage,
       stageLabel: collectionStageLabel(stage),
@@ -1194,6 +1228,11 @@ function GuidedBrowserCollector({
     if (nextStage) {
       setActiveStage(nextStage);
       setActiveStepIndex(0);
+      const enteringEvaluation = nextStage === "EVALUATION_KEY_STORE";
+      setReviewingEvaluation(enteringEvaluation);
+      if (enteringEvaluation) {
+        setExpanded(false);
+      }
       persistCollectionState({
         stage: nextStage,
         stageLabel: collectionStageLabel(nextStage),
@@ -1204,8 +1243,8 @@ function GuidedBrowserCollector({
         currentStepId: allSteps.find((step) => step.stage === nextStage)?.id
       });
       appendLog(setActivityLog, `${collectionStageLabel(activeStage)} completed. Continue with ${collectionStageLabel(nextStage)}.`);
-      if (activeStage === "PRODUCT_DETAILS") {
-        window.setTimeout(() => onCollectionCompleted?.(project.id), 500);
+      if (activeStage === "PRODUCT_DETAILS" && enteringEvaluation) {
+        appendLog(setActivityLog, "Opened Evaluation Phase automatically. Review Potential Stores, then continue Key Store collection.");
       }
       return;
     }
@@ -1298,10 +1337,18 @@ function GuidedBrowserCollector({
       throw new Error("The embedded browser cannot capture this page in the current runtime.");
     }
     const captureMode = subAction?.captureMode ?? step.captureMode ?? "full-page";
-    setCaptureStatus({ message: captureMode === "viewport" ? "Capturing visible viewport" : "Capturing full page screenshot", state: "working" });
-    const screenshot = captureMode === "viewport"
-      ? await captureViewportScreenshot(webview)
-      : await captureFullPageScreenshot(webview);
+    const targetSelector = subAction?.targetSelector ?? step.targetSelector;
+    setCaptureStatus({
+      message: targetSelector
+        ? "Capturing target section"
+        : captureMode === "viewport" ? "Capturing visible viewport" : "Capturing full page screenshot",
+      state: "working"
+    });
+    const screenshot = targetSelector
+      ? await captureElementScreenshot(webview, targetSelector)
+      : captureMode === "viewport"
+        ? await captureViewportScreenshot(webview)
+        : await captureFullPageScreenshot(webview);
     const sourceUrl = webview.getURL?.() ?? currentUrl;
     setCaptureStatus({ message: "Downloading HTML from #main", state: "working" });
     const snapshot = await extractRenderedPageSnapshot(webview)
@@ -1333,7 +1380,8 @@ function GuidedBrowserCollector({
             reviews: [],
             reviewMediaImages: [],
             reviewMediaVideos: []
-          }
+          },
+          storeDecorationImages: []
         };
       });
     const printPdfDataUrl = await webview.printToPDF?.({ printBackground: true })
@@ -1366,12 +1414,14 @@ function GuidedBrowserCollector({
         screenshotMode: captureMode,
         actualScreenshotMode: screenshot.mode,
         screenshotClipped: screenshot.clipped,
+        targetSelector,
         productDetailSubsteps: step.substeps,
         productDetailSubAction: subAction?.id,
         productDetailSubActionLabel: subAction?.label,
         productDetailSubActionMode: subAction?.mode,
         syncProductDetail: step.stage === "PRODUCT_DETAILS",
         structuredProductDetail,
+        storeDecorationImages: snapshot.storeDecorationImages,
         extractedText: snapshot.visibleText,
         extractedProductCount: snapshot.products.length,
         capturedAt: new Date().toISOString()
@@ -3036,7 +3086,9 @@ function KeyStorePanel({
   const matchingProducts = selectKeyProductCandidates(detail.products)
     .filter((product) => normalizeStoreKey(product) === candidate.key);
   const latestAnalysis = [...detail.analyses].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
-  const summaryItems = latestAnalysis ? analysisPreview(latestAnalysis.resultJson) : [];
+  const conclusionSentences = keyStoreOverallConclusions(candidate, latestAnalysis?.resultJson);
+  const storeProducts = detail.products.filter((product) => product.source === "Store Products");
+  const storeBestSellers = detail.products.filter((product) => product.source === "Store Best Sellers");
   const homeAssets = detail.assets.filter((asset) => asset.kind === "STORE_HOME");
   const productAssets = detail.assets.filter((asset) => asset.kind === "STORE_FEATURED_PRODUCTS");
   const bestSellerAssets = detail.assets.filter((asset) => asset.kind === "STORE_BEST_SELLER");
@@ -3049,8 +3101,9 @@ function KeyStorePanel({
           <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Selected Key Store</div>
           <div className="mt-1 text-base font-semibold text-white">{candidate.name}</div>
           {candidate.url && (
-            <button className="mt-2 text-xs text-signal-blue" type="button" onClick={() => void apiClient.openUrl(candidate.url ?? "")}>
-              {candidate.url}
+            <button className="secondary-button mt-2 h-8 max-w-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(candidate.url ?? "")}>
+              <ExternalLink size={13} />
+              <span className="truncate">Open Store Page</span>
             </button>
           )}
         </div>
@@ -3061,21 +3114,11 @@ function KeyStorePanel({
       </div>
 
       <NestedReportSection title="Overall" defaultOpen>
-        {summaryItems.length > 0 ? (
-          <div className="grid gap-2 md:grid-cols-3">
-            {summaryItems.map((item) => (
-              <div key={item.label} className="rounded border border-white/8 bg-white/5 p-2">
-                <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{item.label}</div>
-                <div className="mt-1 text-sm text-ink-200">{item.value}</div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-sm leading-6 text-ink-300">
-            {candidate.name} is currently ranked first by estimated GMV, sold-per-month signals, promotion count,
-            product quality, and captured evidence readiness.
-          </div>
-        )}
+        <div className="space-y-2 text-sm leading-6 text-ink-300">
+          {conclusionSentences.map((sentence) => (
+            <p key={sentence}>{sentence}</p>
+          ))}
+        </div>
       </NestedReportSection>
 
       <NestedReportSection title="Store Home Page" defaultOpen={false}>
@@ -3085,12 +3128,17 @@ function KeyStorePanel({
       <NestedReportSection title="Products" defaultOpen={false}>
         <AssetList assets={productAssets} />
         <div className="mt-3">
-          <ProductCardGrid products={matchingProducts} />
+          <ProductCardGrid products={storeProducts.length > 0 ? storeProducts : matchingProducts} />
         </div>
       </NestedReportSection>
 
       <NestedReportSection title="Best Sellers" defaultOpen={false}>
         <AssetList assets={bestSellerAssets} />
+        {storeBestSellers.length > 0 && (
+          <div className="mt-3">
+            <ProductCardGrid products={storeBestSellers} />
+          </div>
+        )}
       </NestedReportSection>
 
       <NestedReportSection title="Visual Style" defaultOpen={false}>
@@ -4271,8 +4319,9 @@ function stageCompletionButtonLabel(stage: CollectionStage): string {
     case "PRODUCT_DETAILS":
       return "Collection Complete";
     case "EVALUATION_KEY_STORE":
+      return "Open Evaluation";
     default:
-      return "Finish";
+      return "Done";
   }
 }
 
@@ -4400,9 +4449,11 @@ function buildShopeeSteps(
   const keyProducts = selectKeyProductCandidates(products);
   const keyStoreSeed = selectKeyStoreSeedProduct(keyProducts);
   const keyStoreUrl = keyStoreSeed?.storeUrl ?? undefined;
+  const keyStoreBrandName = keyStoreSeed?.storeName ?? storeNameFromUrl(keyStoreUrl) ?? project.keyword;
   const currentStoreUrl = storeReady ? currentUrl : keyStoreUrl;
   const popularStoreTarget = currentStoreUrl ? withStoreSort(currentStoreUrl, "pop") : undefined;
   const bestSellerTarget = currentStoreUrl ? withStoreSort(currentStoreUrl, "sales") : undefined;
+  const tiktokBrandSearchTarget = `https://www.tiktok.com/search?q=${encodeURIComponent(keyStoreBrandName)}`;
 
   const discoverySteps: CollectionStep[] = [
     {
@@ -4571,7 +4622,8 @@ function buildShopeeSteps(
       section: "Key Store",
       label: "Store homepage",
       kind: "STORE_HOME",
-      instruction: "Open the inspected product store page and capture the visible homepage.",
+      targetSelector: ".shop-decoration",
+      instruction: "Open the inspected product store page and capture only the shop-decoration homepage area.",
       targetUrl: keyStoreUrl,
       ready: Boolean(storeReady && (!keyStoreUrl || sameUrlIntent(currentUrl, keyStoreUrl)))
     },
@@ -4581,7 +4633,8 @@ function buildShopeeSteps(
       section: "Key Store",
       label: "Store products popular page",
       kind: "STORE_FEATURED_PRODUCTS",
-      instruction: "Open the store product tab sorted by popular products and capture it. Extract product rows like the Relevance section where possible.",
+      targetSelector: ".shop-page__all-products-section",
+      instruction: "Open the store product tab sorted by popular products. Capture only shop-page__all-products-section and extract product rows like the Relevance section.",
       targetUrl: popularStoreTarget,
       ready: storeReady && currentUrl.includes("sortBy=pop")
     },
@@ -4591,7 +4644,8 @@ function buildShopeeSteps(
       section: "Key Store",
       label: "Store best-seller page",
       kind: "STORE_BEST_SELLER",
-      instruction: "Open the store product tab sorted by sales and capture the best-selling products. Extract product rows like the Top Sales section where possible.",
+      targetSelector: ".shop-page__all-products-section",
+      instruction: "Open the store product tab sorted by sales. Capture only shop-page__all-products-section and extract product rows like the Top Sales section.",
       targetUrl: bestSellerTarget,
       ready: storeReady && currentUrl.includes("sortBy=sales")
     },
@@ -4601,7 +4655,8 @@ function buildShopeeSteps(
       section: "Key Store",
       label: "Store visual style and banners",
       kind: "STORE_BANNER",
-      instruction: "Capture store decoration and sync banner images from shop-decoration when readable.",
+      targetSelector: ".shop-decoration",
+      instruction: "Download all readable banner images from shop-decoration, including carousel banners.",
       targetUrl: keyStoreUrl,
       ready: storeReady
     },
@@ -4609,10 +4664,11 @@ function buildShopeeSteps(
       id: "tiktok-brand-search",
       stage: "EVALUATION_KEY_STORE",
       section: "Cross Platform Evidence",
-      label: "TikTok Android brand/store screenshot",
+      label: "TikTok brand/store search",
       kind: "SOCIAL_ACCOUNT",
-      instruction: "Open TikTok in the Android emulator, search the inspected Shopee store or brand name, then attach the emulator screenshot as cross-platform evidence.",
-      ready: true
+      instruction: `Open TikTok search for ${keyStoreBrandName}, then capture or attach the cross-platform evidence.`,
+      targetUrl: tiktokBrandSearchTarget,
+      ready: sameUrlIntent(currentUrl, tiktokBrandSearchTarget) || isTikTokPage(currentUrl)
     }
   ];
 
@@ -4761,9 +4817,23 @@ function withStoreSort(value: string, sortBy: "pop" | "sales"): string {
   }
 }
 
+function storeNameFromUrl(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    const url = new URL(value);
+    const slug = decodeURIComponent(url.pathname.split("/").filter(Boolean)[0] ?? "");
+    const name = slug.replace(/[-_]+/gu, " ").replace(/\.id$/iu, "").trim();
+    return name || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function selectKeyProductCandidates(products: ProjectProductEvidence[]): ProjectProductEvidence[] {
   const merged = new Map<string, ProjectProductEvidence>();
-  for (const product of products) {
+  for (const product of products.filter(isQualifiedProductSource)) {
     const key = normalizeProductKey(product);
     const current = merged.get(key);
     if (!current || productQualityScore(product) > productQualityScore(current)) {
@@ -4776,6 +4846,10 @@ function selectKeyProductCandidates(products: ProjectProductEvidence[]): Project
     .filter((product) => product.title && product.productUrl)
     .sort((left, right) => productQualityScore(right) - productQualityScore(left))
     .slice(0, 10);
+}
+
+function isQualifiedProductSource(product: ProjectProductEvidence): boolean {
+  return product.source !== "Store Products" && product.source !== "Store Best Sellers";
 }
 
 function normalizeProductKey(product: ProjectProductEvidence): string {
@@ -4857,6 +4931,21 @@ function uniqueInlineLabels(values: Array<string | null | undefined>): string[] 
       continue;
     }
     seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = String(value ?? "").replace(/\s+/gu, " ").trim();
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
     output.push(normalized);
   }
   return output;
@@ -5073,6 +5162,37 @@ function analysisPreview(resultJson: string): Array<{ label: string; value: stri
     .map(([label, value]) => ({ label: titleCase(label), value: String(value).slice(0, 140) }));
 }
 
+function keyStoreOverallConclusions(candidate: StoreEvaluationCandidate, resultJson?: string): string[] {
+  const parsed = resultJson ? parseRecord(resultJson) : null;
+  const candidates = [
+    textFromAnalysisValue(parsed?.executiveSummary),
+    textFromAnalysisValue(parsed?.summary),
+    textFromAnalysisValue(parsed?.storeAnalysis),
+    textFromAnalysisValue(parsed?.competitivePosition),
+    textFromAnalysisValue(parsed?.recommendations)
+  ].filter(Boolean) as string[];
+  const evidenceSentence = `${candidate.name} is selected as the Key Store because it has the strongest combined signal across estimated monthly GMV, sold-per-month volume, promotion activity, store type, and captured evidence readiness.`;
+  const benchmarkSentence = `Use ${candidate.name} as the benchmark for homepage structure, product matrix, best-seller presentation, banner style, voucher strategy, and TikTok brand presence.`;
+  const scoreSentence = `The current local score is ${candidate.score}/100 from ${candidate.productCount} qualified product signal${candidate.productCount === 1 ? "" : "s"}, estimated GMV ${formatCurrency(candidate.gmvEstimate)}, and ${candidate.promotionCount} promotion signal${candidate.promotionCount === 1 ? "" : "s"}.`;
+  return uniqueStrings([evidenceSentence, ...candidates, scoreSentence, benchmarkSentence]).slice(0, 5);
+}
+
+function textFromAnalysisValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim() || undefined;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => (typeof item === "string" ? item : undefined)).filter(Boolean).join(" ").slice(0, 360) || undefined;
+  }
+  if (isRecord(value)) {
+    const summary = value.summary ?? value.overall ?? value.rationale ?? value.recommendation ?? value.description;
+    if (typeof summary === "string" && summary.trim()) {
+      return summary.trim();
+    }
+  }
+  return undefined;
+}
+
 function parseRecord(value: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -5165,6 +5285,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
   visibleText: string;
   products: ExtractedPageProduct[];
   productDetail: RenderedProductDetailSnapshot;
+  storeDecorationImages: string[];
 }> {
   if (!webview.executeJavaScript) {
     return {
@@ -5185,7 +5306,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         reviews: [],
         reviewMediaImages: [],
         reviewMediaVideos: []
-      }
+      },
+      storeDecorationImages: []
     };
   }
   return webview.executeJavaScript<{
@@ -5193,6 +5315,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
     visibleText: string;
     products: ExtractedPageProduct[];
     productDetail: RenderedProductDetailSnapshot;
+    storeDecorationImages: string[];
   }>(`
     (async () => {
       const parseHumanNumber = (value) => {
@@ -5727,12 +5850,22 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         reviewMediaImages: reviewMediaImages.slice(0, 30),
         reviewMediaVideos: reviewMediaVideos.slice(0, 12)
       };
+      const storeDecorationRoot = document.querySelector(".shop-decoration");
+      const storeDecorationImages = storeDecorationRoot
+        ? unique([
+            ...Array.from(storeDecorationRoot.querySelectorAll("picture, source[srcset], source[data-srcset], source[scrset], img[srcset], img[data-srcset], img[src], img[data-src]")).map(imageUrlFrom),
+            ...Array.from(storeDecorationRoot.querySelectorAll("[style*='url(']")).flatMap((element) => {
+              const style = element.getAttribute("style") || "";
+              return Array.from(style.matchAll(/url\\((['"]?)(.*?)\\1\\)/giu)).map((match) => absoluteUrl(match[2]));
+            })
+          ])
+        : [];
       const html = prettyHtml(htmlRoot.outerHTML || document.documentElement?.outerHTML || "");
       const visibleTextSource = htmlRoot.innerText || document.body?.innerText || "";
       const visibleText = [document.title || "", location.href, compact(visibleTextSource).slice(0, 24000)]
         .filter(Boolean)
         .join("\\n");
-      return { html, visibleText, products, productDetail };
+      return { html, visibleText, products, productDetail, storeDecorationImages: storeDecorationImages.slice(0, 40) };
     })();
   `);
 }
@@ -5847,6 +5980,90 @@ async function captureViewportScreenshot(webview: WebviewElement): Promise<FullP
     width: size.width,
     height: size.height,
     mode: "viewport"
+  };
+}
+
+async function captureElementScreenshot(webview: WebviewElement, selector: string): Promise<FullPageScreenshot> {
+  const initialMetrics = await readScrollablePageMetrics(webview);
+  const initialRect = await readElementPageRect(webview, selector);
+  if (!initialRect || initialRect.width < 8 || initialRect.height < 8) {
+    return captureFullPageScreenshot(webview);
+  }
+
+  await scrollEmbeddedPage(webview, Math.max(0, initialRect.y - 24));
+  await waitForFramePaint();
+  const targetRect = await readElementPageRect(webview, selector) ?? initialRect;
+  const screenshot = await captureFullPageScreenshot(webview);
+  const cropped = await cropFullPageScreenshotToRect(screenshot, targetRect);
+  if (initialMetrics) {
+    await scrollEmbeddedPage(webview, initialMetrics.scrollY);
+  }
+  return cropped ?? screenshot;
+}
+
+async function readElementPageRect(webview: WebviewElement, selector: string): Promise<ElementPageRect | undefined> {
+  if (!webview.executeJavaScript) {
+    return undefined;
+  }
+  return webview.executeJavaScript<ElementPageRect | undefined>(`
+    (() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (!element) return undefined;
+      const root = document.scrollingElement || document.documentElement || document.body;
+      const body = document.body || root;
+      const rect = element.getBoundingClientRect();
+      const viewportWidth = Math.max(1, window.innerWidth || root.clientWidth || ${Math.max(1, Math.round(webview.clientWidth))});
+      const viewportHeight = Math.max(1, window.innerHeight || root.clientHeight || ${Math.max(1, Math.round(webview.clientHeight))});
+      const pageHeight = Math.max(viewportHeight, root.scrollHeight || 0, body.scrollHeight || 0, root.clientHeight || 0);
+      return {
+        x: Math.max(0, rect.left + (window.scrollX || root.scrollLeft || 0)),
+        y: Math.max(0, rect.top + (window.scrollY || root.scrollTop || 0)),
+        width: Math.max(1, rect.width),
+        height: Math.max(1, rect.height),
+        viewportWidth,
+        viewportHeight,
+        pageHeight,
+        scrollY: window.scrollY || root.scrollTop || 0
+      };
+    })();
+  `).catch(() => undefined);
+}
+
+async function cropFullPageScreenshotToRect(
+  screenshot: FullPageScreenshot,
+  rect: ElementPageRect
+): Promise<FullPageScreenshot | undefined> {
+  if (!screenshot.imageDataUrl) {
+    return undefined;
+  }
+  const image = await loadImageElement(screenshot.imageDataUrl).catch(() => undefined);
+  if (!image) {
+    return undefined;
+  }
+  const capturedCssHeight = Math.min(rect.pageHeight, 18000);
+  const scaleX = image.naturalWidth / Math.max(1, rect.viewportWidth);
+  const scaleY = image.naturalHeight / Math.max(1, capturedCssHeight);
+  const cropX = Math.max(0, Math.floor(rect.x * scaleX));
+  const cropY = Math.max(0, Math.floor(rect.y * scaleY));
+  const cropWidth = Math.max(1, Math.min(image.naturalWidth - cropX, Math.ceil(rect.width * scaleX)));
+  const cropHeight = Math.max(1, Math.min(image.naturalHeight - cropY, Math.ceil(rect.height * scaleY)));
+  if (cropWidth <= 0 || cropHeight <= 0) {
+    return undefined;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = cropWidth;
+  canvas.height = cropHeight;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return undefined;
+  }
+  context.drawImage(image, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  return {
+    imageDataUrl: canvas.toDataURL("image/png"),
+    width: cropWidth,
+    height: cropHeight,
+    mode: "full-page",
+    clipped: screenshot.clipped
   };
 }
 

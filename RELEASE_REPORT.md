@@ -3,11 +3,11 @@
 Release date: 2026-07-10
 Version: 1.0.0
 Local platform: Windows
-Release task: Product Detail collection UI and media evidence refinement
+Release task: Part 3 Evaluation and Key Store collection refinement
 
 ## Summary
 
-This release refines the Product Detail collection and inspection experience. It keeps media collection user-selected, makes saved progress compact, preserves vertical Shopee videos, makes product outline navigation easier to collapse, reduces the Analysis Session footprint, and softens dark-mode borders.
+This release completes the next Key Store collection pass. Product Detail completion now opens Evaluation Phase in the collection workspace, store evidence screenshots target the exact Shopee sections requested, store product matrices persist separately from Key Product rows, visual-style banners are saved as assets, and the TikTok cross-platform step opens search for the selected store name.
 
 ## Completed
 
@@ -28,7 +28,14 @@ This release refines the Product Detail collection and inspection experience. It
 - Made Analysis Session collapsed by default in the collection workspace.
 - Removed forced mobile-view switching from Shop Home Page collection.
 - Reduced high-contrast white border noise in dark mode.
-- Updated `CHANGELOG.md`, `IMPLEMENTATION_STATUS.md`, `ROADMAP.md`, `README.md`, and this release report.
+- Changed Product Detail completion to automatically open Part 3 Evaluation Phase instead of returning directly to Project Inspector.
+- Scoped Part 3 Store Home Page captures to `.shop-decoration`.
+- Scoped Part 3 Store Products and Best Sellers captures to `.shop-page__all-products-section`.
+- Persisted Part 3 store-grid rows as `Store Products` and `Store Best Sellers`.
+- Saved readable `.shop-decoration` banner images as local `STORE_BANNER` assets during Visual Style collection.
+- Changed Key Store Overall into conclusion sentences and changed the selected store URL into an Open Store Page button.
+- Added TikTok.com search target generation from the selected Key Store name.
+- Updated `CHANGELOG.md`, `IMPLEMENTATION_STATUS.md`, `ROADMAP.md`, and this release report.
 
 ## Release Checklist
 

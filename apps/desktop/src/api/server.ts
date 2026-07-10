@@ -474,8 +474,9 @@ export function createApp(): Express {
     );
     const evidenceOwnerType = normalizedEvidence.ownerType ?? processedInput.ownerType ?? "MANUAL_STEP";
     const evidenceOwnerId = normalizedEvidence.ownerId ?? processedInput.ownerId ?? processedInput.stepId;
-
-    await dependencies.intelligenceRepository.saveScreenshots(project.id, evidenceOwnerType, evidenceOwnerId, [
+    const storeBannerAssetPaths = processedInput.kind === "STORE_BANNER" ? extractStringArray(processedInput.metadata?.storeBannerAssetPaths) : [];
+    const storeDecorationImages = extractStringArray(processedInput.metadata?.storeDecorationImages);
+    const screenshotRecords = [
       {
         kind: processedInput.kind,
         label: processedInput.label,
@@ -497,8 +498,21 @@ export function createApp(): Express {
           storeId: normalizedEvidence.storeId,
           ...(processedInput.metadata ?? {})
         }
-      }
-    ]);
+      },
+      ...storeBannerAssetPaths.map((path, index) => ({
+        kind: "STORE_BANNER" as const,
+        label: `${processedInput.label} banner ${index + 1}`,
+        path,
+        sourceUrl: processedInput.sourceUrl,
+        metadata: {
+          source: "shop-decoration-image",
+          stepId: processedInput.stepId,
+          originalUrl: storeDecorationImages[index]
+        }
+      }))
+    ];
+
+    await dependencies.intelligenceRepository.saveScreenshots(project.id, evidenceOwnerType, evidenceOwnerId, screenshotRecords);
 
     await dependencies.logRepository.write({
       projectId: project.id,
@@ -1136,6 +1150,13 @@ async function localizeManualEvidenceImages(
   }
 
   const structured = readStructuredProductDetail(input.metadata);
+  const storeDecorationImages = extractStringArray(input.metadata?.storeDecorationImages);
+  const storeBannerAssetPaths = input.kind === "STORE_BANNER"
+    ? await localizeImageAssetArray(storeDecorationImages, imageFolder, "store-banner", 40)
+    : [];
+  if (storeBannerAssetPaths.length > 0) {
+    localizedImageCount += storeBannerAssetPaths.length;
+  }
   const localizedStructured = structured
     ? {
         ...structured,
@@ -1157,6 +1178,7 @@ async function localizeManualEvidenceImages(
     metadata: {
       ...(input.metadata ?? {}),
       ...(localizedStructured ? { structuredProductDetail: localizedStructured } : {}),
+      ...(storeBannerAssetPaths.length > 0 ? { storeBannerAssetPaths } : {}),
       localizedImageCount
     }
   };
@@ -1175,11 +1197,32 @@ async function localizeImageArray(values: string[], folder: string, prefix: stri
   return output;
 }
 
+async function localizeImageAssetArray(values: string[], folder: string, prefix: string, limit: number): Promise<string[]> {
+  const output: string[] = [];
+  const seen = new Set<string>();
+  for (const [index, value] of values.entries()) {
+    if (index >= limit || !/^https?:\/\//iu.test(value) || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    const localPath = await downloadImageAsJpegPath(value, folder, `${prefix}-${String(output.length + 1).padStart(2, "0")}`);
+    if (localPath) {
+      output.push(localPath);
+    }
+  }
+  return output;
+}
+
 function shouldLocalizeImageUrl(value: string): boolean {
   return /^https?:\/\//iu.test(value) && /\.webp(?:$|[?#])/iu.test(value);
 }
 
 async function downloadImageAsJpeg(imageUrl: string, folder: string, fileName: string): Promise<string | undefined> {
+  const outputPath = await downloadImageAsJpegPath(imageUrl, folder, fileName);
+  return outputPath ? pathToFileURL(outputPath).toString() : undefined;
+}
+
+async function downloadImageAsJpegPath(imageUrl: string, folder: string, fileName: string): Promise<string | undefined> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 9000);
   try {
@@ -1197,7 +1240,7 @@ async function downloadImageAsJpeg(imageUrl: string, folder: string, fileName: s
     const source = Buffer.from(await response.arrayBuffer());
     const outputPath = resolve(folder, `${fileName || "thumbnail"}.jpg`);
     await sharp(source).jpeg({ quality: 88, mozjpeg: true }).toFile(outputPath);
-    return pathToFileURL(outputPath).toString();
+    return outputPath;
   } catch {
     return undefined;
   } finally {
@@ -1427,11 +1470,11 @@ async function persistExtractedProducts(
     pdfPath?: string;
   }
 ): Promise<number> {
-  if (!["SEARCH_RESULT", "TOP_SALES"].includes(input.kind) || !input.extractedProducts?.length) {
+  const source = productSourceFromEvidenceKind(input.kind);
+  if (!source || !input.extractedProducts?.length) {
     return 0;
   }
 
-  const source = input.kind === "TOP_SALES" ? "Top Sales" : "Relevance";
   const uniqueProducts = uniqueExtractedProducts(input.extractedProducts).slice(0, 80);
   const medianPrice = median(uniqueProducts.map((product) => product.priceAverage ?? parsePrice(product.priceText)).filter(isFiniteNumber));
 
@@ -1463,6 +1506,21 @@ async function persistExtractedProducts(
   }
 
   return uniqueProducts.length;
+}
+
+function productSourceFromEvidenceKind(kind: ManualEvidencePayload["kind"]): string | undefined {
+  switch (kind) {
+    case "SEARCH_RESULT":
+      return "Relevance";
+    case "TOP_SALES":
+      return "Top Sales";
+    case "STORE_FEATURED_PRODUCTS":
+      return "Store Products";
+    case "STORE_BEST_SELLER":
+      return "Store Best Sellers";
+    default:
+      return undefined;
+  }
 }
 
 function uniqueExtractedProducts(products: ExtractedPageProduct[]): ExtractedPageProduct[] {
@@ -1508,7 +1566,7 @@ function toProductDetail(
     discount: product.discount,
     rating: product.rating,
     reviewCount: product.reviewCount,
-    monthlySold: context.source === "Top Sales" ? product.soldCount : undefined,
+    monthlySold: isSalesLikeProductSource(context.source) ? product.soldCount : undefined,
     totalSold: product.soldCount,
     storeName: product.storeName,
     storeUrl: product.storeUrl ? normalizeUrl(product.storeUrl) : undefined,
@@ -1532,7 +1590,7 @@ function toProductDetail(
       ratingText: product.ratingText,
       reviewText: product.reviewText,
       soldText: product.soldText,
-      monthlySoldText: context.source === "Top Sales" ? product.soldText : undefined,
+      monthlySoldText: isSalesLikeProductSource(context.source) ? product.soldText : undefined,
       totalSoldText: product.soldText,
       htmlPath: context.htmlPath,
       textPath: context.textPath,
@@ -1544,9 +1602,17 @@ function toProductDetail(
 }
 
 function sourcePlacementLabel(product: ExtractedPageProduct, source: string): string {
-  const prefix = source === "Top Sales" ? "Top" : "Relevance";
+  const prefix =
+    source === "Top Sales" ? "Top" :
+      source === "Store Best Sellers" ? "Store Best" :
+        source === "Store Products" ? "Store Popular" :
+          "Relevance";
   const placement = product.sourcePlacement ?? String(product.rank || 1);
-  return /^(Top|Relevance)\s+/iu.test(placement) ? placement : `${prefix} ${placement}`;
+  return /^(Top|Relevance|Store Popular|Store Best)\s+/iu.test(placement) ? placement : `${prefix} ${placement}`;
+}
+
+function isSalesLikeProductSource(source: string): boolean {
+  return source === "Top Sales" || source === "Store Best Sellers";
 }
 
 function toStoreProfile(product: ExtractedPageProduct): StoreProfile {
@@ -2402,8 +2468,10 @@ function selectionReason(
   medianPrice?: number
 ): string {
   const reasons = new Set<string>();
-  if (source === "Top Sales") {
+  if (isSalesLikeProductSource(source)) {
     reasons.add("best selling");
+  } else if (source === "Store Products") {
+    reasons.add("store matrix");
   } else {
     reasons.add("platform recommended");
   }

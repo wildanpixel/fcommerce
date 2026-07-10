@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[#################---] 84%
+[#################---] 85%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -31,7 +31,7 @@ The overall percentage is a weighted product estimate based on foundation readin
 | --- | --- | ---: | --- |
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
-| M2 | Shopee Desktop | [###################-] 96% | Partial |
+| M2 | Shopee Desktop | [###################-] 97% | Partial |
 | M3 | Intelligence | [###############-----] 75% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
@@ -108,6 +108,7 @@ Release blocker fixes:
 - 2026-07-10: Fixed Product Detail shop-home screenshot ownership so saved Shop Home Page evidence appears inside the matching Product Detailed Qualified product.
 - 2026-07-10: Added report preview, copy-to-docs, local HTML opening, and DOCX export actions from Report History.
 - 2026-07-10: Reduced Product Detail inspect-page friction with compact circular saved-progress display, nested per-product outline navigation, collapsed Analysis Session, vertical-safe video cards, desktop-friendly shop-home collection, and calmer dark-mode borders.
+- 2026-07-10: Reworked Part 3 Key Store collection so Product Detail completion opens Evaluation Phase in-place, store screenshots target `.shop-decoration` or `.shop-page__all-products-section`, store product rows persist separately, visual-style banners are saved as assets, and TikTok search opens by selected store name.
 
 ## M1 Product Experience
 
@@ -296,6 +297,9 @@ Implemented:
 - Project inspection now renders dynamic product dossiers for every collected product with first-page evidence, slides, description, variants, specifications, reviews, review media, and shop-homepage evidence.
 - Store page collection exists.
 - Store homepage, banner, popular-products, and best-seller screenshots are captured where Shopee allows access.
+- Part 3 store homepage capture now focuses on `.shop-decoration`, while store popular-products and best-seller captures focus on `.shop-page__all-products-section`.
+- Store Products and Store Best Sellers product rows are persisted separately from Relevance/Top Sales so Key Product remains stable while Key Store product matrices can be inspected.
+- Visual Style collection localizes readable `.shop-decoration` banner images as `STORE_BANNER` assets, including carousel banners already present in the DOM.
 - Store evidence now normalizes store profile records from guided captures and renders homepage, product matrix, bestseller, visual style, TikTok account evidence, and theme signals inside the project inspector.
 - Screenshot capture is wired.
 - Review inference now targets three positive 5-star and two negative 1-star browser-readable review signals when available.
