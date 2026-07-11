@@ -70,6 +70,16 @@ import { type AppView, useUiStore } from "./store/uiStore.js";
 const SHOPEE_HOME_URL = "https://shopee.co.id/";
 const TIKTOK_SHOP_URL = "https://www.tiktok.com/shop";
 const APP_DISPLAY_NAME = "MarketPlace Keyword Competitor Analysis";
+const APP_AUTHOR_NAME = "Wildan Ega Pradana";
+const APP_AUTHOR_LINKEDIN = "https://www.linkedin.com/in/wildanegapradana/";
+
+type AppLanguage = "id-ID" | "en-US" | "zh-CN";
+
+const APP_LANGUAGES: Array<{ id: AppLanguage; label: string }> = [
+  { id: "id-ID", label: "Bahasa Indonesia" },
+  { id: "en-US", label: "English" },
+  { id: "zh-CN", label: "Chinese Modern" }
+];
 
 const navItems: Array<{ id: AppView; label: string; icon: LucideIcon }> = [
   { id: "research", label: "New Research", icon: Search },
@@ -90,6 +100,7 @@ type AnalysisFormState = {
   productCategory: string;
   marketplace: ResearchPlatform;
   createdAt: string;
+  language: AppLanguage;
 };
 
 type CollectionSubAction = {
@@ -134,6 +145,13 @@ type FullPageScreenshot = {
   height: number;
   mode: "viewport" | "full-page";
   clipped?: boolean;
+};
+
+const DATA_ONLY_EVIDENCE_IMAGE: FullPageScreenshot = {
+  imageDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+  width: 1,
+  height: 1,
+  mode: "viewport"
 };
 
 type ElementPageRect = {
@@ -308,13 +326,26 @@ function Sidebar({ onHide }: { onHide: () => void }) {
         })}
       </nav>
 
-      <div className="mt-auto rounded-md border border-white/8 bg-white/5 p-3 transition-opacity duration-300">
+      <div className="mt-auto space-y-3">
+        <button
+          type="button"
+          className="w-full rounded-md border border-white/8 bg-white/5 p-3 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
+          onClick={() => void apiClient.openUrl(APP_AUTHOR_LINKEDIN)}
+        >
+          <div className="mb-1 flex items-center gap-2 text-xs font-medium text-ink-300">
+            <ExternalLink size={14} />
+            Developer
+          </div>
+          <div className="text-xs leading-5 text-ink-500">{APP_AUTHOR_NAME}</div>
+        </button>
+        <div className="rounded-md border border-white/8 bg-white/5 p-3 transition-opacity duration-300">
         <div className="mb-2 flex items-center gap-2 text-xs font-medium text-ink-300">
           <ShieldCheck size={14} />
           Local Evidence Vault
         </div>
         <div className="text-xs leading-5 text-ink-500">
           Keyword projects, screenshots, reports, browser sessions, and keys stay on this machine.
+        </div>
         </div>
       </div>
     </motion.aside>
@@ -344,7 +375,8 @@ function ManualResearchExperience() {
     keyword: "",
     productCategory: "",
     marketplace: "SHOPEE_ID",
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    language: "id-ID"
   });
   const [browserUrl, setBrowserUrl] = useState(SHOPEE_HOME_URL);
 
@@ -368,7 +400,7 @@ function ManualResearchExperience() {
       name: keyword,
       keyword,
       marketplace: form.marketplace,
-      language: "manual-guided",
+      language: form.language,
       productCategory: form.productCategory.trim()
     });
   }
@@ -400,7 +432,8 @@ function ManualResearchExperience() {
       keyword: "",
       productCategory: "",
       marketplace: "SHOPEE_ID",
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      language: "id-ID"
     });
     setBrowserUrl(SHOPEE_HOME_URL);
     setMode("setup");
@@ -491,6 +524,20 @@ function AnalysisSetupForm({
           <Field label="Date Created">
             <input aria-label="Date Created" className="input" value={formatDateTime(form.createdAt)} readOnly />
           </Field>
+          <Field label="Language">
+            <select
+              aria-label="Language"
+              className="input"
+              value={form.language}
+              onChange={(event) => onChange({ language: event.target.value as AppLanguage })}
+            >
+              {APP_LANGUAGES.map((language) => (
+                <option key={language.id} value={language.id}>
+                  {language.label}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Field label="Collection Platform">
             <div className="grid grid-cols-2 gap-2">
               <PlatformButton
@@ -503,6 +550,8 @@ function AnalysisSetupForm({
                 active={form.marketplace === "TIKTOK_SHOP"}
                 icon={Smartphone}
                 label="TIKTOK SHOP"
+                badge="Coming soon"
+                disabled
                 onClick={() => onChange({ marketplace: "TIKTOK_SHOP" })}
               />
             </div>
@@ -1010,6 +1059,15 @@ function GuidedBrowserCollector({
 
   const saveEvidence = useMutation({
     mutationFn: apiClient.saveManualEvidence,
+    onMutate: (payload) => {
+      const actionLabel = typeof payload.metadata?.productDetailSubActionLabel === "string"
+        ? payload.metadata.productDetailSubActionLabel
+        : payload.label;
+      setCaptureStatus({
+        message: `Saving ${actionLabel}`,
+        state: "working"
+      });
+    },
     onSuccess: async (result, payload) => {
       const step = steps.find((item) => item.id === payload.stepId) ?? activeStep;
       await Promise.all([
@@ -1026,6 +1084,7 @@ function GuidedBrowserCollector({
         setActivityLog,
         `Captured ${step.label}${productDetailSubActionLabel ? ` / ${productDetailSubActionLabel}` : ""}${result.extractedProductCount ? ` and extracted ${result.extractedProductCount} product rows` : ""}.`
       );
+      setCaptureStatus({ message: "Evidence saved", state: "done" });
       const completedStageSteps = steps.every((item) => isCollectionStepComplete(item, nextCollectedSteps));
       if (step.stage === "EVALUATION_KEY_STORE" && completedStageSteps) {
         persistCollectionState({
@@ -1048,6 +1107,7 @@ function GuidedBrowserCollector({
       });
     },
     onError: (error) => {
+      setCaptureStatus({ message: "Evidence save failed", state: "failed" });
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not capture the current step.");
     }
   });
@@ -1316,7 +1376,7 @@ function GuidedBrowserCollector({
       setCaptureStatus({ message: "Targeted page received", state: "working" });
       appendLog(setActivityLog, `Capturing rendered page snapshot for ${subAction ? `${step.label} / ${subAction.label}` : step.label}...`);
       const payload = await buildManualEvidencePayload(step, subAction);
-      if (!subAction || subAction.mode === "screenshot") {
+      if ((!subAction || subAction.mode === "screenshot") && !isDataOnlyEvidenceStep(step, subAction)) {
         setPendingCapture({
           payload,
           stepLabel: subAction ? `${step.label} / ${subAction.label}` : step.label
@@ -1324,9 +1384,16 @@ function GuidedBrowserCollector({
         appendLog(setActivityLog, "Review the screenshot, crop if needed, then save the evidence.");
         return;
       }
-      appendLog(setActivityLog, `Saving ${subAction.label} data from the current page.`);
+      setCaptureStatus({
+        message: subAction
+          ? subAction.mode === "download" ? `Downloading ${subAction.label}` : `Collecting ${subAction.label}`
+          : `Collecting ${step.label}`,
+        state: "working"
+      });
+      appendLog(setActivityLog, `Saving ${subAction?.label ?? step.label} data from the current page.`);
       saveEvidence.mutate(payload);
     } catch (error) {
+      setCaptureStatus({ message: "Capture failed", state: "failed" });
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not prepare rendered page snapshot.");
     }
   }
@@ -1338,20 +1405,25 @@ function GuidedBrowserCollector({
     }
     const captureMode = subAction?.captureMode ?? step.captureMode ?? "full-page";
     const targetSelector = subAction?.targetSelector ?? step.targetSelector;
+    const dataOnlyEvidence = isDataOnlyEvidenceStep(step, subAction);
     setCaptureStatus({
-      message: targetSelector
+      message: dataOnlyEvidence
+        ? "Collecting page data"
+        : targetSelector
         ? "Capturing target section"
         : captureMode === "viewport" ? "Capturing visible viewport" : "Capturing full page screenshot",
       state: "working"
     });
-    const screenshot = targetSelector
-      ? await captureElementScreenshot(webview, targetSelector)
-      : captureMode === "viewport"
-        ? await captureViewportScreenshot(webview)
-        : await captureFullPageScreenshot(webview);
+    const screenshot = dataOnlyEvidence
+      ? DATA_ONLY_EVIDENCE_IMAGE
+      : targetSelector
+        ? await captureElementScreenshot(webview, targetSelector)
+        : captureMode === "viewport"
+          ? await captureViewportScreenshot(webview)
+          : await captureFullPageScreenshot(webview);
     const sourceUrl = webview.getURL?.() ?? currentUrl;
     setCaptureStatus({ message: "Downloading HTML from #main", state: "working" });
-    const snapshot = await extractRenderedPageSnapshot(webview)
+    const snapshot = await extractRenderedPageSnapshot(webview, targetSelector)
       .then((value) => {
         setCaptureStatus({
           message: value.html ? "HTML download done" : "HTML download failed",
@@ -1384,7 +1456,7 @@ function GuidedBrowserCollector({
           storeDecorationImages: []
         };
       });
-    const printPdfDataUrl = await webview.printToPDF?.({ printBackground: true })
+    const printPdfDataUrl = dataOnlyEvidence ? undefined : await webview.printToPDF?.({ printBackground: true })
       .then((data) => `data:application/pdf;base64,${uint8ArrayToBase64(data)}`)
       .catch(() => undefined);
     const structuredProductDetail = scopeProductDetailSnapshot(snapshot.productDetail, subAction?.id);
@@ -1411,6 +1483,7 @@ function GuidedBrowserCollector({
         marketplace: platform,
         viewMode,
         zoomFactor,
+        dataOnlyEvidence,
         screenshotMode: captureMode,
         actualScreenshotMode: screenshot.mode,
         screenshotClipped: screenshot.clipped,
@@ -1634,7 +1707,10 @@ function GuidedBrowserCollector({
           capture={pendingCapture}
           saving={saveEvidence.isPending}
           onCancel={() => setPendingCapture(null)}
-          onSave={(payload) => saveEvidence.mutate(payload)}
+          onSave={(payload) => {
+            setCaptureStatus({ message: "Saving screenshot evidence", state: "working" });
+            saveEvidence.mutate(payload);
+          }}
         />
       )}
     </Panel>
@@ -1731,11 +1807,11 @@ function GuidedBrowserCollector({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button className="secondary-button h-9 px-2 text-xs" type="button" onClick={saveProgress} disabled={saveCollectionState.isPending}>
-                <Archive size={14} />
+                {saveCollectionState.isPending ? <span className="mio-spinner" /> : <Archive size={14} />}
                 Save
               </button>
               <button className="primary-button h-9 px-2 text-xs" type="button" onClick={runStagePrimaryAction} disabled={saveCollectionState.isPending}>
-                <CheckCircle2 size={14} />
+                {saveCollectionState.isPending ? <span className="mio-spinner" /> : <CheckCircle2 size={14} />}
                 {activeStage === "KEYWORD_GENERAL" ? "Review Table" : stageCompletionButtonLabel(activeStage)}
               </button>
             </div>
@@ -1887,6 +1963,7 @@ function CollectionStepPreview({
           </span>
         </div>
         <div className="mb-3 grid grid-cols-2 gap-2 rounded-md border border-white/8 bg-white/[0.04] p-2 text-[11px]">
+          <InfoLine label="Source" value={productSourcePlacement(product)} />
           <InfoLine label="Store" value={product.storeName ?? "-"} />
           <InfoLine label="Store Type" value={product.storeType ?? "-"} />
           <InfoLine label="Rating" value={product.ratingText ?? (product.rating ? String(product.rating) : "-")} />
@@ -2108,6 +2185,7 @@ function FloatingStepController({
   const collectLabel = activeSubAction
     ? subActionButtonLabel(activeSubAction, activeSubActionCount)
     : undefined;
+  const dataOnlyStep = isDataOnlyEvidenceStep(step, activeSubAction);
   const compactInstruction = step.stage === "PRODUCT_DETAILS"
     ? "Choose the sub-action, confirm the target page, then collect."
     : step.instruction;
@@ -2152,7 +2230,7 @@ function FloatingStepController({
             aria-label={step.mode === "PROCESS" ? "Process step" : "Collect step"}
             title={step.mode === "PROCESS" ? "Process step" : "Collect step"}
           >
-            {step.mode === "PROCESS" ? <Table2 size={13} /> : <ClipboardCheck size={13} />}
+            {saving ? <span className="mio-spinner" /> : step.mode === "PROCESS" ? <Table2 size={13} /> : <ClipboardCheck size={13} />}
           </button>
         </div>
       </motion.div>
@@ -2231,7 +2309,7 @@ function FloatingStepController({
                           onCollect(action.id);
                         }}
                       >
-                        {subActionButtonLabel(action, actionCount)}
+                        {saving && activeSubAction?.id === action.id ? <span className="mio-spinner" /> : subActionButtonLabel(action, actionCount)}
                       </button>
                     )}
                   </div>
@@ -2261,7 +2339,7 @@ function FloatingStepController({
           <ClipboardCheck size={16} />
           {step.mode === "PROCESS"
             ? captured ? "Review Process Again" : step.id === "evaluation-phase-scoring" ? "Open Evaluation Phase" : "Build Key Product Table"
-            : saving ? "Saving Evidence" : captured ? `Collect Again${activeSubAction ? `: ${activeSubAction.label}` : ""}` : collectLabel ?? "Collect This Step"}
+            : saving ? "Saving Evidence" : captured ? `Collect Again${activeSubAction ? `: ${activeSubAction.label}` : ""}` : collectLabel ?? (dataOnlyStep ? "Collect Data" : "Collect This Step")}
         </button>
       ) : (
         <div className="mt-2 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
@@ -2346,6 +2424,13 @@ function subActionEvidenceKind(step: CollectionStep, action?: CollectionSubActio
     default:
       return step.kind;
   }
+}
+
+function isDataOnlyEvidenceStep(step: CollectionStep, action?: CollectionSubAction): boolean {
+  if (action?.mode === "screenshot") {
+    return false;
+  }
+  return ["STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER"].includes(step.kind);
 }
 
 function scopeProductDetailSnapshot(
@@ -2728,7 +2813,10 @@ function ProjectsView() {
                       <div className="truncate text-base font-semibold text-white">{project.name}</div>
                       <div className="mt-1 text-xs text-ink-500">{formatDateTime(project.createdAt)}</div>
                     </div>
-                    <ProjectStatusPill completed={completed} />
+                    <div className="flex shrink-0 items-center gap-2">
+                      <ProjectStatusPill completed={completed} />
+                      <CircularProgress value={collectionState.progressPercent} />
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-xs text-ink-400 lg:grid-cols-4">
                     <InfoLine label="Keyword" value={project.keyword} />
@@ -2737,11 +2825,10 @@ function ProjectsView() {
                     <InfoLine label="Media" value={`${project.counts.products} products · ${project.counts.stores} stores`} />
                   </div>
                   <div className="mt-3">
-                    <div className="mb-1 flex items-center justify-between gap-3 text-[11px] text-ink-500">
+                    <div className="flex items-center justify-between gap-3 text-[11px] text-ink-500">
                       <span>{collectionState.stageLabel}</span>
-                      <span>{collectionState.progressPercent}%</span>
+                      <span>{collectionState.progressPercent}% complete</span>
                     </div>
-                    <ProgressBar value={collectionState.progressPercent} />
                   </div>
                 </div>
                 <div className={projectViewMode === "list" ? "flex shrink-0 flex-wrap items-center gap-2" : "mt-4 flex flex-wrap items-center gap-2"}>
@@ -3087,12 +3174,16 @@ function KeyStorePanel({
     .filter((product) => normalizeStoreKey(product) === candidate.key);
   const latestAnalysis = [...detail.analyses].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
   const conclusionSentences = keyStoreOverallConclusions(candidate, latestAnalysis?.resultJson);
-  const storeProducts = detail.products.filter((product) => product.source === "Store Products");
-  const storeBestSellers = detail.products.filter((product) => product.source === "Store Best Sellers");
-  const homeAssets = detail.assets.filter((asset) => asset.kind === "STORE_HOME");
-  const productAssets = detail.assets.filter((asset) => asset.kind === "STORE_FEATURED_PRODUCTS");
-  const bestSellerAssets = detail.assets.filter((asset) => asset.kind === "STORE_BEST_SELLER");
-  const bannerAssets = detail.assets.filter((asset) => asset.kind === "STORE_BANNER");
+  const storeProducts = detail.products.filter((product) => product.source === "Store Products" && productMatchesStoreCandidate(product, candidate));
+  const storeBestSellers = detail.products.filter((product) => product.source === "Store Best Sellers" && productMatchesStoreCandidate(product, candidate));
+  const storeAssets = detail.assets.filter((asset) =>
+    asset.ownerType === "STORE" &&
+    (!candidate.url || !asset.sourceUrl || sameUrlIntent(asset.sourceUrl, candidate.url) || sameUrlIntent(candidate.url, asset.sourceUrl))
+  );
+  const homeAssets = storeAssets.filter((asset) => asset.kind === "STORE_HOME");
+  const productAssets = storeAssets.filter((asset) => asset.kind === "STORE_FEATURED_PRODUCTS");
+  const bestSellerAssets = storeAssets.filter((asset) => asset.kind === "STORE_BEST_SELLER");
+  const bannerAssets = storeAssets.filter((asset) => asset.kind === "STORE_BANNER");
 
   return (
     <div className="space-y-3">
@@ -3122,27 +3213,27 @@ function KeyStorePanel({
       </NestedReportSection>
 
       <NestedReportSection title="Store Home Page" defaultOpen={false}>
-        <AssetList assets={homeAssets} />
+        <AssetList assets={homeAssets} limit={12} />
       </NestedReportSection>
 
       <NestedReportSection title="Products" defaultOpen={false}>
-        <AssetList assets={productAssets} />
+        <AssetList assets={productAssets} limit={12} />
         <div className="mt-3">
-          <ProductCardGrid products={storeProducts.length > 0 ? storeProducts : matchingProducts} />
+          <ProductCardGrid products={storeProducts.length > 0 ? storeProducts : matchingProducts} limit={80} />
         </div>
       </NestedReportSection>
 
       <NestedReportSection title="Best Sellers" defaultOpen={false}>
-        <AssetList assets={bestSellerAssets} />
+        <AssetList assets={bestSellerAssets} limit={12} />
         {storeBestSellers.length > 0 && (
           <div className="mt-3">
-            <ProductCardGrid products={storeBestSellers} />
+            <ProductCardGrid products={storeBestSellers} limit={80} />
           </div>
         )}
       </NestedReportSection>
 
       <NestedReportSection title="Visual Style" defaultOpen={false}>
-        <AssetList assets={bannerAssets} />
+        <AssetList assets={bannerAssets} limit={80} />
       </NestedReportSection>
     </div>
   );
@@ -3255,19 +3346,19 @@ function ReportOutlineSection({ id, title, defaultOpen, children }: { id: string
 function NestedReportSection({ title, defaultOpen = true, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
   return (
     <details className="mb-3 rounded-md border border-white/8 bg-white/[0.04] p-3" open={defaultOpen}>
-      <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-[0.08em] text-ink-500">{title}</summary>
+      <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-[0.08em] text-ink-300">{title}</summary>
       <div className="mt-3">{children}</div>
     </details>
   );
 }
 
-function AssetList({ assets }: { assets: ProjectDetailPayload["assets"] }) {
+function AssetList({ assets, limit = 24 }: { assets: ProjectDetailPayload["assets"]; limit?: number }) {
   if (assets.length === 0) {
     return <EmptyState label="No collected data yet for this section." />;
   }
   return (
     <div className="grid grid-cols-3 gap-3">
-      {assets.slice(0, 12).map((asset) => (
+      {assets.slice(0, limit).map((asset) => (
         <button key={asset.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openPath(asset.path)}>
           <div className="aspect-video overflow-hidden rounded bg-white/10">
             {asset.mimeType.startsWith("image/") ? <img src={toFileImageSrc(asset.path)} alt={asset.label} className="h-full w-full object-cover" /> : null}
@@ -3280,7 +3371,7 @@ function AssetList({ assets }: { assets: ProjectDetailPayload["assets"] }) {
   );
 }
 
-function ProductCardGrid({ products }: { products: ProjectProductEvidence[] }) {
+function ProductCardGrid({ products, limit = 80 }: { products: ProjectProductEvidence[]; limit?: number }) {
   const [view, setView] = useState<"cards" | "list">("cards");
   if (products.length === 0) {
     return <EmptyState label="No rendered product rows extracted yet." />;
@@ -3290,7 +3381,7 @@ function ProductCardGrid({ products }: { products: ProjectProductEvidence[] }) {
       <div>
         <ProductViewToggle value={view} onChange={setView} />
         <div className="mt-3 overflow-hidden rounded-md border border-white/8">
-          {products.slice(0, 40).map((product) => (
+          {products.slice(0, limit).map((product) => (
             <button key={product.id} type="button" className="grid w-full grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-white/8 bg-white/5 p-2 text-left last:border-b-0 hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
               <div className="h-16 w-16 overflow-hidden rounded bg-white/10">
               {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} className="h-full w-full object-cover" /> : null}
@@ -3312,7 +3403,7 @@ function ProductCardGrid({ products }: { products: ProjectProductEvidence[] }) {
     <div>
       <ProductViewToggle value={view} onChange={setView} />
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        {products.slice(0, 20).map((product) => (
+        {products.slice(0, limit).map((product) => (
           <button key={product.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
             <div className="aspect-square overflow-hidden rounded bg-white/10">
               {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} className="h-full w-full object-cover" /> : null}
@@ -3454,9 +3545,9 @@ function ProductQualifiedSection({
       </NestedReportSection>
 
       <NestedReportSection title="Slides" defaultOpen={false}>
-        <ProductImageGrid images={product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []} />
+        <ProductImageGrid images={(product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []).slice(0, product.videos.length > 0 ? 8 : 9)} />
         <div className="mt-3">
-          <ProductVideoGrid videos={product.videos} />
+          <ProductVideoGrid videos={product.videos} limit={1} />
         </div>
       </NestedReportSection>
 
@@ -3652,14 +3743,14 @@ function ProductImageGrid({ images }: { images: string[] }) {
   );
 }
 
-function ProductVideoGrid({ videos }: { videos: string[] }) {
+function ProductVideoGrid({ videos, limit = 9 }: { videos: string[]; limit?: number }) {
   const visibleVideos = uniqueMediaValues(videos);
   if (visibleVideos.length === 0) {
     return <EmptyState label="No product video URLs captured yet." />;
   }
   return (
     <div className="grid grid-cols-3 gap-3">
-      {visibleVideos.slice(0, 9).map((video, index) => (
+      {visibleVideos.slice(0, limit).map((video, index) => (
         <button key={`${video}-${index}`} type="button" className="overflow-hidden rounded-md border border-white/8 bg-white/5" onClick={() => void apiClient.openUrl(video)}>
           <div className="mio-product-video-frame bg-black">
             <video src={video} className="h-full w-full object-contain" muted controls playsInline />
@@ -3797,11 +3888,11 @@ function ReportsView() {
             </Field>
             <button className="primary-button" type="submit" disabled={!dashboard.data?.projects.length || generateReport.isPending}>
               <FileDown size={16} />
-              Export PDF
+              {generateReport.isPending ? "Generating Report" : "Generate Report"}
             </button>
             {generateReport.data && (
               <div className="rounded-md border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
-                PDF exported to {generateReport.data.pdfPath}
+                Report generated at {generateReport.data.pdfPath}
               </div>
             )}
           </form>
@@ -3994,7 +4085,13 @@ function SettingsView() {
             <input value={value.screenshotFolder} onChange={(event) => update({ screenshotFolder: event.target.value })} className="input" />
           </Field>
           <Field label="Language">
-            <input value={value.language} onChange={(event) => update({ language: event.target.value })} className="input" />
+            <select value={value.language} onChange={(event) => update({ language: event.target.value })} className="input">
+              {APP_LANGUAGES.map((language) => (
+                <option key={language.id} value={language.id}>
+                  {language.label}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="Concurrency">
             <input
@@ -4056,11 +4153,15 @@ function PlatformButton({
   active,
   icon: Icon,
   label,
+  badge,
+  disabled,
   onClick
 }: {
   active: boolean;
   icon: LucideIcon;
   label: string;
+  badge?: string;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -4068,12 +4169,15 @@ function PlatformButton({
       type="button"
       className={[
         "flex h-12 items-center justify-center gap-2 rounded-md border px-3 text-sm font-semibold transition",
-        active ? "border-signal-blue/45 bg-signal-blue/12 text-white" : "border-white/8 bg-white/5 text-ink-300 hover:text-white"
+        active ? "border-signal-blue/45 bg-signal-blue/12 text-white" : "border-white/8 bg-white/5 text-ink-300 hover:text-white",
+        disabled ? "cursor-not-allowed opacity-45 hover:bg-white/5 hover:text-ink-300" : ""
       ].join(" ")}
       onClick={onClick}
+      disabled={disabled}
     >
       <Icon size={16} />
-      {label}
+      <span className="truncate">{label}</span>
+      {badge && <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-400">{badge}</span>}
     </button>
   );
 }
@@ -4462,6 +4566,7 @@ function buildShopeeSteps(
       section: "Keyword as Title",
       label: "Relevance first page screenshot",
       kind: "SEARCH_RESULT",
+      targetSelector: "section.shopee-search-item-result, section[aria-label].shopee-search-item-result",
       instruction: "Open the Shopee relevance result page for the desired keyword and capture the visible first page.",
       targetUrl: relevanceUrl,
       ready: sameUrlIntent(currentUrl, relevanceUrl) || searchReady
@@ -4472,6 +4577,7 @@ function buildShopeeSteps(
       section: "Keyword as Title",
       label: "Top sales first page screenshot",
       kind: "TOP_SALES",
+      targetSelector: "section.shopee-search-item-result, section[aria-label].shopee-search-item-result",
       instruction: "Open the Shopee top-sales result page for the desired keyword and capture the visible first page.",
       targetUrl: salesUrl,
       ready: sameUrlIntent(currentUrl, salesUrl) || searchReady
@@ -4634,7 +4740,7 @@ function buildShopeeSteps(
       label: "Store products popular page",
       kind: "STORE_FEATURED_PRODUCTS",
       targetSelector: ".shop-page__all-products-section",
-      instruction: "Open the store product tab sorted by popular products. Capture only shop-page__all-products-section and extract product rows like the Relevance section.",
+      instruction: "Open the store product tab sorted by Popular, then collect the product rows from shop-page__all-products-section. No screenshot is required.",
       targetUrl: popularStoreTarget,
       ready: storeReady && currentUrl.includes("sortBy=pop")
     },
@@ -4645,7 +4751,7 @@ function buildShopeeSteps(
       label: "Store best-seller page",
       kind: "STORE_BEST_SELLER",
       targetSelector: ".shop-page__all-products-section",
-      instruction: "Open the store product tab sorted by sales. Capture only shop-page__all-products-section and extract product rows like the Top Sales section.",
+      instruction: "Open the store product tab sorted by Top Sales, then collect the product rows from shop-page__all-products-section. No screenshot is required.",
       targetUrl: bestSellerTarget,
       ready: storeReady && currentUrl.includes("sortBy=sales")
     },
@@ -4656,7 +4762,7 @@ function buildShopeeSteps(
       label: "Store visual style and banners",
       kind: "STORE_BANNER",
       targetSelector: ".shop-decoration",
-      instruction: "Download all readable banner images from shop-decoration, including carousel banners.",
+      instruction: "Download readable banner and carousel images from shop-decoration. Product-card images are ignored and no screenshot is required.",
       targetUrl: keyStoreUrl,
       ready: storeReady
     },
@@ -4867,7 +4973,7 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
   }
   return {
     ...preferred,
-    sourcePlacement: mergePlacementLabels([preferred.sourcePlacement, base.sourcePlacement, productSourcePlacement(preferred), productSourcePlacement(base)]),
+    sourcePlacement: mergePlacementLabels([productSourcePlacement(preferred), productSourcePlacement(base)]),
     selectionReason: mergeReasonLabels(preferred.selectionReason, base.selectionReason),
     productType: preferred.productType ?? base.productType,
     storeType: preferred.storeType ?? base.storeType,
@@ -4902,20 +5008,56 @@ function productQualityScore(product: ProjectProductEvidence): number {
 }
 
 function productSourcePlacement(product: ProjectProductEvidence): string {
-  if (product.sourcePlacement) {
-    return product.sourcePlacement;
-  }
-  if (product.source === "Top Sales") {
-    return `Top ${product.rank ?? "-"}`;
-  }
-  if (product.source === "Relevance") {
-    return `Relevance ${product.rank ?? "-"}`;
-  }
-  return product.source ?? "-";
+  const fallback = product.source && product.rank ? `${product.source} ${product.rank}` : product.source ?? "-";
+  return formatSourcePlacement(product.sourcePlacement ?? fallback, product.source);
 }
 
 function mergePlacementLabels(values: Array<string | null | undefined>): string {
   return uniqueInlineLabels(values).join(" / ");
+}
+
+function formatSourcePlacement(value: string, source?: string | null): string {
+  const parts = uniqueInlineLabels(String(value || "").split("/"));
+  if (parts.length === 0) {
+    return "-";
+  }
+  return parts
+    .map((part, index) => formatSourcePlacementToken(part, source, index))
+    .join(" / ");
+}
+
+function formatSourcePlacementToken(value: string, source: string | null | undefined, index: number): string {
+  const text = value.trim();
+  if (/top\s+\d+\s+in\s+/iu.test(text)) {
+    return text;
+  }
+  const rank = text.match(/\d+/u)?.[0] ?? "-";
+  if (/relevance|relevancy|search/iu.test(text)) {
+    return `Top ${rank} in relevance`;
+  }
+  if (/store\s*(popular|products)|popular|pop\b/iu.test(text)) {
+    return `Top ${rank} in store popular`;
+  }
+  if (/store\s*(best|sales)|best\s*seller|top\s*sales|sales/iu.test(text)) {
+    return `Top ${rank} in sales`;
+  }
+  const context = `${source ?? ""} ${text}`.toLowerCase();
+  if (/store\s*(best|sales)|best\s*seller|top\s*sales|sales/iu.test(context)) {
+    return `Top ${rank} in sales`;
+  }
+  if (/store\s*(popular|products)|popular|pop\b/iu.test(context)) {
+    return `Top ${rank} in store popular`;
+  }
+  if (/relevance|relevancy|search/iu.test(context)) {
+    return `Top ${rank} in relevance`;
+  }
+  if (index === 0 && source !== "Relevance") {
+    return `Top ${rank} in sales`;
+  }
+  if (index === 1) {
+    return `Top ${rank} in relevance`;
+  }
+  return text || "-";
 }
 
 function mergeReasonLabels(...values: Array<string | null | undefined>): string {
@@ -5139,6 +5281,19 @@ function normalizeStoreKey(product: ProjectProductEvidence): string {
   return (product.storeUrl ?? product.storeName ?? product.title).toLowerCase().replace(/\s+/g, "-");
 }
 
+function productMatchesStoreCandidate(product: ProjectProductEvidence, candidate: StoreEvaluationCandidate): boolean {
+  if (!product.storeName && !product.storeUrl) {
+    return true;
+  }
+  if (normalizeStoreKey(product) === candidate.key) {
+    return true;
+  }
+  if (product.storeUrl && candidate.url && sameUrlIntent(product.storeUrl, candidate.url)) {
+    return true;
+  }
+  return Boolean(product.storeName && product.storeName.toLowerCase() === candidate.name.toLowerCase());
+}
+
 function analysisPreview(resultJson: string): Array<{ label: string; value: string }> {
   const parsed = parseRecord(resultJson);
   if (!parsed) {
@@ -5280,7 +5435,7 @@ async function extractVisibleBrowserText(webview: WebviewElement): Promise<strin
   return [result.title, result.url, result.text].filter(Boolean).join("\n");
 }
 
-async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
+async function extractRenderedPageSnapshot(webview: WebviewElement, productScopeSelector?: string): Promise<{
   html: string;
   visibleText: string;
   products: ExtractedPageProduct[];
@@ -5362,6 +5517,39 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         return directContent || shell || main;
       };
       const htmlRoot = pickShopeeContentRoot();
+      const productScopeSelector = ${JSON.stringify(productScopeSelector ?? "")};
+      const productScopeRoot = productScopeSelector ? document.querySelector(productScopeSelector) || htmlRoot : htmlRoot;
+      const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+      const hydrateProductScope = async () => {
+        if (!productScopeSelector || !productScopeRoot) return;
+        const isStoreGrid = /shop-page__all-products-section/i.test(productScopeSelector);
+        const isSearchGrid = /shopee-search-item-result/i.test(productScopeSelector);
+        if (!isStoreGrid && !isSearchGrid) return;
+        const root = document.scrollingElement || document.documentElement || document.body;
+        const originalScrollY = window.scrollY || root.scrollTop || 0;
+        productScopeRoot.scrollIntoView({ block: "start", inline: "nearest" });
+        await wait(250);
+        let previousCount = 0;
+        const passes = isStoreGrid ? 10 : 4;
+        for (let index = 0; index < passes; index += 1) {
+          const currentCount = productScopeRoot.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
+          const elementCanScroll = productScopeRoot.scrollHeight > productScopeRoot.clientHeight + 24;
+          if (elementCanScroll) {
+            productScopeRoot.scrollTop = Math.min(productScopeRoot.scrollHeight, productScopeRoot.scrollTop + Math.max(360, productScopeRoot.clientHeight * 0.85));
+          } else {
+            window.scrollBy(0, Math.max(520, window.innerHeight * 0.82));
+          }
+          await wait(isStoreGrid ? 420 : 260);
+          if (currentCount === previousCount && index >= 3) {
+            break;
+          }
+          previousCount = currentCount;
+        }
+        if (!isStoreGrid) {
+          window.scrollTo({ top: originalScrollY });
+        }
+      };
+      await hydrateProductScope();
       const parseSrcSet = (value) => {
         const candidates = String(value || "")
           .split(",")
@@ -5563,7 +5751,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         }
         return best;
       };
-      const anchors = Array.from(htmlRoot.querySelectorAll('a[href]'))
+      const anchors = Array.from(productScopeRoot.querySelectorAll('a[href]'))
         .filter((anchor) => /(?:-i\\.|\\/product\\/|i\\.)/i.test(anchor.getAttribute("href") || ""))
         .filter((anchor) => !/cart|checkout|help|seller/i.test(anchor.getAttribute("href") || ""));
       const seen = new Set();
@@ -5851,12 +6039,43 @@ async function extractRenderedPageSnapshot(webview: WebviewElement): Promise<{
         reviewMediaVideos: reviewMediaVideos.slice(0, 12)
       };
       const storeDecorationRoot = document.querySelector(".shop-decoration");
+      const isProductCardDecorationImage = (element) => {
+        const card = element.closest?.('a[href*="-i."], a[href*="/product/"], [class*="product-card"], [class*="item-card"], [class*="shop-search-result-view"]');
+        return Boolean(card && /(rp\\s*[\\d.]|sold|terjual|rating|penilaian)/iu.test(textFrom(card)));
+      };
+      const isUsefulDecorationImage = (element, url, width, height) => {
+        if (!url || isProductCardDecorationImage(element)) return false;
+        const lowerUrl = String(url).toLowerCase();
+        if (/sprite|icon|avatar|profile|rating|star|cart|chat|help|logo-shopee|favicon/iu.test(lowerUrl)) return false;
+        if (width >= 260 && height >= 80) return true;
+        if (width >= 160 && height >= 120 && /banner|decoration|carousel|shop|voucher|promo|campaign/iu.test(lowerUrl)) return true;
+        return /shop[-_/.]?decoration|banner|carousel|campaign|voucher|promo/iu.test(lowerUrl) && width >= 120 && height >= 60;
+      };
       const storeDecorationImages = storeDecorationRoot
         ? unique([
-            ...Array.from(storeDecorationRoot.querySelectorAll("picture, source[srcset], source[data-srcset], source[scrset], img[srcset], img[data-srcset], img[src], img[data-src]")).map(imageUrlFrom),
+            ...Array.from(storeDecorationRoot.querySelectorAll("picture, source[srcset], source[data-srcset], source[scrset], img[srcset], img[data-srcset], img[src], img[data-src]"))
+              .map((element) => {
+                const visualElement = element.tagName === "SOURCE"
+                  ? element.closest("picture")?.querySelector("img") || element.closest("picture") || element
+                  : element.tagName === "PICTURE"
+                    ? element.querySelector("img") || element
+                    : element;
+                const rect = visualElement.getBoundingClientRect?.();
+                const width = Math.round(rect?.width || visualElement.naturalWidth || 0);
+                const height = Math.round(rect?.height || visualElement.naturalHeight || 0);
+                const url = imageUrlFrom(element);
+                return { element: visualElement, url, width, height };
+              })
+              .filter((item) => isUsefulDecorationImage(item.element, item.url, item.width, item.height))
+              .map((item) => item.url),
             ...Array.from(storeDecorationRoot.querySelectorAll("[style*='url(']")).flatMap((element) => {
+              const rect = element.getBoundingClientRect?.();
+              const width = Math.round(rect?.width || 0);
+              const height = Math.round(rect?.height || 0);
               const style = element.getAttribute("style") || "";
-              return Array.from(style.matchAll(/url\\((['"]?)(.*?)\\1\\)/giu)).map((match) => absoluteUrl(match[2]));
+              return Array.from(style.matchAll(/url\\((['"]?)(.*?)\\1\\)/giu))
+                .map((match) => absoluteUrl(match[2]))
+                .filter((url) => isUsefulDecorationImage(element, url, width, height));
             })
           ])
         : [];

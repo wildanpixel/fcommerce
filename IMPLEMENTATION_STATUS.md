@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[#################---] 85%
+[#################---] 87%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -31,8 +31,8 @@ The overall percentage is a weighted product estimate based on foundation readin
 | --- | --- | ---: | --- |
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
-| M2 | Shopee Desktop | [###################-] 97% | Partial |
-| M3 | Intelligence | [###############-----] 75% | Partial |
+| M2 | Shopee Desktop | [####################] 98% | Partial |
+| M3 | Intelligence | [################----] 80% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -109,6 +109,8 @@ Release blocker fixes:
 - 2026-07-10: Added report preview, copy-to-docs, local HTML opening, and DOCX export actions from Report History.
 - 2026-07-10: Reduced Product Detail inspect-page friction with compact circular saved-progress display, nested per-product outline navigation, collapsed Analysis Session, vertical-safe video cards, desktop-friendly shop-home collection, and calmer dark-mode borders.
 - 2026-07-10: Reworked Part 3 Key Store collection so Product Detail completion opens Evaluation Phase in-place, store screenshots target `.shop-decoration` or `.shop-page__all-products-section`, store product rows persist separately, visual-style banners are saved as assets, and TikTok search opens by selected store name.
+- 2026-07-11: Reworked Keyword Projects progress into circular indicators, scoped Part 1 screenshots/product extraction to `section.shopee-search-item-result`, added capture/download loading states, limited Key Store assets to store-owned evidence, and aligned report section selection/headings with the current inspector hierarchy.
+- 2026-07-11: Changed Part 3 Key Store Products and Best Sellers into data-only collection steps that hydrate Shopee store grids before extraction, removed screenshot persistence for those matrix steps, tightened Visual Style to `.shop-decoration` banner assets only, added configurable report Summary Metrics, deduped report media, and normalized Key Product source labels as readable placement text.
 
 ## M1 Product Experience
 
@@ -121,7 +123,7 @@ Release blocker fixes:
 | Guided analysis setup form | Completed | Product UI | Project service, marketplace IDs | Done | P0 |
 | Marketplace selection UI | Completed | Product UI | Marketplace registry, adapter capabilities | Done | P0 |
 | Shopee desktop/mobile view selector | Completed | Product UI | Embedded platform view | Done | P0 |
-| TikTok mobile view selector | Completed | Product UI | Embedded platform view | Done | P1 |
+| TikTok platform coming-soon gate | Completed | Product UI | Marketplace roadmap | Done | P1 |
 | Visible platform browser panel | Completed | Product UI | Electron webview | Done | P0 |
 | Browser fullscreen mode | Completed | Product UI | Electron webview | Done | P0 |
 | Icon-only browser controls | Completed | Product UI | Embedded platform browser | Done | P1 |
@@ -157,15 +159,16 @@ Release blocker fixes:
 | Report preview and copy | Completed | Product UI and Reporting | Generated HTML reports, clipboard | Done | P1 |
 | HTML and DOCX report exports | Completed | Product UI and API | Report repository, local file writer | Done | P1 |
 | Settings screen | Completed | Product UI and Platform | Settings repository, platform service | Done | P0 |
+| Language selector | Completed | Product UI | Settings repository, setup form | Done | P1 |
 
 Implemented:
 
 - Home opens with a single `Create Analysis` action.
-- The setup form captures desired keyword, date created, product category, and selected platform (`SHOPEE` or `TIKTOK SHOP`).
+- The setup form captures desired keyword, date created, product category, selected platform, and preferred language (`Bahasa Indonesia`, `English`, or `Chinese Modern`).
 - Proceed creates a local project and opens the embedded browser inside the app; no backend collection job is required for the primary workflow.
 - Shopee research lets the user interact directly with the marketplace session, including login, traffic verification, language prompts, and any manual navigation Shopee requires.
 - Shopee research exposes desktop and mobile visible platform views.
-- TikTok Shop research exposes a mobile-style visible platform view for user-controlled evidence capture.
+- TikTok Shop research is visible but disabled as `Coming soon` from New Research so users cannot start an unsupported collection flow.
 - The browser has a floating top-left guided collection controller inspired by compact voice-chat overlays.
 - The collect button appears only when the current page matches the active evidence step, then saves the visible browser screenshot as a project asset.
 - Browser fullscreen mode keeps the guided step controller visible for focused evidence capture.
@@ -195,23 +198,24 @@ Implemented:
 - Project inspection now mirrors the report hierarchy with collapsible sections for Keyword General, Key Product, Product Detailed Qualified, Evaluation Phase, Key Store, and TikTok Evidence.
 - Project inspection now includes a sticky collapsible outline navigation whose light-mode hover state remains readable while scrolling long report-shaped projects.
 - Shopee cross-platform step 13 now supports opening TikTok in the Android emulator and attaching a manual emulator screenshot to the Shopee project.
-- TikTok Shop no longer opens as a browser preview; it routes into a dedicated Android Emulator Workspace.
+- TikTok Shop no longer opens from New Research; future TikTok/Android evidence remains tracked under M4/M5 and the current V1 flow stays focused on Shopee.
 - Project dashboard and tabs exist.
 - Projects are inspectable before report generation, including evidence readiness, products, stores, key-store evidence, recent evidence, reports, and project deletion.
 - Key-store evidence is available inside the selected project inspector.
 - The standalone Key Stores navigation tab has been removed; Key Store selection and evidence now live inside the selected project inspector.
 - Reports screen exists.
-- Reports screen includes persistent report history with open/download and delete actions.
+- Reports screen includes persistent report history with preview, copy-to-docs, PDF, HTML, DOCX, and delete actions.
+- Report generation uses the user-facing `Generate Report` action and stores the developer attribution as Wildan Ega Pradana with LinkedIn profile `https://www.linkedin.com/in/wildanegapradana/`.
 
 M1 scope boundary:
 
 - Product, store, review, media, and AI evidence completeness is tracked under M2 and M3.
 - Android emulator automation and real TikTok Shop extraction remain tracked under M4 and M5.
-- Export formats other than PDF are still tracked outside the M1 UI milestone.
+- PDF, HTML, DOCX, preview, and copy-to-docs are wired; PowerPoint, Excel, CSV, and JSON remain outside the current report workflow.
 
 ## M2 Shopee Desktop
 
-[###################-] 96%
+[####################] 98%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -251,6 +255,7 @@ Implemented:
 - Manual evidence capture now targets `div#main`/`main`/body content and formats saved HTML across multiple lines to avoid unusable single-line snapshots.
 - Shopee product extraction now narrows from `#main` into the inner content `<div>` below the marketplace header and before the footer, reducing header/footer/sidebar distraction in saved HTML and product parsing.
 - Relevance and Top Sales cards now prioritize `picture._displayContents_ img[srcset]` thumbnails and persist source placement, product type, and store badge/store type signals where available.
+- Relevance and Top Sales screenshot capture now targets only `section.shopee-search-item-result`, and product extraction is scoped to the same target section so the captured evidence and structured rows match.
 - Search result Store Type extraction now reads badge images from the product card body and only surfaces `Mall ORI`, `Star+`, or `Star`; broad text fallbacks are suppressed so stale labels such as `Top-sales store` do not appear in the Key Product table.
 - Search result Store Type extraction now also scores small rendered badge images and uses a best-effort visual color classifier for image-only badges when Shopee does not expose useful alt/title text.
 - Step 3 in Keyword General is now process-only: it builds an AI-assisted Key Product table from Relevance and Top Sales rows instead of capturing another screenshot.
@@ -298,8 +303,9 @@ Implemented:
 - Store page collection exists.
 - Store homepage, banner, popular-products, and best-seller screenshots are captured where Shopee allows access.
 - Part 3 store homepage capture now focuses on `.shop-decoration`, while store popular-products and best-seller captures focus on `.shop-page__all-products-section`.
-- Store Products and Store Best Sellers product rows are persisted separately from Relevance/Top Sales so Key Product remains stable while Key Store product matrices can be inspected.
-- Visual Style collection localizes readable `.shop-decoration` banner images as `STORE_BANNER` assets, including carousel banners already present in the DOM.
+- Store Products and Store Best Sellers product rows are collected through data-only actions, hydrate the Shopee store grid before extraction, and are persisted separately from Relevance/Top Sales so Key Product remains stable while Key Store product matrices can be inspected.
+- Visual Style collection localizes readable `.shop-decoration` banner images as `STORE_BANNER` assets, including carousel banners already present in the DOM, and does not persist a broad base screenshot when banner images were successfully localized.
+- Key Store inspection now filters Store Home Page, Products, Best Sellers, and Visual Style to store-owned assets for the selected Key Store URL so unrelated product-level shop captures do not appear in the Key Store section.
 - Store evidence now normalizes store profile records from guided captures and renders homepage, product matrix, bestseller, visual style, TikTok account evidence, and theme signals inside the project inspector.
 - Screenshot capture is wired.
 - Review inference now targets three positive 5-star and two negative 1-star browser-readable review signals when available.
@@ -361,6 +367,10 @@ Implemented:
 - Project Inspector now displays persisted AI scoring, observations, and recommendations inside the Evaluation Phase so users can review evidence before report export.
 - Report sections are modular.
 - HTML report generation now produces interactive collapsible report sections with embedded CSS and script while remaining printable/PDF-compatible.
+- Report section customization now follows the current inspector headings: Keyword General, Key Products, Product Detail subparts, Key Store subparts, and TikTok Evidence.
+- Report Key Products now uses the same max-10 selected Key Product set shown in Project Inspector, excluding Store Products and Store Best Sellers rows from the Key Product table.
+- Report Summary Metrics can be enabled or disabled independently, Key Product source cells show readable placement labels, product dossier media is deduped to the inspector's selected media set with at most one video, and Key Store Visual Style renders the same stored banner assets as Project Inspector.
+- Generated report headers include the developer attribution for Wildan Ega Pradana and the LinkedIn profile link.
 - Report rendering now maps AI output into score cards, recommendation tables, store overall text, and explicit missing-evidence notes instead of hiding incomplete sections.
 - Puppeteer PDF export exists.
 
@@ -369,7 +379,7 @@ Incomplete:
 - AI quality depends on complete product, store, review, and screenshot evidence.
 - Several analysis sections are only as strong as the partial Shopee data pipeline.
 - Key Store ranking still depends on the completeness of captured store evidence and configured AI providers for higher-confidence narrative scoring.
-- PowerPoint, Excel, CSV, and JSON export labels are visible, but only HTML/PDF report output is wired.
+- PowerPoint, Excel, CSV, and JSON export labels are not in the current report workflow; PDF, HTML, DOCX, preview, and copy-to-docs are wired.
 
 ## M4 Android
 
@@ -411,12 +421,11 @@ Implemented:
 - Emulator launch is persistent: the app does not pass `-wipe-data`, does not clear TikTok data, and does not reset Google login when the emulator is closed and reopened.
 - The local API exposes Android status, emulator launch, APK install, TikTok launch, visible-text extraction, and Android evidence capture endpoints.
 - The local API detects TikTok APK candidates in the user's Downloads/Desktop folders.
-- TikTok Shop analysis now opens a dedicated Android Emulator Workspace instead of an embedded web browser.
+- Android Emulator Workspace infrastructure exists, but TikTok Shop is disabled from the New Research setup until the TikTok adapter and normalized collection workflow are implemented.
 - Android evidence capture saves ADB screenshots into project folders and persists Prisma asset records with Android step metadata.
 - Android screenshot metadata includes UIAutomator visible text when extraction succeeds.
 - Android status now reports TikTok runtime state, active ANR state, focused activity, package ABI, device ABI, and ARM-on-x86 compatibility warnings.
-- TikTok runtime diagnostics and Recover TikTok controls are exposed in the Android Emulator Workspace.
-- The TikTok Android workspace keeps the collection steps outside the emulator/browser surface so fullscreen browser mode does not cover them.
+- TikTok runtime diagnostics and Recover TikTok controls exist in the Android infrastructure, but are not part of the enabled V1 New Research path.
 - Local validation installed `C:\Users\F-Commerce ID\Downloads\TikTok+-+Videos,+Shop+&+LIVE_45.8.2_APKPure.apk` into the emulator as `com.zhiliaoapp.musically`.
 - Local validation launched TikTok through ADB and confirmed Android status `ready: true`.
 - Local validation reproduced a TikTok app ANR on the login/authorization activity, traced it to the ARM64 TikTok APK running on the x86_64 emulator, and added a Recover TikTok action that force-stops/reopens TikTok without clearing app data.
@@ -436,7 +445,7 @@ Partial behavior and blockers:
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
 | TikTok marketplace ID | Completed | Architecture | Shared contracts | Done | P1 |
-| TikTok UI selection | Completed | Product UI | Product research cockpit | Done | P1 |
+| TikTok UI coming-soon state | Completed | Product UI | Product research cockpit | Done | P1 |
 | TikTok adapter registration | Stubbed | Marketplace Automation | Unsupported marketplace adapter | Done | P1 |
 | TikTok desktop automation | Not Started | Marketplace Automation | Playwright strategy | 8 days | P1 |
 | TikTok collection | Not Started | Marketplace Automation | Search, product, store parsers | 8 days | P1 |
@@ -446,7 +455,7 @@ Partial behavior and blockers:
 Implemented:
 
 - `TIKTOK_SHOP` exists in shared marketplace IDs.
-- TikTok Shop is selectable from the product research setup and opens the Android Emulator Workspace.
+- TikTok Shop appears in the product research setup as a disabled `Coming soon` platform.
 - TikTok Shop is registered in the marketplace registry.
 
 Stubbed behavior:
@@ -483,8 +492,8 @@ Stubbed behavior:
 - GitHub Actions build workflow exists for Windows and macOS artifacts.
 - Prisma is configured with Windows and macOS binary targets.
 - Start screen, navigation, product research cockpit, project view, project-level Key Store section, reports view, and settings view exist in the renderer.
-- Embedded visible platform browser exists for Shopee desktop/mobile and TikTok mobile preview.
-- TikTok Shop now routes to a dedicated Android Emulator Workspace instead of a webview preview.
+- Embedded visible platform browser exists for Shopee desktop/mobile.
+- TikTok Shop is shown as a future marketplace but is disabled from New Research until the TikTok adapter and normalized collection workflow are implemented.
 - Android ADB/emulator/tooling discovery and evidence capture APIs exist.
 - TikTok APK discovery, install, app launch, Android screenshot capture, and UIAutomator text extraction are validated locally.
 - Shopee desktop search, top-sales search, product-card normalization, screenshot asset saving, and structured search diagnostics are completed for Sprint 1.
@@ -521,18 +530,18 @@ Stubbed behavior:
 
 ### Exposed In UI
 
-- Home and New Research expose Shopee Product Research and TikTok Shop Product Research as the primary actions.
+- New Research exposes Shopee Product Research as the enabled V1 action and shows TikTok Shop Product Research as a disabled `Coming soon` option.
 - Shopee flow exposes keyword input, desktop/mobile view selection, Start Analyze, activity logs, job progress, fullscreen browser mode, and manual user interaction.
-- TikTok Shop flow exposes the Android Emulator Workspace and blocks capture until Android tooling, a booted device, and TikTok are ready.
+- TikTok Shop flow is not currently user-startable from New Research; Android evidence tooling remains available as M4 infrastructure and future TikTok work is tracked under M5.
 - The visible platform browser lets users watch and manually interact with the marketplace surface.
 - Projects screen exposes project tabs.
 - Project Inspector exposes Evaluation Phase scoring and project-level Key Store evidence.
-- Reports screen exposes PDF and other export format labels.
+- Reports screen exposes report preview, copy, PDF, HTML, DOCX, and delete actions.
 - Settings screen exposes browser preference, API keys, local folders, language, and concurrency.
 
 ### Exposed But Not Functional
 
-- TikTok Shop is selectable and opens the Android Emulator Workspace, but the marketplace adapter is unsupported and no normalized TikTok extraction job is launched from M1.
+- TikTok Shop is visible as `Coming soon`, but cannot be selected from New Research because the marketplace adapter is unsupported and no normalized TikTok extraction job exists.
 - Android Mobile Evidence is visible in the TikTok Android Emulator Workspace, but capture remains disabled until a booted device and TikTok install are available.
 - Key Store ranking is visible inside Project Inspector, but high-confidence ranking still depends on complete captured evidence and configured AI providers.
 - Export labels for PowerPoint, Excel, CSV, JSON, and HTML are visible, but only PDF export is wired.

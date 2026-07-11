@@ -1,4 +1,21 @@
 export const REPORT_SECTION_ORDER = [
+  "summaryMetrics",
+  "keywordGeneral",
+  "keyProducts",
+  "productDetailFirstPage",
+  "productDetailSlides",
+  "productDetailDescription",
+  "productDetailReviews",
+  "productDetailUserMedia",
+  "productDetailShopHomePage",
+  "keyStoreHomePage",
+  "keyStoreProducts",
+  "keyStoreBestSellers",
+  "keyStoreVisualStyle",
+  "tiktokEvidence"
+] as const;
+
+export const LEGACY_REPORT_SECTION_IDS = [
   "cover",
   "keywordRelevance",
   "topSales",
@@ -12,7 +29,7 @@ export const REPORT_SECTION_ORDER = [
   "aiRecommendations"
 ] as const;
 
-export type ReportSectionId = (typeof REPORT_SECTION_ORDER)[number];
+export type ReportSectionId = (typeof REPORT_SECTION_ORDER)[number] | (typeof LEGACY_REPORT_SECTION_IDS)[number];
 
 export type ReportSectionConfig = {
   id: ReportSectionId;
@@ -23,69 +40,87 @@ export type ReportSectionConfig = {
 
 export const DEFAULT_REPORT_SECTIONS: ReportSectionConfig[] = [
   {
-    id: "cover",
-    label: "Cover",
+    id: "summaryMetrics",
+    label: "Summary Metrics",
     enabled: true,
-    requiredEvidence: ["keyword", "marketplace", "generatedAt"]
+    requiredEvidence: ["products", "stores", "reviews", "media"]
   },
   {
-    id: "keywordRelevance",
-    label: "Keyword General Relevance",
+    id: "keywordGeneral",
+    label: "Keyword General",
     enabled: true,
-    requiredEvidence: ["searchResultScreenshot", "productGrid"]
+    requiredEvidence: ["relevanceScreenshot", "topSalesScreenshot", "productGrid"]
   },
   {
-    id: "topSales",
-    label: "Top Sales Search Result",
+    id: "keyProducts",
+    label: "Key Products",
     enabled: true,
-    requiredEvidence: ["topSalesScreenshot", "rankedProducts"]
+    requiredEvidence: ["sourcePlacement", "selectionReason", "productType", "monthlySold", "storeType"]
   },
   {
-    id: "keyProductTable",
-    label: "Key Product Structured Table",
+    id: "productDetailFirstPage",
+    label: "Product Detail - 1st page",
     enabled: true,
-    requiredEvidence: ["rank", "selectionReason", "productType", "monthlySold", "storeType"]
+    requiredEvidence: ["productPageScreenshot"]
   },
   {
-    id: "productDossiers",
-    label: "Product Dossiers",
+    id: "productDetailSlides",
+    label: "Product Detail - Slides",
     enabled: true,
-    requiredEvidence: ["productPage", "slides", "description", "specifications"]
+    requiredEvidence: ["productImages", "productVideos"]
   },
   {
-    id: "reviewEvidence",
-    label: "Review And User Media Evidence",
+    id: "productDetailDescription",
+    label: "Product Detail - Description",
     enabled: true,
-    requiredEvidence: ["positiveReviews", "negativeReviews", "userMedia"]
+    requiredEvidence: ["descriptionText", "descriptionImages", "shopVouchers", "bundleDeals"]
   },
   {
-    id: "storeOverview",
-    label: "Key Store Selection",
+    id: "productDetailReviews",
+    label: "Product Detail - Reviews",
     enabled: true,
-    requiredEvidence: ["storeSelectionCriteria", "storeSummary"]
+    requiredEvidence: ["positiveReviews", "negativeReviews"]
   },
   {
-    id: "storeDossiers",
-    label: "Store Homepage And Product Matrix",
+    id: "productDetailUserMedia",
+    label: "Product Detail - Media in user",
     enabled: true,
-    requiredEvidence: ["storeHomepage", "vouchers", "featuredProducts", "bestSellers"]
+    requiredEvidence: ["reviewImages", "reviewVideos"]
   },
   {
-    id: "visualStyle",
-    label: "Visual Style And Store Banners",
+    id: "productDetailShopHomePage",
+    label: "Product Detail - Shop Home Page",
     enabled: true,
-    requiredEvidence: ["bannerScreenshots", "creativeAssets"]
+    requiredEvidence: ["shopHomepageScreenshot"]
   },
   {
-    id: "crossPlatformEvidence",
-    label: "Cross Platform Evidence",
+    id: "keyStoreHomePage",
+    label: "Key Store - Store Home Page",
     enabled: true,
-    requiredEvidence: ["socialAccounts", "mobileScreenshots"]
+    requiredEvidence: ["shopDecorationScreenshot", "overallConclusion"]
   },
   {
-    id: "aiRecommendations",
-    label: "AI Structured Recommendations",
+    id: "keyStoreProducts",
+    label: "Key Store - Products",
     enabled: true,
-    requiredEvidence: ["structuredAnalysisJson"]
+    requiredEvidence: ["popularProductsScreenshot", "productGrid"]
+  },
+  {
+    id: "keyStoreBestSellers",
+    label: "Key Store - Best Sellers",
+    enabled: true,
+    requiredEvidence: ["bestSellerScreenshot", "productGrid"]
+  },
+  {
+    id: "keyStoreVisualStyle",
+    label: "Key Store - Visual Style",
+    enabled: true,
+    requiredEvidence: ["shopDecorationBanners"]
+  },
+  {
+    id: "tiktokEvidence",
+    label: "TikTok Evidence",
+    enabled: true,
+    requiredEvidence: ["tiktokSearch", "tiktokProfile"]
   }
 ];

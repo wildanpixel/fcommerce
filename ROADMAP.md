@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -73,6 +73,10 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-10 | Product Detail shop homepage evidence did not appear in Project Inspector | Fixed | Product-owned Shop Home Page captures now stay attached to the product while still updating store records, and the inspector can show compatible existing store-owned captures. |
 | 2026-07-10 | Keyword project management and report export gaps | Improved | Keyword Projects now support category filtering, card/list views, typed delete confirmation, completed/incomplete status, report preview/copy, HTML open, and DOCX export. |
 | 2026-07-10 | Part 3 Key Store collection captured broad pages and did not persist store product matrices | Fixed | Evaluation opens in-place after Product Details, store captures target `.shop-decoration` and `.shop-page__all-products-section`, store rows persist as Store Products/Store Best Sellers, visual-style banners save as assets, and TikTok search opens by selected store name. |
+| 2026-07-11 | Keyword Projects progress and report preview mismatch | Fixed | Keyword Projects now use circular progress indicators, reports are generated through a `Generate Report` action, and report sections/headings map to the Project Inspector hierarchy with the same max-10 Key Product set. |
+| 2026-07-11 | Broad Shopee capture and unrelated Key Store assets | Fixed | Part 1 screenshots/product rows are scoped to `section.shopee-search-item-result`, Key Store assets are scoped to the selected store URL, and Visual Style saves `.shop-decoration` banner images instead of broad screenshots or tiny page icons. |
+| 2026-07-11 | Key Store matrix and report media drift | Fixed | Key Store Products/Best Sellers now use data-only collection after hydrating the store grid, Visual Style collects only `.shop-decoration` banners, Summary Metrics is a report toggle, report product media is deduped/capped to the inspector set, and Key Product source labels show readable placement context. |
+| 2026-07-11 | TikTok unsupported flow could look available | Fixed | New Research now shows TikTok Shop as disabled `Coming soon`; M5 remains the owner for future TikTok adapter and normalized collection work. |
 
 ## Sprint Overview
 
@@ -262,6 +266,9 @@ Completed: 2026-07-03
 - 2026-07-10 update: Product Detail slide collection now saves user-selected main HD media one item at a time, and product shop-home captures now appear in the correct Product Detailed Qualified section.
 - 2026-07-10 update: Keyword Projects and Reports gained category filtering, cards/list view, typed deletion, completed-state behavior, report preview/copy, HTML open, and DOCX export.
 - 2026-07-10 update: Product Detail inspection now uses compact circular saved-progress, nested per-product outline navigation, collapsed Analysis Session by default, vertical-safe video evidence cards, and shop-home collection without forcing mobile view.
+- 2026-07-11 update: Keyword Projects use circular progress, New Research disables TikTok as `Coming soon`, and the app exposes language choices for Bahasa Indonesia, English, and Chinese Modern.
+- 2026-07-11 update: Part 1 collection scopes Relevance/Top Sales screenshots and extracted products to `section.shopee-search-item-result`; capture/save/download actions show loading status.
+- 2026-07-11 update: Part 3 Store Products and Best Sellers are now data-only grid extraction steps, Visual Style is banner-only, report Summary Metrics is configurable, report media mirrors inspector media limits, and Key Product source labels show readable sales/relevance placement.
 
 ## Sprint 3 - Complete Store Detail
 
@@ -305,6 +312,7 @@ Status: Partial
 - Passed: Store product rows persist as `Store Products` and `Store Best Sellers` and do not overwrite the Key Product table.
 - Passed: Visual Style downloads readable `.shop-decoration` banner images into local `STORE_BANNER` assets.
 - Passed: The final TikTok cross-platform step opens TikTok search for the selected Key Store name.
+- Passed: Key Store inspection filters store homepage, products, best sellers, and visual style assets to the selected Key Store URL and store-owned evidence.
 - Passed: M2 store-related rows in `IMPLEMENTATION_STATUS.md` are updated.
 
 ## Sprint 4 - Complete Key Stores AI
@@ -365,6 +373,8 @@ Status: Partial
 | Complete store dossier sections | Sprint 3 data | 1 day | Store sections render homepage, voucher, banner, promotion, and profile evidence. |
 | Complete AI recommendation section | Sprint 4 analysis | 1 day | Executive summary, SWOT, gaps, and recommendations render from structured JSON. |
 | Validate generated PDF layout | Puppeteer PDF | 1 day | PDF exports without blank pages, broken images, or missing core sections. |
+| Align configurable report headings | Project Inspector hierarchy | Done | Completed: report section toggles use Keyword General, Key Products, Product Detail subparts, Key Store subparts, and TikTok Evidence. |
+| Align report Key Products with inspector | Key Product selection | Done | Completed: generated reports use the same max-10 selected Key Product set and exclude Store Products/Store Best Sellers from the Key Product table. |
 
 ### Dependencies
 
@@ -377,6 +387,9 @@ Status: Partial
 ### Acceptance Criteria
 
 - Passed: HTML/PDF report can be generated from a guided Shopee project.
+- Passed: report generation is initiated through `Generate Report`, while history exposes Preview, PDF, HTML, DOCX, Copy, and Delete actions.
+- Passed: generated report headings match the selected modular sections for copy/paste and DOCX export.
+- Passed: Key Product report rows now mirror Project Inspector's selected Key Product table instead of broad store matrix rows.
 - Passed: missing evidence is explicit in the report.
 - Passed: report sections remain modular and can be enabled or disabled.
 - Passed: M3 report rows in `IMPLEMENTATION_STATUS.md` are updated.

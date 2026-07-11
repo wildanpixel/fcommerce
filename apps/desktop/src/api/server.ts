@@ -105,6 +105,20 @@ const reportSchema = z.object({
   sections: z.array(
     z.object({
       id: z.enum([
+        "summaryMetrics",
+        "keywordGeneral",
+        "keyProducts",
+        "productDetailFirstPage",
+        "productDetailSlides",
+        "productDetailDescription",
+        "productDetailReviews",
+        "productDetailUserMedia",
+        "productDetailShopHomePage",
+        "keyStoreHomePage",
+        "keyStoreProducts",
+        "keyStoreBestSellers",
+        "keyStoreVisualStyle",
+        "tiktokEvidence",
         "cover",
         "keywordRelevance",
         "topSales",
@@ -476,29 +490,32 @@ export function createApp(): Express {
     const evidenceOwnerId = normalizedEvidence.ownerId ?? processedInput.ownerId ?? processedInput.stepId;
     const storeBannerAssetPaths = processedInput.kind === "STORE_BANNER" ? extractStringArray(processedInput.metadata?.storeBannerAssetPaths) : [];
     const storeDecorationImages = extractStringArray(processedInput.metadata?.storeDecorationImages);
+    const baseScreenshotRecord = {
+      kind: processedInput.kind,
+      label: processedInput.label,
+      path: assetPath,
+      sourceUrl: processedInput.sourceUrl,
+      width: processedInput.width,
+      height: processedInput.height,
+      metadata: {
+        source: "guided-manual-collector",
+        stepId: processedInput.stepId,
+        note: processedInput.note,
+        mimeType: image.mimeType,
+        htmlPath,
+        textPath,
+        pdfPath,
+        extractedProductCount: normalizedEvidence.extractedProductCount,
+        normalizedRecordCount: normalizedEvidence.normalizedRecordCount,
+        reviewCount: normalizedEvidence.reviewCount,
+        storeId: normalizedEvidence.storeId,
+        ...(processedInput.metadata ?? {})
+      }
+    };
+    const dataOnlyEvidence = processedInput.metadata?.dataOnlyEvidence === true;
+    const shouldStoreBaseScreenshot = !dataOnlyEvidence && !(processedInput.kind === "STORE_BANNER" && storeBannerAssetPaths.length > 0);
     const screenshotRecords = [
-      {
-        kind: processedInput.kind,
-        label: processedInput.label,
-        path: assetPath,
-        sourceUrl: processedInput.sourceUrl,
-        width: processedInput.width,
-        height: processedInput.height,
-        metadata: {
-          source: "guided-manual-collector",
-          stepId: processedInput.stepId,
-          note: processedInput.note,
-          mimeType: image.mimeType,
-          htmlPath,
-          textPath,
-          pdfPath,
-          extractedProductCount: normalizedEvidence.extractedProductCount,
-          normalizedRecordCount: normalizedEvidence.normalizedRecordCount,
-          reviewCount: normalizedEvidence.reviewCount,
-          storeId: normalizedEvidence.storeId,
-          ...(processedInput.metadata ?? {})
-        }
-      },
+      ...(shouldStoreBaseScreenshot ? [baseScreenshotRecord] : []),
       ...storeBannerAssetPaths.map((path, index) => ({
         kind: "STORE_BANNER" as const,
         label: `${processedInput.label} banner ${index + 1}`,
@@ -1602,13 +1619,54 @@ function toProductDetail(
 }
 
 function sourcePlacementLabel(product: ExtractedPageProduct, source: string): string {
-  const prefix =
-    source === "Top Sales" ? "Top" :
-      source === "Store Best Sellers" ? "Store Best" :
-        source === "Store Products" ? "Store Popular" :
-          "Relevance";
   const placement = product.sourcePlacement ?? String(product.rank || 1);
-  return /^(Top|Relevance|Store Popular|Store Best)\s+/iu.test(placement) ? placement : `${prefix} ${placement}`;
+  return formatSourcePlacement(placement, source);
+}
+
+function formatSourcePlacement(value: string, source?: string | null): string {
+  const parts = value
+    .split("/")
+    .map((part) => cleanText(part))
+    .filter(Boolean);
+  if (parts.length === 0) {
+    return "-";
+  }
+  return Array.from(new Set(parts))
+    .map((part, index) => formatSourcePlacementToken(part, source, index))
+    .join(" / ");
+}
+
+function formatSourcePlacementToken(value: string, source: string | null | undefined, index: number): string {
+  if (/top\s+\d+\s+in\s+/iu.test(value)) {
+    return value;
+  }
+  const rank = value.match(/\d+/u)?.[0] ?? "-";
+  if (/relevance|relevancy|search/iu.test(value)) {
+    return `Top ${rank} in relevance`;
+  }
+  if (/store\s*(popular|products)|popular|pop\b/iu.test(value)) {
+    return `Top ${rank} in store popular`;
+  }
+  if (/store\s*(best|sales)|best\s*seller|top\s*sales|sales/iu.test(value)) {
+    return `Top ${rank} in sales`;
+  }
+  const context = `${source ?? ""} ${value}`.toLowerCase();
+  if (/store\s*(best|sales)|best\s*seller|top\s*sales|sales/iu.test(context)) {
+    return `Top ${rank} in sales`;
+  }
+  if (/store\s*(popular|products)|popular|pop\b/iu.test(context)) {
+    return `Top ${rank} in store popular`;
+  }
+  if (/relevance|relevancy|search/iu.test(context)) {
+    return `Top ${rank} in relevance`;
+  }
+  if (index === 0 && source !== "Relevance") {
+    return `Top ${rank} in sales`;
+  }
+  if (index === 1) {
+    return `Top ${rank} in relevance`;
+  }
+  return value || "-";
 }
 
 function isSalesLikeProductSource(source: string): boolean {

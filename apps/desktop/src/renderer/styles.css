@@ -127,6 +127,22 @@ webview {
   transform: translateY(-1px);
 }
 
+.mio-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: mio-spin 800ms linear infinite;
+}
+
+@keyframes mio-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .mio-app {
   min-height: 100vh;
 }
@@ -237,6 +253,25 @@ webview {
 .mio-dark .mio-metric-card,
 .mio-dark .mio-report-section {
   border-color: rgba(77, 98, 130, 0.28);
+}
+
+.mio-dark .mio-report-section summary,
+.mio-dark .mio-report-section .text-ink-300,
+.mio-dark .mio-report-section table,
+.mio-dark .mio-report-section td {
+  color: #dbe6f5;
+}
+
+.mio-dark .mio-report-section .text-ink-400,
+.mio-dark .mio-report-section .text-ink-500,
+.mio-dark .mio-inspector-nav .text-ink-400,
+.mio-dark .mio-inspector-nav .text-ink-500 {
+  color: #aab8cc;
+}
+
+.mio-dark .mio-report-section thead,
+.mio-dark .mio-report-section .bg-white\/8 {
+  color: #c9d7ea;
 }
 
 .mio-dark .mio-panel:hover {

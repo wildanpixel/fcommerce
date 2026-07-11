@@ -24,14 +24,12 @@ test("renders the guided manual analysis flow", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Dark" })).toBeVisible();
 });
 
-test("renders the TikTok Android emulator workspace", async ({ page }) => {
+test("shows TikTok as a coming-soon platform", async ({ page }) => {
   await page.goto(e2eApiOverride);
   await page.getByRole("button", { name: /Create Analysis/ }).click();
-  await page.getByRole("button", { name: "TIKTOK SHOP" }).click();
-  await page.getByLabel("Desired Keyword").fill("lip tint");
-  await page.getByLabel("Product Category").fill("beauty");
-  await page.getByRole("button", { name: /Proceed to Browser/ }).click();
-  await expect(page.getByText("Android Emulator Workspace", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Launch Emulator" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open TikTok App" })).toBeVisible();
+  const tiktokButton = page.getByRole("button", { name: /TIKTOK SHOP/ });
+
+  await expect(tiktokButton).toBeVisible();
+  await expect(tiktokButton).toBeDisabled();
+  await expect(tiktokButton).toContainText("Coming soon");
 });

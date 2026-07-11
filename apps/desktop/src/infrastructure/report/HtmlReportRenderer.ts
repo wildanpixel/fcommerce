@@ -11,19 +11,25 @@ import type { AiAnalysisJson } from "../../domain/models.js";
 export class ConsultingHtmlReportRenderer implements HtmlReportRenderer {
   async render(data: ReportData, payload: ReportGenerationPayload): Promise<string> {
     const enabled = new Set(payload.sections.filter((section) => section.enabled).map((section) => section.id));
+    const include = (...ids: Array<(typeof payload.sections)[number]["id"]>) => ids.some((id) => enabled.has(id));
     const parts = [
       documentStart(data.project.name),
-      enabled.has("cover") ? cover(data) : "",
-      enabled.has("keywordRelevance") ? keywordRelevance(data) : "",
-      enabled.has("topSales") ? topSales(data) : "",
-      enabled.has("keyProductTable") ? keyProductTable(data) : "",
-      enabled.has("productDossiers") ? productDossiers(data) : "",
-      enabled.has("reviewEvidence") ? reviewEvidence(data) : "",
-      enabled.has("storeOverview") ? storeOverview(data) : "",
-      enabled.has("storeDossiers") ? storeDossiers(data) : "",
-      enabled.has("visualStyle") ? visualStyle(data) : "",
-      enabled.has("crossPlatformEvidence") ? crossPlatformEvidence(data) : "",
-      enabled.has("aiRecommendations") ? aiRecommendations(data) : "",
+      reportHeader(data),
+      include("summaryMetrics", "cover") ? summaryMetrics(data) : "",
+      include("keywordGeneral", "keywordRelevance", "topSales") ? keywordGeneral(data) : "",
+      include("keyProducts", "keyProductTable") ? keyProductTable(data) : "",
+      include(
+        "productDetailFirstPage",
+        "productDetailSlides",
+        "productDetailDescription",
+        "productDetailReviews",
+        "productDetailUserMedia",
+        "productDetailShopHomePage",
+        "productDossiers",
+        "reviewEvidence"
+      ) ? productDossiers(data, enabled) : "",
+      include("keyStoreHomePage", "keyStoreProducts", "keyStoreBestSellers", "keyStoreVisualStyle", "storeOverview", "storeDossiers", "visualStyle") ? keyStoreReport(data, enabled) : "",
+      include("tiktokEvidence", "crossPlatformEvidence") ? crossPlatformEvidence(data) : "",
       documentEnd()
     ];
     return parts.filter(Boolean).join("\n");
@@ -105,7 +111,51 @@ function documentEnd(): string {
   </script></body></html>`;
 }
 
-function cover(data: ReportData): string {
+function reportHeader(data: ReportData): string {
+  return `<section class="page">
+    <p class="kicker">MarketPlace Keyword Competitor Analysis</p>
+    <h1>${escapeHtml(data.project.keyword)}</h1>
+    <p class="muted">${escapeHtml(data.project.marketplace)} keyword competitor report generated from local guided evidence.</p>
+    <p class="small muted">Developer: Wildan Ega Pradana · <a href="https://www.linkedin.com/in/wildanegapradana/">https://www.linkedin.com/in/wildanegapradana/</a></p>
+  </section>`;
+}
+
+function summaryMetrics(data: ReportData): string {
+  return `<details class="page report-section" open>
+    <summary>Summary Metrics</summary>
+    <div class="report-body">
+    <p class="kicker">Summary Metrics</p>
+    <h2>Project Evidence Metrics</h2>
+    <div class="grid four" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:22px;">
+      <div class="metric">Products<b>${data.products.length}</b></div>
+      <div class="metric">Stores<b>${data.stores.length}</b></div>
+      <div class="metric">Reviews<b>${data.reviews.length}</b></div>
+      <div class="metric">Evidence<b>${data.assets.length}</b></div>
+    </div>
+    </div>
+  </details>`;
+}
+
+function keywordGeneral(data: ReportData): string {
+  const keywordUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=relevancy`;
+  const topSalesUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=sales`;
+  return `<details class="page report-section" open>
+    <summary>Keyword General</summary>
+    <div class="report-body">
+      <h2>Keyword General</h2>
+      <h3>Relevance</h3>
+      <p><a href="${escapeAttribute(keywordUrl)}">${escapeHtml(keywordUrl)}</a></p>
+      ${assetGrid(data.assets.filter((asset) => asset.kind === "SEARCH_RESULT"))}
+      ${snapshotProductTable(data.products.filter((product) => product.source === "Relevance"))}
+      <h3>Top Sales</h3>
+      <p><a href="${escapeAttribute(topSalesUrl)}">${escapeHtml(topSalesUrl)}</a></p>
+      ${assetGrid(data.assets.filter((asset) => asset.kind === "TOP_SALES"))}
+      ${snapshotProductTable(data.products.filter((product) => product.source === "Top Sales"))}
+    </div>
+  </details>`;
+}
+
+function _cover(data: ReportData): string {
   return `<section class="page">
     <p class="kicker">Marketplace Intelligence OS</p>
     <h1>${escapeHtml(data.project.keyword)}</h1>
@@ -120,7 +170,7 @@ function cover(data: ReportData): string {
   </section>`;
 }
 
-function keywordRelevance(data: ReportData): string {
+function _keywordRelevance(data: ReportData): string {
   const keywordUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=relevancy`;
   return `<details class="page report-section" open>
     <summary>Keyword General - Relevance</summary>
@@ -135,7 +185,7 @@ function keywordRelevance(data: ReportData): string {
   </details>`;
 }
 
-function topSales(data: ReportData): string {
+function _topSales(data: ReportData): string {
   const topSalesUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=sales`;
   return `<details class="page report-section" open>
     <summary>Keyword General - Top Sales</summary>
@@ -151,6 +201,7 @@ function topSales(data: ReportData): string {
 }
 
 function keyProductTable(data: ReportData): string {
+  const products = keyProductsForReport(data.products);
   return `<details class="page report-section" open>
     <summary>Key Product</summary>
     <div class="report-body">
@@ -163,6 +214,7 @@ function keyProductTable(data: ReportData): string {
           <th style="width:12%">Source</th>
           <th style="width:15%">Reason for selection</th>
           <th style="width:20%">Product title</th>
+          <th style="width:9%">Product type</th>
           <th style="width:9%">Monthly sold</th>
           <th style="width:12%">Store name</th>
           <th style="width:8%">Store type</th>
@@ -173,20 +225,21 @@ function keyProductTable(data: ReportData): string {
         </tr>
       </thead>
       <tbody>
-        ${data.products
+        ${products
           .map(
             (product, index) => `<tr>
               <td>${index + 1}</td>
-              <td>${escapeHtml(product.source ?? `Key Product #${product.rank ?? index + 1}`)}</td>
+              <td>${escapeHtml(productSourcePlacement(product))}</td>
               <td>${escapeHtml(product.selectionReason ?? "platform recommended")}</td>
               <td><a href="${escapeAttribute(product.productUrl)}">${escapeHtml(product.title)}</a></td>
-              <td>${formatNumber(product.monthlySold)}</td>
+              <td>${escapeHtml(productRawText(product, "productType") || inferredProductType(product.title))}</td>
+              <td>${escapeHtml(productRawText(product, "monthlySoldText") || formatNumber(product.monthlySold))}</td>
               <td>${escapeHtml(product.storeName ?? "Unknown")}</td>
               <td>${escapeHtml(storeType(product))}</td>
               <td>${formatCurrency(product.priceAverage)}</td>
-              <td>${product.rating ? product.rating.toFixed(1) : "-"}</td>
-              <td>${formatNumber(product.reviewCount)}</td>
-              <td>${formatNumber(product.totalSold)}</td>
+              <td>${escapeHtml(productRawText(product, "ratingText") || (product.rating ? product.rating.toFixed(1) : "-"))}</td>
+              <td>${escapeHtml(productRawText(product, "reviewText") || formatNumber(product.reviewCount))}</td>
+              <td>${escapeHtml(productRawText(product, "totalSoldText") || formatNumber(product.totalSold))}</td>
             </tr>`
           )
           .join("")}
@@ -196,8 +249,15 @@ function keyProductTable(data: ReportData): string {
   </details>`;
 }
 
-function productDossiers(data: ReportData): string {
-  return data.products
+function productDossiers(data: ReportData, enabled: Set<string>): string {
+  const legacy = enabled.has("productDossiers") || enabled.has("reviewEvidence");
+  const showFirstPage = legacy || enabled.has("productDetailFirstPage");
+  const showSlides = legacy || enabled.has("productDetailSlides");
+  const showDescription = legacy || enabled.has("productDetailDescription");
+  const showReviews = legacy || enabled.has("productDetailReviews");
+  const showUserMedia = legacy || enabled.has("productDetailUserMedia");
+  const showShopHome = legacy || enabled.has("productDetailShopHomePage");
+  return keyProductsForReport(data.products)
     .map((product, index) => {
       const productAssets = data.assets.filter(
         (asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id
@@ -206,8 +266,27 @@ function productDossiers(data: ReportData): string {
       const storeAssets = data.assets.filter((asset) => assetMatchesStore(asset, product.storeUrl));
       const variants = safeJson<string[]>(product.variantsJson, []);
       const specs = safeJson<Record<string, string>>(product.specificationsJson, {});
-      const raw = safeJson<{ imageUrl?: string; images?: string[]; evidencePlan?: { productImages?: string[]; productVideos?: string[] } }>(product.rawJson, {});
-      const productImages = uniqueStrings([...(raw.evidencePlan?.productImages ?? []), ...(raw.images ?? []), raw.imageUrl].filter(Boolean));
+      const raw = safeJson<{
+        imageUrl?: string;
+        images?: string[];
+        videos?: string[];
+        descriptionImages?: string[];
+        reviewMediaImages?: string[];
+        reviewMediaVideos?: string[];
+        evidencePlan?: { productImages?: string[]; productVideos?: string[] };
+        shopVouchers?: string[];
+        bundleDeals?: string[];
+      }>(product.rawJson, {});
+      const productVideos = uniqueMediaUrls([...(raw.evidencePlan?.productVideos ?? []), ...(raw.videos ?? [])]).slice(0, 1);
+      const productImages = uniqueMediaUrls([...(raw.evidencePlan?.productImages ?? []), ...(raw.images ?? []), raw.imageUrl].filter(Boolean))
+        .slice(0, productVideos.length > 0 ? 8 : 9);
+      const descriptionImages = uniqueStrings(raw.descriptionImages ?? []);
+      const reviewImages = uniqueStrings(raw.reviewMediaImages ?? []);
+      const reviewVideos = uniqueStrings(raw.reviewMediaVideos ?? []);
+      const shopHomeAssets = [
+        ...productAssets.filter((asset) => asset.kind === "STORE_HOME"),
+        ...storeAssets.filter((asset) => asset.kind === "STORE_HOME")
+      ];
       return `<details class="page report-section" open>
         <summary>Product ${index + 1}</summary>
         <div class="report-body">
@@ -218,35 +297,51 @@ function productDossiers(data: ReportData): string {
           <div class="metric">Price<b>${formatCurrency(product.priceAverage)}</b></div>
           <div class="metric">Total sold<b>${formatNumber(product.totalSold)}</b></div>
         </div>
-        <h3>First Page</h3>
-        ${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_PAGE"))}
-        <h3>Product Images</h3>
-        ${remoteImageGrid(productImages.slice(0, 9))}
-        ${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_IMAGE"))}
-        <h3>Description</h3>
-        <p>${escapeHtml(product.description ?? "No browser-readable description captured. Screenshot evidence is retained.")}</p>
-        ${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_DESCRIPTION"))}
-        <h3>Variants</h3>
-        <p>${escapeHtml(variants.slice(0, 12).join(", ") || "No variants detected")}</p>
-        <h3>Specifications</h3>
-        <table><tbody>${Object.entries(specs)
-          .slice(0, 12)
-          .map(([key, value]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(value)}</td></tr>`)
-          .join("")}</tbody></table>
-        <h3>Reviews</h3>
-        ${reviewTable(productReviews)}
-        ${assetGrid(productAssets.filter((asset) => asset.kind === "REVIEW_SECTION"))}
-        <h3>Media in user</h3>
-        ${assetGrid(productAssets.filter((asset) => asset.kind === "REVIEW_IMAGE"))}
-        <h3>Shop homepage</h3>
-        ${assetGrid(storeAssets.filter((asset) => asset.kind === "STORE_HOME"))}
+        ${showFirstPage ? `<h3>1st page</h3>${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_PAGE"))}` : ""}
+        ${showSlides ? `<h3>Slides</h3>${remoteImageGrid(productImages)}${remoteVideoGrid(productVideos)}` : ""}
+        ${showDescription ? `<h3>Description</h3><p style="white-space:pre-line;">${escapeHtml(product.description ?? "No browser-readable description captured. Screenshot evidence is retained.")}</p>${remoteImageGrid(descriptionImages.slice(0, 24))}${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_DESCRIPTION"))}<h3>Variants</h3><p>${escapeHtml(variants.slice(0, 12).join(", ") || "No variants detected")}</p><h3>Specifications</h3><table><tbody>${Object.entries(specs).slice(0, 12).map(([key, value]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table>` : ""}
+        ${showReviews ? `<h3>Reviews</h3>${reviewTable(productReviews)}` : ""}
+        ${showUserMedia ? `<h3>Media in user</h3>${remoteImageGrid(reviewImages.slice(0, 30))}${remoteVideoGrid(reviewVideos.slice(0, 12))}${assetGrid(productAssets.filter((asset) => asset.kind === "REVIEW_IMAGE"))}` : ""}
+        ${showShopHome ? `<h3>Shop Home Page</h3>${assetGrid(shopHomeAssets)}` : ""}
         </div>
       </details>`;
     })
     .join("\n");
 }
 
-function reviewEvidence(data: ReportData): string {
+function keyStoreReport(data: ReportData, enabled: Set<string>): string {
+  const legacy = enabled.has("storeOverview") || enabled.has("storeDossiers") || enabled.has("visualStyle");
+  const showHome = legacy || enabled.has("keyStoreHomePage");
+  const showProducts = legacy || enabled.has("keyStoreProducts");
+  const showBestSellers = legacy || enabled.has("keyStoreBestSellers");
+  const showVisualStyle = legacy || enabled.has("keyStoreVisualStyle");
+  const store = selectReportKeyStore(data);
+  if (!store) {
+    return `<details class="page report-section" open>
+      <summary>Key Store</summary>
+      <div class="report-body"><p class="muted">No Key Store evidence has been selected yet.</p></div>
+    </details>`;
+  }
+  const assets = storeAssetsForReport(data, store);
+  const storeProducts = data.products.filter((product) => product.source === "Store Products");
+  const storeBestSellers = data.products.filter((product) => product.source === "Store Best Sellers");
+  return `<details class="page report-section" open>
+    <summary>Key Store</summary>
+    <div class="report-body">
+      <p class="kicker">Key Store</p>
+      <h2>${escapeHtml(store.name)}</h2>
+      <p><a href="${escapeAttribute(store.url)}">${escapeHtml(store.url)}</a></p>
+      <h3>Overall</h3>
+      <p>${escapeHtml(storeOverall(store, data))}</p>
+      ${showHome ? `<h3>Store Home Page</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"), 12)}` : ""}
+      ${showProducts ? `<h3>Products</h3>${snapshotProductTable(storeProducts)}` : ""}
+      ${showBestSellers ? `<h3>Best Sellers</h3>${snapshotProductTable(storeBestSellers)}` : ""}
+      ${showVisualStyle ? `<h3>Visual Style</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_BANNER"), 80)}` : ""}
+    </div>
+  </details>`;
+}
+
+function _reviewEvidence(data: ReportData): string {
   return `<details class="page report-section" open>
     <summary>Reviews</summary>
     <div class="report-body">
@@ -270,7 +365,7 @@ function reviewEvidence(data: ReportData): string {
   </details>`;
 }
 
-function storeOverview(data: ReportData): string {
+function _storeOverview(data: ReportData): string {
   return `<details class="page report-section" open>
     <summary>Key Store Overview</summary>
     <div class="report-body">
@@ -303,7 +398,7 @@ function storeOverview(data: ReportData): string {
   </details>`;
 }
 
-function storeDossiers(data: ReportData): string {
+function _storeDossiers(data: ReportData): string {
   return data.stores
     .map((store) => {
       const assets = data.assets.filter((asset) => asset.ownerType === "STORE" && asset.ownerId === store.id);
@@ -332,7 +427,7 @@ function storeDossiers(data: ReportData): string {
     .join("\n");
 }
 
-function visualStyle(data: ReportData): string {
+function _visualStyle(data: ReportData): string {
   return `<details class="page report-section" open>
     <summary>Visual Style</summary>
     <div class="report-body">
@@ -399,6 +494,28 @@ function uniqueStrings(values: Array<string | undefined>): string[] {
   return unique;
 }
 
+function uniqueMediaUrls(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized
+      .replace(/([?&](?:x-oss-process|width|height|resize|quality|format)=[^&]+)/giu, "")
+      .replace(/@resize_[^?]+/giu, "")
+      .replace(/@!.*$/u, "")
+      .toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
 function remoteImageGrid(urls: string[]): string {
   if (urls.length === 0) {
     return '<p class="muted">No product image URLs captured as browser-readable media.</p>';
@@ -406,11 +523,29 @@ function remoteImageGrid(urls: string[]): string {
   return `<div class="asset-grid">${urls
     .map(
       (url, index) => `<figure class="asset">
-        <img src="${escapeAttribute(url)}" alt="Product image ${index + 1}" />
+        <img src="${escapeAttribute(reportMediaSource(url))}" alt="Product image ${index + 1}" />
         <span>Product image ${index + 1}</span>
       </figure>`
     )
     .join("")}</div>`;
+}
+
+function remoteVideoGrid(urls: string[]): string {
+  if (urls.length === 0) {
+    return "";
+  }
+  return `<div class="asset-grid">${urls
+    .map(
+      (url, index) => `<figure class="asset">
+        <video controls preload="metadata" src="${escapeAttribute(reportMediaSource(url))}" style="display:block;width:100%;height:auto;max-height:360px;background:#111827;"></video>
+        <span>Product video ${index + 1}</span>
+      </figure>`
+    )
+    .join("")}</div>`;
+}
+
+function reportMediaSource(value: string): string {
+  return /^(https?:|data:|file:)/iu.test(value) ? value : pathToFileURL(value).toString();
 }
 
 function productImage(product: { rawJson: string }): string | undefined {
@@ -418,17 +553,18 @@ function productImage(product: { rawJson: string }): string | undefined {
   return raw.imageUrl ?? raw.images?.[0];
 }
 
-function storeType(product: { mallStatus: boolean; officialStatus: boolean; starSeller: boolean }): string {
-  if (product.officialStatus) {
-    return "Official";
+function storeType(product: { mallStatus: boolean; officialStatus: boolean; starSeller: boolean; rawJson?: string }): string {
+  const rawStoreType = product.rawJson ? productRawText(product, "storeType") : undefined;
+  if (rawStoreType && /^(Mall ORI|Star\+|Star)$/u.test(rawStoreType)) {
+    return rawStoreType;
   }
-  if (product.mallStatus) {
-    return "Mall";
+  if (product.officialStatus || product.mallStatus) {
+    return "Mall ORI";
   }
   if (product.starSeller) {
-    return "Star Seller";
+    return "Star";
   }
-  return "Marketplace";
+  return "-";
 }
 
 function storeOverall(store: { rating?: number | null; followers?: number | null; voucherCount?: number | null }, data: ReportData): string {
@@ -444,6 +580,191 @@ function storeOverall(store: { rating?: number | null; followers?: number | null
   return cues.length > 0 ? `AI-ready store candidate with ${cues.join(", ")}.` : "AI-ready store candidate; screenshot evidence required for final scoring.";
 }
 
+function keyProductsForReport(products: ReportData["products"]): ReportData["products"] {
+  const merged = new Map<string, ReportData["products"][number]>();
+  for (const product of products.filter((item) => item.source !== "Store Products" && item.source !== "Store Best Sellers")) {
+    const key = productIdentity(product);
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, product);
+      continue;
+    }
+    merged.set(key, mergeReportProductSignals(existing, product));
+  }
+  return [...merged.values()]
+    .filter((product) => product.title && product.productUrl)
+    .sort((left, right) => productQualityScore(right) - productQualityScore(left))
+    .slice(0, 10);
+}
+
+function mergeReportProductSignals(left: ReportData["products"][number], right: ReportData["products"][number]): ReportData["products"][number] {
+  const preferred = productQualityScore(right) > productQualityScore(left) ? right : left;
+  const base = preferred === right ? left : right;
+  const preferredRaw = safeJson<Record<string, unknown>>(preferred.rawJson, {});
+  const baseRaw = safeJson<Record<string, unknown>>(base.rawJson, {});
+  return {
+    ...preferred,
+    storeName: preferred.storeName ?? base.storeName,
+    storeUrl: preferred.storeUrl ?? base.storeUrl,
+    reviewCount: preferred.reviewCount ?? base.reviewCount,
+    monthlySold: preferred.monthlySold ?? base.monthlySold,
+    totalSold: preferred.totalSold ?? base.totalSold,
+    rating: preferred.rating ?? base.rating,
+    rawJson: JSON.stringify({
+      ...baseRaw,
+      ...preferredRaw,
+      sourcePlacement: uniqueStrings([productSourcePlacement(preferred), productSourcePlacement(base)]).join(" / "),
+      productType: preferredRaw.productType ?? baseRaw.productType,
+      storeType: preferredRaw.storeType ?? baseRaw.storeType,
+      monthlySoldText: preferredRaw.monthlySoldText ?? baseRaw.monthlySoldText,
+      totalSoldText: preferredRaw.totalSoldText ?? baseRaw.totalSoldText,
+      reviewText: preferredRaw.reviewText ?? baseRaw.reviewText,
+      ratingText: preferredRaw.ratingText ?? baseRaw.ratingText
+    })
+  };
+}
+
+function productIdentity(product: ReportData["products"][number]): string {
+  try {
+    const url = new URL(product.productUrl);
+    return url.pathname.replace(/\/$/u, "").toLowerCase();
+  } catch {
+    return product.title.toLowerCase().replace(/\s+/gu, " ").trim();
+  }
+}
+
+function productQualityScore(product: ReportData["products"][number]): number {
+  const source = product.source ?? "";
+  const rank = product.rank ?? 99;
+  const topSalesBoost = source === "Top Sales" ? 120 - Math.min(rank, 99) : 35 - Math.min(rank, 35);
+  const monthlySoldScore = product.monthlySold ? Math.log10(product.monthlySold + 1) * 18 : 0;
+  const totalSoldScore = product.totalSold ? Math.log10(product.totalSold + 1) * 12 : 0;
+  const reviewScore = product.reviewCount ? Math.log10(product.reviewCount + 1) * 10 : 0;
+  const ratingScore = product.rating ? product.rating * 12 : 0;
+  const priceScore = product.priceAverage ? 8 : 0;
+  const imageScore = productImage(product) ? 8 : 0;
+  return topSalesBoost + monthlySoldScore + totalSoldScore + reviewScore + ratingScore + priceScore + imageScore;
+}
+
+function productRawText(product: { rawJson?: string }, key: string): string | undefined {
+  const raw = product.rawJson ? safeJson<Record<string, unknown>>(product.rawJson, {}) : {};
+  const value = raw[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function productSourcePlacement(product: ReportData["products"][number]): string {
+  const rawPlacement = productRawText(product, "sourcePlacement");
+  if (rawPlacement) {
+    return formatSourcePlacement(rawPlacement, product.source);
+  }
+  const fallback = product.source && product.rank ? `${product.source} ${product.rank}` : product.source ?? "-";
+  return formatSourcePlacement(fallback, product.source);
+}
+
+function formatSourcePlacement(value: string, source?: string | null): string {
+  const parts = uniqueStrings(value.split("/").map((part) => part.trim()).filter(Boolean));
+  if (parts.length === 0) {
+    return "-";
+  }
+  return parts.map((part, index) => formatSourcePlacementToken(part, source, index)).join(" / ");
+}
+
+function formatSourcePlacementToken(value: string, source: string | null | undefined, index: number): string {
+  if (/top\s+\d+\s+in\s+/iu.test(value)) {
+    return value;
+  }
+  const rank = value.match(/\d+/u)?.[0] ?? "-";
+  if (/relevance|relevancy|search/iu.test(value)) {
+    return `Top ${rank} in relevance`;
+  }
+  if (/store\s*(popular|products)|popular|pop\b/iu.test(value)) {
+    return `Top ${rank} in store popular`;
+  }
+  if (/store\s*(best|sales)|best\s*seller|top\s*sales|sales/iu.test(value)) {
+    return `Top ${rank} in sales`;
+  }
+  const context = `${source ?? ""} ${value}`.toLowerCase();
+  if (/store\s*(best|sales)|best\s*seller|top\s*sales|sales/iu.test(context)) {
+    return `Top ${rank} in sales`;
+  }
+  if (/store\s*(popular|products)|popular|pop\b/iu.test(context)) {
+    return `Top ${rank} in store popular`;
+  }
+  if (/relevance|relevancy|search/iu.test(context)) {
+    return `Top ${rank} in relevance`;
+  }
+  if (index === 0 && source !== "Relevance") {
+    return `Top ${rank} in sales`;
+  }
+  if (index === 1) {
+    return `Top ${rank} in relevance`;
+  }
+  return value || "-";
+}
+
+function inferredProductType(title: string): string {
+  const normalized = title.toLowerCase();
+  if (/iphone\s*15|iphone15/u.test(normalized)) {
+    return "iphone15";
+  }
+  if (/iphone/u.test(normalized)) {
+    return "iPhones";
+  }
+  if (/bulu mata|eyelash|lashes|lash/u.test(normalized)) {
+    return "Eyelash";
+  }
+  if (/eye\s*cream|krim mata|mata anti keriput/u.test(normalized)) {
+    return "eye cream";
+  }
+  if (/lotion|body lotion|handbody/u.test(normalized)) {
+    return "body lotion";
+  }
+  if (/lip\s*tint|lipstick|liptint/u.test(normalized)) {
+    return "lip tint";
+  }
+  if (/serum/u.test(normalized)) {
+    return "serum";
+  }
+  return "marketplace product";
+}
+
+function selectReportKeyStore(data: ReportData): ReportData["stores"][number] | undefined {
+  const keyProducts = keyProductsForReport(data.products);
+  const byStore = new Map<string, { count: number; gmv: number; storeName?: string; storeUrl?: string }>();
+  for (const product of keyProducts) {
+    const storeName = product.storeName ?? undefined;
+    const storeUrl = product.storeUrl ?? undefined;
+    const key = (storeUrl ?? storeName ?? "").toLowerCase();
+    if (!key) {
+      continue;
+    }
+    const current = byStore.get(key) ?? { count: 0, gmv: 0, storeName, storeUrl };
+    current.count += 1;
+    current.gmv += (product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0);
+    byStore.set(key, current);
+  }
+  const selected = [...byStore.values()].sort((left, right) => right.gmv - left.gmv || right.count - left.count)[0];
+  if (!selected) {
+    return data.stores[0];
+  }
+  return data.stores.find((store) =>
+    (selected.storeUrl && sameReportUrl(store.url, selected.storeUrl)) ||
+    (selected.storeName && store.name.toLowerCase() === selected.storeName.toLowerCase())
+  ) ?? data.stores[0];
+}
+
+function storeAssetsForReport(data: ReportData, store: ReportData["stores"][number]): ReportAsset[] {
+  const storeOwned = data.assets.filter((asset) => asset.ownerType === "STORE" && asset.ownerId === store.id);
+  if (storeOwned.length > 0) {
+    return storeOwned;
+  }
+  return data.assets.filter((asset) => assetMatchesStore(asset, store.url));
+}
+
+function sameReportUrl(left: string, right: string): boolean {
+  return stripUrlNoise(left) === stripUrlNoise(right);
+}
+
 function crossPlatformEvidence(data: ReportData): string {
   return `<details class="page report-section" open>
     <summary>TikTok Evidence</summary>
@@ -456,7 +777,7 @@ function crossPlatformEvidence(data: ReportData): string {
   </details>`;
 }
 
-function aiRecommendations(data: ReportData): string {
+function _aiRecommendations(data: ReportData): string {
   const analyses = data.analyses.map((analysis) => safeJson<AiAnalysisJson | null>(analysis.resultJson, null)).filter(Boolean);
   return `<details class="page report-section" open>
     <summary>AI Recommendations</summary>
@@ -471,11 +792,11 @@ function aiRecommendations(data: ReportData): string {
         return `<div class="analysis">
           <h3>${escapeHtml(analysis.provider)} analysis</h3>
           <div class="score-row">
-            ${score("Brand", analysis.branding.score)}
-            ${score("Visual", analysis.visualQuality.score)}
-            ${score("Voucher", analysis.voucherStrategy.score)}
-            ${score("Position", analysis.competitivePosition.score)}
-            ${score("Trust", analysis.customerTrust.score)}
+            ${_score("Brand", analysis.branding.score)}
+            ${_score("Visual", analysis.visualQuality.score)}
+            ${_score("Voucher", analysis.voucherStrategy.score)}
+            ${_score("Position", analysis.competitivePosition.score)}
+            ${_score("Trust", analysis.customerTrust.score)}
           </div>
           <h3>Recommendations</h3>
           <table><tbody>${analysis.recommendations
@@ -504,20 +825,20 @@ function snapshotProductTable(products: ReportData["products"]): string {
           <td>${imageUrl ? `<img class="product-thumb" src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(product.title)}" />` : "-"}</td>
           <td><a href="${escapeAttribute(product.productUrl)}">${escapeHtml(product.title)}</a></td>
           <td>${formatCurrency(product.priceAverage)}</td>
-          <td>${product.rating ?? "-"}</td>
-          <td>${formatNumber(product.monthlySold)}</td>
+          <td>${escapeHtml(productRawText(product, "ratingText") || (product.rating ? product.rating.toFixed(1) : "-"))}</td>
+          <td>${escapeHtml(productRawText(product, "monthlySoldText") || productRawText(product, "totalSoldText") || formatNumber(product.monthlySold ?? product.totalSold))}</td>
         </tr>`;
       })
       .join("")}</tbody>
   </table>`;
 }
 
-function assetGrid(assets: ReportAsset[]): string {
+function assetGrid(assets: ReportAsset[], limit = 12): string {
   if (assets.length === 0) {
     return '<p class="muted">No evidence asset captured for this section.</p>';
   }
   return `<div class="asset-grid">${assets
-    .slice(0, 12)
+    .slice(0, limit)
     .map(
       (asset) => `<figure class="asset">
         <img src="${escapeAttribute(pathToFileURL(asset.path).toString())}" alt="${escapeAttribute(asset.label)}" />
@@ -527,7 +848,7 @@ function assetGrid(assets: ReportAsset[]): string {
     .join("")}</div>`;
 }
 
-function score(label: string, value: number): string {
+function _score(label: string, value: number): string {
   return `<div class="score">${escapeHtml(label)}<b>${Math.round(value)}</b></div>`;
 }
 

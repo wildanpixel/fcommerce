@@ -2,6 +2,25 @@
 
 All notable changes to MarketPlace Keyword Competitor Analysis will be documented in this file.
 
+## Unreleased - 2026-07-11
+
+- Changed Keyword Projects progress from horizontal bars to circular indicators for clearer scanability.
+- Scoped Part 1 Relevance and Top Sales screenshots and product extraction to `section.shopee-search-item-result`.
+- Added visible loading status while screenshots, HTML snapshots, product data, banner downloads, and manual evidence saves are running.
+- Scoped Key Store inspection assets to the selected store and changed Visual Style collection to persist only readable `.shop-decoration` banner images.
+- Increased Key Store Products and Best Sellers rendering to show full captured store matrices instead of a 12-item preview.
+- Changed Key Store Products and Best Sellers collection to data-only `Collect Data` actions that hydrate the Shopee store product grid before extraction and no longer create screenshot evidence.
+- Tightened Visual Style collection to download non-product `.shop-decoration` banner/carousel images only.
+- Changed report generation action text to `Generate Report`.
+- Reworked configurable report sections to match Project Inspector headings: Keyword General, Key Products, Product Detail subparts, Key Store subparts, and TikTok Evidence.
+- Added Summary Metrics as a configurable report section for products, stores, reviews, and media evidence.
+- Aligned generated Key Products with the inspector's selected max-10 product table and excluded Store Products/Store Best Sellers from that report table.
+- Clarified Key Product source placement labels as `Top N in sales` / `Top N in relevance` across collection preview, Project Inspector, and generated reports.
+- Deduplicated generated report product slides, capped each product dossier to the inspector's 9 selected media items, limited product videos to one, and made Key Store Visual Style reflect the exact stored banner assets.
+- Added report developer attribution for Wildan Ega Pradana and LinkedIn profile.
+- Added Bahasa Indonesia, English, and Chinese Modern language choices in setup/settings.
+- Changed TikTok Shop in New Research to a disabled `Coming soon` option until the TikTok adapter and normalized collection workflow are implemented.
+
 ## Unreleased - 2026-07-10
 
 - Changed the transition after Product Detail completion so the collection workspace automatically opens Part 3 Evaluation Phase instead of closing back to the project inspector.
