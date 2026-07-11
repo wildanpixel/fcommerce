@@ -55,14 +55,15 @@ function documentStart(title: string): string {
   <meta charset="utf-8" />
   <title>${escapeHtml(title)}</title>
   <style>
-    @page { size: A4; margin: 18mm 14mm; }
+    @page { size: A4; margin: 14mm 12mm; }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: Inter, Arial, sans-serif; color: #20242c; background: #fff; }
+    body { margin: 0; font-family: Inter, Arial, sans-serif; color: #20242c; background: #fff; font-size: 12px; }
     h1 { margin: 0 0 10px; font-size: 28px; line-height: 1.15; }
     h2 { margin: 0 0 14px; font-size: 22px; break-after: avoid; }
     h3 { margin: 0 0 10px; font-size: 16px; break-after: avoid; }
     p { margin: 0 0 10px; line-height: 1.45; }
-    .page { page-break-after: always; }
+    .page { page-break-after: auto; break-after: auto; }
+    .cover-page { min-height: 190mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; break-after: page; }
     .muted { color: #667085; }
     .kicker { color: #3767d6; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; font-size: 11px; }
     .grid { display: grid; gap: 14px; }
@@ -75,7 +76,8 @@ function documentStart(title: string): string {
     td { border: 1px solid #e2e6ee; vertical-align: top; padding: 8px; font-size: 11px; line-height: 1.35; word-break: break-word; }
     .asset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 18px; }
     .asset { border: 1px solid #e2e6ee; border-radius: 8px; overflow: hidden; background: #f8fafc; break-inside: avoid; }
-    .asset img { display: block; width: 100%; height: auto; }
+    .asset img { display: block; width: 100%; height: 170px; object-fit: contain; background: #fff; }
+    .asset video { display: block; width: 100%; aspect-ratio: 9 / 16; max-height: 300px; object-fit: contain; background: #111827; }
     .asset span { display: block; padding: 6px 8px; font-size: 10px; color: #475467; }
     .product-thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e6ee; background: #f8fafc; }
     .badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: #eef4ff; color: #2855ba; font-size: 10px; font-weight: 700; }
@@ -85,14 +87,19 @@ function documentStart(title: string): string {
     .score b { display: block; font-size: 18px; color: #1d4ed8; }
     .section-note { border-left: 3px solid #4778ef; padding-left: 10px; color: #475467; margin-bottom: 12px; }
     .small { font-size: 10px; }
-    details.report-section { border: 1px solid #dfe4ef; border-radius: 10px; padding: 14px; margin: 0 0 18px; break-after: page; }
+    .review-list { display: grid; gap: 10px; margin: 10px 0 18px; }
+    .review-card { border: 1px solid #e2e6ee; border-radius: 8px; padding: 10px; background: #fbfcff; break-inside: avoid; }
+    .review-card b { display: block; margin-bottom: 6px; color: #1d2939; }
+    .review-card p { white-space: pre-line; margin: 0; }
+    details.report-section { border: 1px solid #dfe4ef; border-radius: 10px; padding: 14px; margin: 0 0 18px; break-after: auto; page-break-after: auto; break-inside: auto; }
     details.report-section > summary { cursor: pointer; font-weight: 800; color: #1d2939; list-style: none; }
     details.report-section > summary::-webkit-details-marker { display: none; }
     details.report-section > summary::before { content: "▾"; display: inline-block; margin-right: 8px; color: #4778ef; }
     details.report-section:not([open]) > summary::before { content: "▸"; }
     .report-body { margin-top: 14px; }
     @media print {
-      details.report-section { border: 0; padding: 0; }
+      details.report-section { border: 0; padding: 0; page-break-after: auto; break-after: auto; }
+      .asset, .metric, .analysis, .review-card { break-inside: avoid; page-break-inside: avoid; }
       details.report-section > summary { cursor: default; }
       details.report-section > summary::before { content: ""; margin: 0; }
     }
@@ -112,7 +119,7 @@ function documentEnd(): string {
 }
 
 function reportHeader(data: ReportData): string {
-  return `<section class="page">
+  return `<section class="page cover-page">
     <p class="kicker">MarketPlace Keyword Competitor Analysis</p>
     <h1>${escapeHtml(data.project.keyword)}</h1>
     <p class="muted">${escapeHtml(data.project.marketplace)} keyword competitor report generated from local guided evidence.</p>
@@ -277,8 +284,11 @@ function productDossiers(data: ReportData, enabled: Set<string>): string {
         shopVouchers?: string[];
         bundleDeals?: string[];
       }>(product.rawJson, {});
-      const productVideos = uniqueMediaUrls([...(raw.evidencePlan?.productVideos ?? []), ...(raw.videos ?? [])]).slice(0, 1);
+      const productVideos = uniqueMediaUrls(raw.evidencePlan?.productVideos ?? [])
+        .filter(isLikelyProductVideoUrl)
+        .slice(0, 1);
       const productImages = uniqueMediaUrls([...(raw.evidencePlan?.productImages ?? []), ...(raw.images ?? []), raw.imageUrl].filter(Boolean))
+        .filter(isReportProductImageUrl)
         .slice(0, productVideos.length > 0 ? 8 : 9);
       const descriptionImages = uniqueStrings(raw.descriptionImages ?? []);
       const reviewImages = uniqueStrings(raw.reviewMediaImages ?? []);
@@ -298,10 +308,10 @@ function productDossiers(data: ReportData, enabled: Set<string>): string {
           <div class="metric">Total sold<b>${formatNumber(product.totalSold)}</b></div>
         </div>
         ${showFirstPage ? `<h3>1st page</h3>${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_PAGE"))}` : ""}
-        ${showSlides ? `<h3>Slides</h3>${remoteImageGrid(productImages)}${remoteVideoGrid(productVideos)}` : ""}
+        ${showSlides ? `<h3>Slides</h3>${remoteImageGrid(productImages, "Product slide")}${remoteVideoGrid(productVideos)}` : ""}
         ${showDescription ? `<h3>Description</h3><p style="white-space:pre-line;">${escapeHtml(product.description ?? "No browser-readable description captured. Screenshot evidence is retained.")}</p>${remoteImageGrid(descriptionImages.slice(0, 24))}${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_DESCRIPTION"))}<h3>Variants</h3><p>${escapeHtml(variants.slice(0, 12).join(", ") || "No variants detected")}</p><h3>Specifications</h3><table><tbody>${Object.entries(specs).slice(0, 12).map(([key, value]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table>` : ""}
         ${showReviews ? `<h3>Reviews</h3>${reviewTable(productReviews)}` : ""}
-        ${showUserMedia ? `<h3>Media in user</h3>${remoteImageGrid(reviewImages.slice(0, 30))}${remoteVideoGrid(reviewVideos.slice(0, 12))}${assetGrid(productAssets.filter((asset) => asset.kind === "REVIEW_IMAGE"))}` : ""}
+        ${showUserMedia ? `<h3>Media in user</h3>${remoteImageGrid(reviewImages.slice(0, 30), "Review media")}${remoteVideoGrid(reviewVideos.slice(0, 12))}${assetGrid(productAssets.filter((asset) => asset.kind === "REVIEW_IMAGE"))}` : ""}
         ${showShopHome ? `<h3>Shop Home Page</h3>${assetGrid(shopHomeAssets)}` : ""}
         </div>
       </details>`;
@@ -445,22 +455,18 @@ function _visualStyle(data: ReportData): string {
 }
 
 function reviewTable(reviews: ReportData["reviews"]): string {
-  if (reviews.length === 0) {
+  const curatedReviews = curatedReviewsForReport(reviews);
+  if (curatedReviews.length === 0) {
     return '<p class="muted">No positive/negative review rows captured for this product yet.</p>';
   }
-  return `<table>
-    <thead><tr><th>Type</th><th>Star rated</th><th>Comment - Include timestamp</th></tr></thead>
-    <tbody>${reviews
-      .slice(0, 5)
-      .map(
-        (review) => `<tr>
-          <td>${escapeHtml(review.sentiment)}</td>
-          <td>${review.rating ?? "-"}</td>
-          <td>${escapeHtml([review.reviewDate, review.variation, review.comment].filter(Boolean).join(" | "))}</td>
-        </tr>`
-      )
-      .join("")}</tbody>
-  </table>`;
+  return `<div class="review-list">${curatedReviews
+    .map(
+      (review) => `<div class="review-card">
+        <b>${escapeHtml(review.sentiment === "NEGATIVE" ? "Negative Reviews" : "Positive Reviews")} · ${escapeHtml(review.rating ? `${review.rating} Star` : "-")}</b>
+        <p>${escapeHtml(formatReviewText(review))}</p>
+      </div>`
+    )
+    .join("")}</div>`;
 }
 
 function assetMatchesStore(asset: ReportAsset, storeUrl?: string | null): boolean {
@@ -516,15 +522,76 @@ function uniqueMediaUrls(values: Array<string | undefined>): string[] {
   return unique;
 }
 
-function remoteImageGrid(urls: string[]): string {
-  if (urls.length === 0) {
+function isReportProductImageUrl(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  const lower = normalized.toLowerCase();
+  if (/data:image\/svg|sprite|favicon|placeholder|default-avatar|avatar|profile|logo-shopee|shopee-logo|icon|arrow|chevron|next|previous|rating|star|cart|chat|help|verify/iu.test(lower)) {
+    return false;
+  }
+  if (/\/(?:icons?|sprites?|avatars?)\//iu.test(lower)) {
+    return false;
+  }
+  return /^(https?:|file:|data:image\/(?:png|jpe?g|webp|avif|gif|bmp))/iu.test(normalized);
+}
+
+function isLikelyProductVideoUrl(value: string): boolean {
+  const lower = value.toLowerCase();
+  return /^(https?:|file:)/iu.test(value) &&
+    /\.(?:mp4|webm|m3u8)(?:$|[?#])/iu.test(lower) &&
+    !/(rating|review|comment|buyer|user-media|media-in-user)/iu.test(lower);
+}
+
+function curatedReviewsForReport(reviews: ReportData["reviews"]): ReportData["reviews"] {
+  const readable = reviews.filter((review) => isReadableReviewText(review.comment));
+  const positive = readable
+    .filter((review) => review.sentiment === "POSITIVE" || (typeof review.rating === "number" && review.rating >= 5))
+    .slice(0, 3);
+  const negative = readable
+    .filter((review) => review.sentiment === "NEGATIVE" || (typeof review.rating === "number" && review.rating <= 3))
+    .slice(0, 2);
+  return [...positive, ...negative].slice(0, 5);
+}
+
+function isReadableReviewText(value: string): boolean {
+  const normalized = value.trim();
+  return normalized.length >= 20 &&
+    /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2})?\b/u.test(normalized) &&
+    !/^https?:\/\//iu.test(normalized) &&
+    !/(product ratings|all\s*\(|semua\s*\(|comments?\s*\(|with media|dengan media|repeat purchase|shop vouchers|bundle deals|barcode|bpom sesuai|dermatologically tested|add to cart|buy now)/iu.test(normalized);
+}
+
+function formatReviewText(review: ReportData["reviews"][number]): string {
+  const commentLines = review.comment
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const commentContainsDate = review.reviewDate ? review.comment.includes(review.reviewDate) : /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}/u.test(review.comment);
+  const commentContainsVariation = review.variation ? review.comment.toLowerCase().includes(review.variation.toLowerCase()) : false;
+  const prefix = [
+    commentContainsDate ? undefined : review.reviewDate,
+    review.variation && !commentContainsVariation ? `variation : ${review.variation}` : undefined
+  ].filter(Boolean);
+  if (prefix.length > 0) {
+    const dateLine = prefix.join(" | ");
+    return [dateLine, ...commentLines].join("\n");
+  }
+  return commentLines.join("\n");
+}
+
+function remoteImageGrid(urls: string[], label = "Product image"): string {
+  const filteredUrls = uniqueMediaUrls(urls).filter(isReportProductImageUrl);
+  if (filteredUrls.length === 0) {
     return '<p class="muted">No product image URLs captured as browser-readable media.</p>';
   }
-  return `<div class="asset-grid">${urls
+  return `<div class="asset-grid">${filteredUrls
     .map(
       (url, index) => `<figure class="asset">
-        <img src="${escapeAttribute(reportMediaSource(url))}" alt="Product image ${index + 1}" />
-        <span>Product image ${index + 1}</span>
+        <img src="${escapeAttribute(reportMediaSource(url))}" alt="${escapeAttribute(label)} ${index + 1}" />
+        <span>${escapeHtml(label)} ${index + 1}</span>
       </figure>`
     )
     .join("")}</div>`;
@@ -537,7 +604,7 @@ function remoteVideoGrid(urls: string[]): string {
   return `<div class="asset-grid">${urls
     .map(
       (url, index) => `<figure class="asset">
-        <video controls preload="metadata" src="${escapeAttribute(reportMediaSource(url))}" style="display:block;width:100%;height:auto;max-height:360px;background:#111827;"></video>
+        <video controls preload="metadata" src="${escapeAttribute(reportMediaSource(url))}"></video>
         <span>Product video ${index + 1}</span>
       </figure>`
     )

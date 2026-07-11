@@ -3041,6 +3041,11 @@ function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; 
     ]),
     { id: "evaluation-phase", label: "Evaluation Phase", depth: 0 },
     { id: "key-store", label: "Key Store", depth: 0 },
+    { id: "key-store", label: "Overall", depth: 1 },
+    { id: "key-store", label: "Store Home Page", depth: 1 },
+    { id: "key-store", label: "Products", depth: 1 },
+    { id: "key-store", label: "Best Sellers", depth: 1 },
+    { id: "key-store", label: "Visual Style", depth: 1 },
     { id: "tiktok-evidence", label: "TikTok Evidence", depth: 0 }
   ];
 }
@@ -3269,7 +3274,7 @@ function ProjectOutlineNav({
         </button>
       </div>
       <div className="space-y-1">
-        {groups.map((group) => (
+        {groups.map((group) => group.children.length > 0 ? (
           <details key={`${group.id}-${group.label}`} className="mio-outline-group rounded-md" open>
             <summary className="cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
               <a href={`#${group.id}`} onClick={(event) => event.stopPropagation()}>{group.label}</a>
@@ -3303,6 +3308,14 @@ function ProjectOutlineNav({
               ))}
             </div>
           </details>
+        ) : (
+          <a
+            key={`${group.id}-${group.label}`}
+            href={`#${group.id}`}
+            className="block rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
+          >
+            {group.label}
+          </a>
         ))}
       </div>
     </nav>
@@ -3546,9 +3559,11 @@ function ProductQualifiedSection({
 
       <NestedReportSection title="Slides" defaultOpen={false}>
         <ProductImageGrid images={(product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []).slice(0, product.videos.length > 0 ? 8 : 9)} />
-        <div className="mt-3">
-          <ProductVideoGrid videos={product.videos} limit={1} />
-        </div>
+        {product.videos.length > 0 && (
+          <div className="mt-3">
+            <ProductVideoGrid videos={product.videos} limit={1} />
+          </div>
+        )}
       </NestedReportSection>
 
       <NestedReportSection title="Description" defaultOpen={false}>
@@ -3614,6 +3629,21 @@ function uniqueMediaValues(values: string[]): string[] {
       seen.add(key);
       return true;
     });
+}
+
+function isDisplayableProductMediaUrl(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  const lower = normalized.toLowerCase();
+  if (/data:image\/svg|sprite|favicon|placeholder|default-avatar|avatar|profile|logo-shopee|shopee-logo|icon|arrow|chevron|next|previous|rating|star|cart|chat|help|verify|seller-centre|notification/iu.test(lower)) {
+    return false;
+  }
+  if (/\/(?:icons?|sprites?|avatars?)\//iu.test(lower)) {
+    return false;
+  }
+  return /^(https?:|file:|data:image\/(?:png|jpe?g|webp|avif|gif|bmp))/iu.test(normalized);
 }
 
 function ProductPromotionSignals({ product }: { product: ProjectProductEvidence }) {
@@ -3720,7 +3750,7 @@ function _ProductDossierSummary({
 
 function ProductImageGrid({ images }: { images: string[] }) {
   const [brokenImages, setBrokenImages] = useState<Set<string>>(() => new Set());
-  const visibleImages = uniqueMediaValues(images).filter((image) => !brokenImages.has(image));
+  const visibleImages = uniqueMediaValues(images).filter((image) => isDisplayableProductMediaUrl(image) && !brokenImages.has(image));
   if (visibleImages.length === 0) {
     return <EmptyState label="No product image URLs captured yet." />;
   }
@@ -3782,13 +3812,21 @@ function isReadableShopeeReview(comment: string): boolean {
 }
 
 function reviewCommentCell(review: ProjectDetailPayload["reviews"][number]): string {
-  const comment = review.comment.trim();
+  const commentLines = review.comment
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const comment = commentLines.join("\n");
   const hasDate = review.reviewDate ? comment.includes(review.reviewDate) : /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}/u.test(comment);
-  const prefix = [
-    hasDate ? undefined : review.reviewDate,
-    review.variation && !comment.includes(review.variation) ? review.variation : undefined
-  ].filter(Boolean);
-  return [...prefix, comment].join(" | ");
+  const hasVariation = review.variation ? comment.toLowerCase().includes(review.variation.toLowerCase()) : false;
+  const prefix: string[] = [];
+  if (!hasDate && review.reviewDate) {
+    prefix.push(`${review.reviewDate}${review.variation && !hasVariation ? ` | variation : ${review.variation}` : ""}`);
+  } else if (review.variation && !hasVariation) {
+    prefix.push(`variation : ${review.variation}`);
+  }
+  return [...prefix, ...commentLines].join("\n");
 }
 
 function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["reviews"] }) {
@@ -3811,7 +3849,7 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
             <tr key={review.id} className="border-t border-white/8">
               <td className="px-3 py-2">{review.sentiment === "NEGATIVE" ? "Negative Reviews" : review.sentiment === "POSITIVE" ? "Positive Reviews" : "Neutral Reviews"}</td>
               <td className="px-3 py-2">{review.rating ? `${review.rating} Star` : "-"}</td>
-              <td className="px-3 py-2">
+              <td className="whitespace-pre-line px-3 py-2 leading-5">
                 {reviewCommentCell(review)}
               </td>
             </tr>
@@ -5920,13 +5958,27 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         const firstScreenBonus = rect.top < window.innerHeight * 0.75 ? 50000 : 0;
         return visibleWidth * visibleHeight + centerBonus + firstScreenBonus;
       };
+      const isUsableProductGalleryMediaElement = (element, url) => {
+        if (!url) return false;
+        const lowerUrl = String(url).toLowerCase();
+        if (/data:image\\/svg|sprite|favicon|placeholder|default-avatar|avatar|profile|logo-shopee|shopee-logo|icon|arrow|chevron|next|previous|rating|star|cart|chat|help|verify|seller-centre|notification/i.test(lowerUrl)) return false;
+        const control = element?.closest?.("[class*='arrow'], [class*='chevron'], [class*='next'], [class*='prev'], [aria-label*='next' i], [aria-label*='previous' i]");
+        const controlText = compact([control?.className, control?.getAttribute?.("aria-label"), control?.getAttribute?.("title"), control?.textContent].filter(Boolean).join(" "));
+        if (/arrow|chevron|next|prev|previous|selanjutnya|sebelumnya/i.test(controlText)) return false;
+        const visualElement = element?.tagName === "PICTURE" ? element.querySelector("img") || element : element;
+        const rect = visualElement?.getBoundingClientRect?.();
+        const width = Math.round(rect?.width || visualElement?.naturalWidth || 0);
+        const height = Math.round(rect?.height || visualElement?.naturalHeight || 0);
+        return width >= 120 && height >= 120;
+      };
       const selectedProductImage = Array.from(galleryRoot?.querySelectorAll?.("picture._displayContents_, picture, img[srcset], img[data-srcset], img[src], img[data-src]") || [])
         .filter((element) => !isReviewMediaElement(element))
         .map((element) => ({
           url: imageUrlFrom(element),
+          element,
           score: visibleMediaScore(element.tagName === "PICTURE" ? element.querySelector("img") || element : element)
         }))
-        .filter((item) => item.url && item.score > 0)
+        .filter((item) => item.url && item.score > 0 && isUsableProductGalleryMediaElement(item.element, item.url))
         .sort((left, right) => right.score - left.score)[0]?.url;
       const selectedProductVideo = Array.from(galleryRoot?.querySelectorAll?.("video") || [])
         .filter((element) => !isReviewMediaElement(element))
@@ -5962,16 +6014,39 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         return true;
       };
       const cleanReviewComment = (value) => {
-        const dateMatch = String(value || "").match(/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u);
-        let cleaned = dateMatch ? String(value || "").slice(dateMatch.index) : String(value || "");
-        cleaned = cleaned
-          .replace(/Seller's Response:[\\s\\S]*$/iu, "")
-          .replace(/Respons Penjual:[\\s\\S]*$/iu, "")
-          .replace(/Penjual Membalas:[\\s\\S]*$/iu, "")
-          .replace(/\\s*(?:Helpful|Membantu)\\s*[\\d.,kkrb]*\\s*$/iu, "")
-          .replace(/\\s+/g, " ")
-          .trim();
-        return cleaned.slice(0, 900);
+        const rawLines = String(value || "")
+          .replace(/\\r\\n?/g, "\\n")
+          .split("\\n")
+          .map((line) => compact(line))
+          .filter(Boolean);
+        const dateLineIndex = rawLines.findIndex((line) => /\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u.test(line));
+        const sourceLines = dateLineIndex >= 0 ? rawLines : compact(value).split(/(?=\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2})/u).map(compact).filter(Boolean);
+        const effectiveDateIndex = dateLineIndex >= 0 ? dateLineIndex : sourceLines.findIndex((line) => /\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}/u.test(line));
+        const author = effectiveDateIndex > 0
+          ? sourceLines
+              .slice(Math.max(0, effectiveDateIndex - 4), effectiveDateIndex)
+              .reverse()
+              .find((line) =>
+                line.length >= 2 &&
+                line.length <= 48 &&
+                !/(seller|penjual|ratings?|reviews?|star|bintang|helpful|membantu|variation|variasi|quality|kualitas|performa|efek|kemasan|manfaat)/iu.test(line) &&
+                !/^\\d+(?:[.,]\\d+)?/u.test(line)
+              )
+          : undefined;
+        const bodyLines = (effectiveDateIndex >= 0 ? sourceLines.slice(effectiveDateIndex) : sourceLines)
+          .filter((line) => !/^\\*{2,}$|^[★\\s]+$/u.test(line));
+        const trimmedLines = [];
+        for (const line of bodyLines) {
+          if (/^(Seller's Response|Respons Penjual|Penjual Membalas)\\b/iu.test(line)) break;
+          if (/^(Helpful|Membantu)\\s*[\\d.,kkrb]*$/iu.test(line)) continue;
+          if (/^(Report|Laporkan|Like|Share)$/iu.test(line)) continue;
+          trimmedLines.push(line);
+        }
+        const output = [
+          author,
+          ...trimmedLines
+        ].filter(Boolean).join("\\n").trim();
+        return output.slice(0, 900);
       };
       const isCleanReviewComment = (value) => {
         const normalized = compact(value);
@@ -5995,13 +6070,19 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         });
       };
       const reviewBlocks = unique([
-        ...reviewRows.map((row) => cleanReviewComment(textFrom(row))),
+        ...reviewRows.map((row) => cleanReviewComment(blockTextFromHtml(row))),
         ...reviewChunksFromText(commentRoot?.innerText || "").map(cleanReviewComment)
       ].filter(isCleanReviewComment)).slice(0, 8);
       const toReview = (type, rating, comment) => {
-        const normalized = compact(comment);
+        const normalized = String(comment || "")
+          .replace(/\\r\\n?/g, "\\n")
+          .split("\\n")
+          .map((line) => compact(line))
+          .filter(Boolean)
+          .join("\\n");
+        const searchable = compact(normalized);
         const dateMatch = normalized.match(/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u);
-        const variationMatch = normalized.match(/(?:Variasi|Variation)\\s*:\\s*([^|\\n]+)/iu);
+        const variationMatch = searchable.match(/(?:Variasi|Variation|variation)\\s*:\\s*([^|\\n]+)/iu);
         return {
           type,
           rating,
@@ -6027,7 +6108,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         reviewText: pdpReviewText,
         totalSoldText: pdpSoldText,
         activeReviewFilter,
-        images: productImages.slice(0, 12),
+        images: productImages.slice(0, 9),
         videos: productVideos.slice(0, 1),
         description: blockTextFromHtml(descriptionRoot).slice(0, 8000) || undefined,
         descriptionImages: descriptionImages.slice(0, 24),

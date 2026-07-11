@@ -374,6 +374,7 @@ Status: Partial
 | Complete AI recommendation section | Sprint 4 analysis | 1 day | Executive summary, SWOT, gaps, and recommendations render from structured JSON. |
 | Validate generated PDF layout | Puppeteer PDF | 1 day | PDF exports without blank pages, broken images, or missing core sections. |
 | Align configurable report headings | Project Inspector hierarchy | Done | Completed: report section toggles use Keyword General, Key Products, Product Detail subparts, Key Store subparts, and TikTok Evidence. |
+| Harden DOCX/PDF media rendering | Report renderer, DOCX exporter | Done | Completed: DOCX renders from structured data with JPEG image conversion, PDF/HTML layout is cleaner, product slides exclude UI arrows/review media, and reviews preserve Shopee-style line breaks. |
 | Align report Key Products with inspector | Key Product selection | Done | Completed: generated reports use the same max-10 selected Key Product set and exclude Store Products/Store Best Sellers from the Key Product table. |
 
 ### Dependencies
@@ -389,6 +390,7 @@ Status: Partial
 - Passed: HTML/PDF report can be generated from a guided Shopee project.
 - Passed: report generation is initiated through `Generate Report`, while history exposes Preview, PDF, HTML, DOCX, Copy, and Delete actions.
 - Passed: generated report headings match the selected modular sections for copy/paste and DOCX export.
+- Passed: DOCX export now uses structured report data with image conversion, and PDF/HTML output preserves multiline review cards while filtering invalid slide media.
 - Passed: Key Product report rows now mirror Project Inspector's selected Key Product table instead of broad store matrix rows.
 - Passed: missing evidence is explicit in the report.
 - Passed: report sections remain modular and can be enabled or disabled.

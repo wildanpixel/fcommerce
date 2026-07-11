@@ -49,6 +49,7 @@ import {
   ConsultingHtmlReportRenderer,
   PrismaReportDataAdapter
 } from "../infrastructure/report/HtmlReportRenderer.js";
+import { ConsultingDocxReportExporter } from "../infrastructure/report/DocxReportExporter.js";
 import { PuppeteerPdfExporter } from "../infrastructure/report/PdfReportExporter.js";
 import { ProjectWorkspace, slug } from "../infrastructure/files/ProjectWorkspace.js";
 import { BrowserDiscoveryService } from "../infrastructure/browser/BrowserDiscovery.js";
@@ -761,9 +762,13 @@ export function createApp(): Express {
       response.status(404).json({ error: "Report HTML not found" });
       return;
     }
-    const html = await readFile(report.htmlPath, "utf8");
+    const data = await dependencies.reportDataLoader.load(report.projectId);
     const docxPath = report.htmlPath.replace(/\.html$/iu, ".docx");
-    await writeFile(docxPath, createDocxFromHtml(html));
+    await writeFile(docxPath, await dependencies.docxReports.render(data, {
+      projectId: report.projectId,
+      templateId: report.templateId,
+      sections: report.sections ?? DEFAULT_REPORT_SECTIONS
+    }));
     response.json({ ok: true, reportId: report.id, docxPath });
   }));
 
@@ -855,6 +860,7 @@ function createDependencies() {
       workspace
     ),
     ai,
+    docxReports: new ConsultingDocxReportExporter(),
     reportDataLoader,
     reportRepository
   };
@@ -947,121 +953,6 @@ function htmlToPlainText(html: string): string {
     .replace(/\n[ \t]+/gu, "\n")
     .replace(/\n{3,}/gu, "\n\n")
     .trim());
-}
-
-function createDocxFromHtml(html: string): Buffer {
-  const paragraphs = htmlToPlainText(html)
-    .split(/\n{1,}/u)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 900)
-    .map((line) => `<w:p><w:r><w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r></w:p>`)
-    .join("");
-  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:body>
-    ${paragraphs || "<w:p><w:r><w:t>No report content available.</w:t></w:r></w:p>"}
-    <w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720"/></w:sectPr>
-  </w:body>
-</w:document>`;
-  return createStoredZip([
-    {
-      name: "[Content_Types].xml",
-      data: `<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-</Types>`
-    },
-    {
-      name: "_rels/.rels",
-      data: `<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>`
-    },
-    {
-      name: "word/document.xml",
-      data: documentXml
-    }
-  ]);
-}
-
-function createStoredZip(entries: Array<{ name: string; data: string | Buffer }>): Buffer {
-  const chunks: Buffer[] = [];
-  const centralDirectory: Buffer[] = [];
-  let offset = 0;
-  for (const entry of entries) {
-    const name = Buffer.from(entry.name, "utf8");
-    const data = typeof entry.data === "string" ? Buffer.from(entry.data, "utf8") : entry.data;
-    const checksum = crc32(data);
-    const localHeader = Buffer.alloc(30);
-    localHeader.writeUInt32LE(0x04034b50, 0);
-    localHeader.writeUInt16LE(20, 4);
-    localHeader.writeUInt16LE(0, 6);
-    localHeader.writeUInt16LE(0, 8);
-    localHeader.writeUInt16LE(0, 10);
-    localHeader.writeUInt16LE(0, 12);
-    localHeader.writeUInt32LE(checksum, 14);
-    localHeader.writeUInt32LE(data.length, 18);
-    localHeader.writeUInt32LE(data.length, 22);
-    localHeader.writeUInt16LE(name.length, 26);
-    localHeader.writeUInt16LE(0, 28);
-    chunks.push(localHeader, name, data);
-
-    const centralHeader = Buffer.alloc(46);
-    centralHeader.writeUInt32LE(0x02014b50, 0);
-    centralHeader.writeUInt16LE(20, 4);
-    centralHeader.writeUInt16LE(20, 6);
-    centralHeader.writeUInt16LE(0, 8);
-    centralHeader.writeUInt16LE(0, 10);
-    centralHeader.writeUInt16LE(0, 12);
-    centralHeader.writeUInt16LE(0, 14);
-    centralHeader.writeUInt32LE(checksum, 16);
-    centralHeader.writeUInt32LE(data.length, 20);
-    centralHeader.writeUInt32LE(data.length, 24);
-    centralHeader.writeUInt16LE(name.length, 28);
-    centralHeader.writeUInt16LE(0, 30);
-    centralHeader.writeUInt16LE(0, 32);
-    centralHeader.writeUInt16LE(0, 34);
-    centralHeader.writeUInt16LE(0, 36);
-    centralHeader.writeUInt32LE(0, 38);
-    centralHeader.writeUInt32LE(offset, 42);
-    centralDirectory.push(centralHeader, name);
-    offset += localHeader.length + name.length + data.length;
-  }
-  const centralSize = centralDirectory.reduce((sum, chunk) => sum + chunk.length, 0);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(0, 4);
-  end.writeUInt16LE(0, 6);
-  end.writeUInt16LE(entries.length, 8);
-  end.writeUInt16LE(entries.length, 10);
-  end.writeUInt32LE(centralSize, 12);
-  end.writeUInt32LE(offset, 16);
-  end.writeUInt16LE(0, 20);
-  return Buffer.concat([...chunks, ...centralDirectory, end]);
-}
-
-function crc32(data: Buffer): number {
-  let crc = 0xffffffff;
-  for (const byte of data) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/gu, "&amp;")
-    .replace(/</gu, "&lt;")
-    .replace(/>/gu, "&gt;")
-    .replace(/"/gu, "&quot;")
-    .replace(/'/gu, "&apos;");
 }
 
 async function repairMissingProductStoresFromCapturedHtml(projectId: string): Promise<number> {
@@ -1337,11 +1228,11 @@ async function persistCapturedPageData(
       const mergedImages = mergeUnique([
         ...extractRawImages(currentRaw),
         ...enrichment.images
-      ]).slice(0, 9);
+      ]).filter(isProductGalleryImageUrl).slice(0, 9);
       const mergedVideos = mergeUnique([
         ...extractStringArray(currentRaw.videos),
         ...enrichment.videos
-      ]).slice(0, 9);
+      ]).filter(isProductGalleryVideoUrl).slice(0, 1);
       const mergedReviewMediaImages = mergeUnique([
         ...extractStringArray(currentRaw.reviewMediaImages),
         ...enrichment.reviewMediaImages
@@ -1405,6 +1296,8 @@ async function persistCapturedPageData(
             promotionCount: enrichment.promotionCount ?? currentRaw.promotionCount,
             evidencePlan: {
               ...(isRecord(currentRaw.evidencePlan) ? currentRaw.evidencePlan : {}),
+              productImages: mergedImages,
+              productVideos: mergedVideos,
               latestCaptureKind: input.kind,
               latestCaptureStepId: input.stepId,
               htmlPath: files.htmlPath,
@@ -1779,13 +1672,12 @@ function extractProductEnrichment(
     ? mergeUnique([
         ...structuredImages,
         ...(structuredImages.length > 0 ? [] : extractProductImageUrls(html))
-      ]).slice(0, 12)
+      ]).filter(isProductGalleryImageUrl).slice(0, 9)
     : [];
   const videos = collectProductMedia
     ? mergeUnique([
-        ...structuredVideos.slice(0, 1),
-        ...(structuredVideos.length > 0 ? [] : extractVideoUrls(html).slice(0, 1))
-      ]).slice(0, 1)
+        ...structuredVideos
+      ]).filter(isProductGalleryVideoUrl).slice(0, 1)
     : [];
   const reviews = collectReviews && structured?.reviews.length
     ? structured.reviews.map(toReviewEvidence)
@@ -1950,7 +1842,7 @@ function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): Re
   return {
     sentiment: input.type === "Negative Reviews" ? "NEGATIVE" : "POSITIVE",
     rating: input.rating,
-    comment: cleanText(input.comment),
+    comment: normalizeEvidenceText(input.comment),
     variation: input.variation ? cleanText(input.variation) : undefined,
     reviewDate: input.reviewDate ? cleanText(input.reviewDate) : undefined,
     mediaUrls: [],
@@ -2384,20 +2276,7 @@ function extractImageUrls(value: string): string[] {
 }
 
 function extractProductImageUrls(html: string): string[] {
-  return extractImageUrls(html).filter((url) => !/(avatar|profile|logo|sprite|favicon|icon)/iu.test(url));
-}
-
-function extractVideoUrls(value: string): string[] {
-  const urls = new Set<string>();
-  for (const match of value.matchAll(/(?:src|data-src)=["'](?<url>https?:\/\/[^"']+\.(?:mp4|webm|m3u8)[^"']*)["']/giu)) {
-    if (match.groups?.url) {
-      urls.add(match.groups.url.replace(/&amp;/gu, "&"));
-    }
-  }
-  for (const match of value.matchAll(/https?:\/\/[^\s"'<>]+(?:mp4|webm|m3u8)[^\s"'<>]*/giu)) {
-    urls.add(match[0].replace(/&amp;/gu, "&"));
-  }
-  return Array.from(urls);
+  return extractImageUrls(html).filter(isProductGalleryImageUrl);
 }
 
 function splitSrcsetUrls(value?: string): string[] {
@@ -2408,7 +2287,33 @@ function splitSrcsetUrls(value?: string): string[] {
 }
 
 function looksLikeImageUrl(url: string): boolean {
-  return /(image|img|susercontent|shopee|cdn|jpg|jpeg|png|webp|file\/)/iu.test(url) && !/(avatar|sprite|logo|favicon)/iu.test(url);
+  return /(image|img|susercontent|shopee|cdn|jpg|jpeg|png|webp|file\/)/iu.test(url) && isProductGalleryImageUrl(url);
+}
+
+function isProductGalleryImageUrl(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  const lower = normalized.toLowerCase();
+  if (/data:image\/svg|sprite|favicon|placeholder|default-avatar|avatar|profile|logo-shopee|shopee-logo|icon|arrow|chevron|next|previous|rating|star|cart|chat|help|verify|seller-centre|notification/iu.test(lower)) {
+    return false;
+  }
+  if (/\/(?:icons?|sprites?|avatars?)\//iu.test(lower)) {
+    return false;
+  }
+  return /^(https?:|file:|data:image\/(?:png|jpe?g|webp|avif|gif|bmp))/iu.test(normalized);
+}
+
+function isProductGalleryVideoUrl(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  const lower = normalized.toLowerCase();
+  return /^(https?:|file:)/iu.test(normalized) &&
+    /\.(?:mp4|webm|m3u8)(?:$|[?#])/iu.test(lower) &&
+    !/(rating|review|comment|buyer|user-media|media-in-user|seller-response)/iu.test(lower);
 }
 
 function inferStoreName(text: string, url: string, fallback: string): string {

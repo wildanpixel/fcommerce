@@ -25,6 +25,7 @@ import type {
   ScreenshotEvidence,
   StoreProfile
 } from "../../domain/models.js";
+import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../../shared/reportSections.js";
 import { LocalSecretStore } from "../security/LocalSecretStore.js";
 import { getPlatformService } from "../platform/PlatformService.js";
 
@@ -702,12 +703,37 @@ function toReportSummary(report: ReportWithProject): ReportSummary {
     projectName: report.project.name,
     templateId: report.templateId,
     status: report.status,
+    sections: parseReportSections(report.sectionsJson),
     htmlPath: report.htmlPath,
     pdfPath: report.pdfPath,
     generatedAt: report.generatedAt?.toISOString() ?? null,
     createdAt: report.createdAt.toISOString(),
     updatedAt: report.updatedAt.toISOString()
   };
+}
+
+function parseReportSections(value: string): ReportSectionConfig[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) {
+      return DEFAULT_REPORT_SECTIONS;
+    }
+    const sections = parsed.filter((section): section is ReportSectionConfig =>
+      Boolean(section) &&
+      typeof section === "object" &&
+      "id" in section &&
+      "label" in section &&
+      "enabled" in section &&
+      "requiredEvidence" in section &&
+      typeof (section as ReportSectionConfig).id === "string" &&
+      typeof (section as ReportSectionConfig).label === "string" &&
+      typeof (section as ReportSectionConfig).enabled === "boolean" &&
+      Array.isArray((section as ReportSectionConfig).requiredEvidence)
+    );
+    return sections.length > 0 ? sections : DEFAULT_REPORT_SECTIONS;
+  } catch {
+    return DEFAULT_REPORT_SECTIONS;
+  }
 }
 
 type JobRecord = Prisma.ResearchJobGetPayload<Record<string, never>>;
@@ -759,8 +785,11 @@ function extractProductImages(rawJson: string): string[] {
 
 function extractProductVideos(rawJson: string): string[] {
   const raw = parseJsonObject(rawJson);
-  const videos = raw.videos;
-  return Array.isArray(videos) ? videos.filter((video): video is string => typeof video === "string") : [];
+  const evidencePlan = raw.evidencePlan;
+  const productVideos = evidencePlan && typeof evidencePlan === "object" && !Array.isArray(evidencePlan)
+    ? (evidencePlan as Record<string, unknown>).productVideos
+    : undefined;
+  return Array.isArray(productVideos) ? productVideos.filter((video): video is string => typeof video === "string") : [];
 }
 
 function extractProductStringArray(rawJson: string, key: string): string[] {

@@ -32,7 +32,7 @@ The overall percentage is a weighted product estimate based on foundation readin
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
 | M2 | Shopee Desktop | [####################] 98% | Partial |
-| M3 | Intelligence | [################----] 80% | Partial |
+| M3 | Intelligence | [#################---] 85% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -111,6 +111,7 @@ Release blocker fixes:
 - 2026-07-10: Reworked Part 3 Key Store collection so Product Detail completion opens Evaluation Phase in-place, store screenshots target `.shop-decoration` or `.shop-page__all-products-section`, store product rows persist separately, visual-style banners are saved as assets, and TikTok search opens by selected store name.
 - 2026-07-11: Reworked Keyword Projects progress into circular indicators, scoped Part 1 screenshots/product extraction to `section.shopee-search-item-result`, added capture/download loading states, limited Key Store assets to store-owned evidence, and aligned report section selection/headings with the current inspector hierarchy.
 - 2026-07-11: Changed Part 3 Key Store Products and Best Sellers into data-only collection steps that hydrate Shopee store grids before extraction, removed screenshot persistence for those matrix steps, tightened Visual Style to `.shop-decoration` banner assets only, added configurable report Summary Metrics, deduped report media, and normalized Key Product source labels as readable placement text.
+- 2026-07-11: Improved report export fidelity by replacing the legacy DOCX writer with a structured DOCX exporter, converting images to JPEG for Word, cleaning PDF pagination/media layout, preserving multiline Shopee review formatting, and preventing carousel arrows/review videos from appearing in Product Detail slides.
 
 ## M1 Product Experience
 
@@ -370,6 +371,7 @@ Implemented:
 - Report section customization now follows the current inspector headings: Keyword General, Key Products, Product Detail subparts, Key Store subparts, and TikTok Evidence.
 - Report Key Products now uses the same max-10 selected Key Product set shown in Project Inspector, excluding Store Products and Store Best Sellers rows from the Key Product table.
 - Report Summary Metrics can be enabled or disabled independently, Key Product source cells show readable placement labels, product dossier media is deduped to the inspector's selected media set with at most one video, and Key Store Visual Style renders the same stored banner assets as Project Inspector.
+- DOCX export now renders from structured report data instead of HTML text extraction, converts supported report images to JPEG, and keeps review evidence as multiline Shopee-style rows.
 - Generated report headers include the developer attribution for Wildan Ega Pradana and the LinkedIn profile link.
 - Report rendering now maps AI output into score cards, recommendation tables, store overall text, and explicit missing-evidence notes instead of hiding incomplete sections.
 - Puppeteer PDF export exists.

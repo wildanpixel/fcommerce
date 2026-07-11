@@ -4,6 +4,11 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-11
 
+- Replaced the fallback HTML-to-DOCX ZIP writer with a structured DOCX exporter that renders report data directly and converts supported images to JPEG for Word compatibility.
+- Improved PDF/HTML report layout for cleaner A4 pagination, contained product images, portrait video handling, multiline review cards, and configurable Summary Metrics output.
+- Tightened Product Detail slide/media filtering so product slides exclude Shopee arrows, icons, placeholders, avatars, and review/user media; product videos now appear only when explicitly captured from product gallery evidence.
+- Preserved Shopee review formatting with customer id, timestamp/variation, attribute lines, and comment body instead of flattening reviews into a single line.
+- Updated Project Inspector navigation so Evaluation Phase and TikTok Evidence render as plain section links, while Key Store exposes Overall, Store Home Page, Products, Best Sellers, and Visual Style sub-links.
 - Changed Keyword Projects progress from horizontal bars to circular indicators for clearer scanability.
 - Scoped Part 1 Relevance and Top Sales screenshots and product extraction to `section.shopee-search-item-result`.
 - Added visible loading status while screenshots, HTML snapshots, product data, banner downloads, and manual evidence saves are running.

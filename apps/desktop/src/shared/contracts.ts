@@ -284,6 +284,7 @@ export type ReportSummary = {
   projectName: string;
   templateId: string;
   status: "DRAFT" | "GENERATED" | "FAILED";
+  sections?: ReportSectionConfig[];
   htmlPath?: string | null;
   pdfPath?: string | null;
   generatedAt?: string | null;

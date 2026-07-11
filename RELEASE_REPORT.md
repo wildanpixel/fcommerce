@@ -3,11 +3,11 @@
 Release date: 2026-07-11  
 Version: 1.0.0  
 Local platform: Windows  
-Release task: Key Store data collection, inspector alignment, and report output refinement
+Release task: report export fidelity, product-detail media cleanup, review formatting, and inspector navigation refinement
 
 ## Summary
 
-This release tightens the guided Shopee evidence workflow around the current Project Inspector and report structure. Keyword Projects now use circular progress indicators, Part 1 capture/extraction is scoped to the visible Shopee result grid, Part 3 Key Store product matrices are collected as data-only store-grid rows, Visual Style saves only `.shop-decoration` banner assets, and report generation now follows the same modular headings and media limits shown in Project Inspector.
+This release tightens the guided Shopee evidence workflow around the current Project Inspector and report structure. Keyword Projects now use circular progress indicators, Part 1 capture/extraction is scoped to the visible Shopee result grid, Part 3 Key Store product matrices are collected as data-only store-grid rows, Visual Style saves only `.shop-decoration` banner assets, and report generation now follows the same modular headings and media limits shown in Project Inspector. The report export path now uses a structured DOCX renderer with JPEG image conversion, cleaner A4 HTML/PDF layout, stricter product-gallery media filtering, and multiline Shopee review formatting.
 
 ## Completed
 
@@ -20,6 +20,12 @@ This release tightens the guided Shopee evidence workflow around the current Pro
 - Filtered Key Store assets by selected store URL and store ownership to avoid unrelated product-level shop captures.
 - Changed Visual Style persistence so successful `.shop-decoration` banner downloads create `STORE_BANNER` assets without storing a broad base screenshot or product-card imagery.
 - Expanded Key Store product matrix rendering to show the captured store product set instead of a 12-item preview.
+- Replaced the legacy HTML-to-DOCX ZIP writer with a structured DOCX exporter that converts report images to JPEG for Word compatibility.
+- Improved generated HTML/PDF report layout with cleaner A4 pagination, contained image rendering, portrait video handling, and multiline review cards.
+- Filtered Product Detail slide media to exclude Shopee carousel arrows, UI icons, placeholders, avatars, and review/user media from product slides.
+- Limited product videos to explicit product-gallery captures and prevented legacy review videos from appearing in product slides.
+- Preserved review evidence as multiline Shopee-style rows with customer id, timestamp/variation, attribute lines, and comment body.
+- Changed Project Inspector outline behavior so Evaluation Phase and TikTok Evidence are plain links, while Key Store exposes its expected sub-sections.
 - Changed report creation button text to `Generate Report`.
 - Reworked report section customization to match Project Inspector headings: Keyword General, Key Products, Product Detail subparts, Key Store subparts, and TikTok Evidence.
 - Added Summary Metrics as an independent configurable report section.
@@ -39,12 +45,12 @@ This release tightens the guided Shopee evidence workflow around the current Pro
 | Delete `dist-node` | Completed |
 | Delete `release` | Completed after closing stale packaged app processes |
 | Generate Prisma | Passed |
-| Clean build | Passed through `pnpm package:win` |
+| Clean build | Passed through `pnpm --filter @marketplace-intelligence-os/desktop build` |
 | TypeScript | Passed |
 | ESLint | Passed |
 | Unit tests | Passed |
 | Playwright tests | Passed |
-| Package Electron | Passed |
+| Package Electron | Passed through direct `electron-builder --win --x64` after the clean build |
 | Generate Windows Installer | Completed |
 | Generate Windows Portable | Completed |
 | Generate macOS App | Not available locally on Windows; configured for GitHub Actions macOS runner |
@@ -58,18 +64,18 @@ This release tightens the guided Shopee evidence workflow around the current Pro
 
 ## Local Validation
 
-- `pnpm typecheck`: passed.
-- `pnpm lint`: passed.
-- `pnpm test`: passed, 6 test files and 14 tests.
-- `pnpm --filter @marketplace-intelligence-os/desktop test:e2e`: passed, 2 Playwright smoke tests.
-- `pnpm --filter @marketplace-intelligence-os/desktop prisma:generate`: passed.
-- `pnpm --filter @marketplace-intelligence-os/desktop package:win`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop typecheck`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop lint`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop test`: passed, 6 test files and 14 tests.
+- `pnpm exec playwright test`: passed, 2 Playwright smoke tests.
+- `pnpm --filter @marketplace-intelligence-os/desktop build`: passed and regenerated Prisma.
+- `pnpm exec electron-builder --win --x64`: passed.
 - Packaged app startup smoke: passed; the Windows unpacked executable stayed running for 12 seconds and was closed cleanly.
 
 ## Generated Artifacts
 
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 146.41 MB.
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 146.20 MB.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,610,739 bytes.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,380,460 bytes.
 - `apps/desktop/release/win-unpacked/MarketPlace Keyword Competitor Analysis.exe` - 191.91 MB.
 
 ## Remaining Notes
