@@ -79,7 +79,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-11 | TikTok unsupported flow could look available | Fixed | New Research now shows TikTok Shop as disabled `Coming soon`; M5 remains the owner for future TikTok adapter and normalized collection work. |
 | 2026-07-12 | DOCX thumbnails and oversized media output | Fixed | DOCX tables now render thumbnail images through JPEG conversion, and Product Detail Slides/Media in user export as compact image grids without per-image caption text. |
 | 2026-07-12 | Key Store report Overall did not match Project Inspector rationale | Fixed | HTML/PDF/DOCX Key Store Overall now explains why the selected store is the keyword benchmark using GMV, sold/month, promotion, trust, evidence readiness, and AI summary text when available. |
-| 2026-07-12 | Part 3 store collection still captured broad/partial store evidence | Fixed | Store Home Page capture now runs from page top through `.shop-decoration`; Products/Best Sellers are data-only grids without screenshot placeholders; extraction scans lazy-loaded store rows; Visual Style hydrates `.shop-decoration` banners before download. |
+| 2026-07-12 | Part 3 store collection still captured broad/partial store evidence | Fixed | Store Home Page capture now runs from page top through `.shop-decoration`; Popular Products/Best Sellers are data-only grids without screenshot placeholders; extraction scans lazy-loaded store rows; Visual Shop Banner hydrates `.shop-decoration` banners before download. |
+| 2026-07-12 | Key Product selection lacked the requested business priority labels | Fixed | Part 1 Key Product processing now classifies selected products as Priority, High, Average, or Not recommended from price band, monthly sold, and total sold signals. |
+| 2026-07-12 | Report HTML/PDF theme drift | Fixed | HTML/PDF generation now receives the user's last light/dark mode and renders Project Inspector-style expanded sections with embedded CSS/JS. |
 
 ## Sprint Overview
 
@@ -272,6 +274,7 @@ Completed: 2026-07-03
 - 2026-07-11 update: Keyword Projects use circular progress, New Research disables TikTok as `Coming soon`, and the app exposes language choices for Bahasa Indonesia, English, and Chinese Modern.
 - 2026-07-11 update: Part 1 collection scopes Relevance/Top Sales screenshots and extracted products to `section.shopee-search-item-result`; capture/save/download actions show loading status.
 - 2026-07-11 update: Part 3 Store Products and Best Sellers are now data-only grid extraction steps, Visual Style is banner-only, report Summary Metrics is configurable, report media mirrors inspector media limits, and Key Product source labels show readable sales/relevance placement.
+- 2026-07-12 update: Key Store labels now read Popular Products and Visual Shop Banner, Part 1 Key Product selection includes business-priority scoring, and HTML/PDF reports use the active app theme.
 
 ## Sprint 3 - Complete Store Detail
 
@@ -309,13 +312,13 @@ Status: Partial
 - Passed: store detail report sections have real evidence inputs and explicit empty states.
 - Passed: Product Detail capture now refreshes Store Name/URL from PDP shop content using the Shopee shop block before store evaluation begins.
 - Passed: Product Detail capture now targets Shopee's shop-anchor sibling layout for Store Name and can repair Store Type from valid Mall/Star badges when visible.
-- Passed: Key Store collection can start from the top Potential Store and targets Store Home Page, Products, Best Sellers, and Visual Style/banner evidence.
+- Passed: Key Store collection can start from the top Potential Store and targets Store Home Page, Popular Products, Best Sellers, and Visual Shop Banner evidence.
 - Passed: Product Detail completion now opens Evaluation Phase inside the collection workspace, so Part 3 begins without an extra Finish click.
-- Passed: Store Home Page screenshots are scoped to `.shop-decoration`, and Store Products/Best Sellers screenshots are scoped to `.shop-page__all-products-section`.
+- Passed: Store Home Page screenshots are scoped to `.shop-decoration`, and Store Popular Products/Best Sellers are data-only product grid extraction steps.
 - Passed: Store product rows persist as `Store Products` and `Store Best Sellers` and do not overwrite the Key Product table.
-- Passed: Visual Style downloads readable `.shop-decoration` banner images into local `STORE_BANNER` assets.
+- Passed: Visual Shop Banner downloads readable `.shop-decoration` banner images into local `STORE_BANNER` assets.
 - Passed: The final TikTok cross-platform step opens TikTok search for the selected Key Store name.
-- Passed: Key Store inspection filters store homepage, products, best sellers, and visual style assets to the selected Key Store URL and store-owned evidence.
+- Passed: Key Store inspection filters store homepage, popular products, best sellers, and visual shop banner assets to the selected Key Store URL and store-owned evidence.
 - Passed: M2 store-related rows in `IMPLEMENTATION_STATUS.md` are updated.
 
 ## Sprint 4 - Complete Key Stores AI

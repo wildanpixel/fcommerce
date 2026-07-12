@@ -265,7 +265,7 @@ export default function App() {
               >
                 {activeView === "research" && <ManualResearchExperience />}
                 {activeView === "projects" && <ProjectsView />}
-                {activeView === "reports" && <ReportsView />}
+                {activeView === "reports" && <ReportsView themeMode={themeMode} />}
                 {activeView === "settings" && <SettingsView />}
               </motion.div>
             </AnimatePresence>
@@ -982,6 +982,10 @@ function GuidedBrowserCollector({
     () => activeStep ? collectionSubActionCounts(activeStep, projectDetail.data) : {},
     [activeStep, projectDetail.data]
   );
+  const activeSubActionStates = useMemo(
+    () => activeStep ? collectionSubActionStates(activeStep, collectedSteps, activeSubActionCounts) : {},
+    [activeStep, activeSubActionCounts, collectedSteps]
+  );
   const controllerStep = activeStep
     ? {
         ...activeStep,
@@ -1666,6 +1670,7 @@ function GuidedBrowserCollector({
           targetUrl={activeTargetUrl}
           captured={isCurrentCollectorTargetSaved(activeStep, activeSubAction?.id, collectedSteps)}
           subActionCounts={activeSubActionCounts}
+          subActionStates={activeSubActionStates}
           saving={saveEvidence.isPending}
           onOpenTarget={(subActionId) => {
             const selectedSubAction = subActionId
@@ -1867,7 +1872,10 @@ function GuidedBrowserCollector({
             : browserPanel}
       </div>
       {!expanded && (
-        <aside className="sticky top-4 h-[calc(100vh-96px)] self-start overflow-hidden rounded-[18px] border border-white/8 bg-white/5">
+        <aside className={[
+          "sticky top-4 self-start overflow-hidden border border-white/8 bg-white/5",
+          activitySidebarOpen ? "h-[calc(100vh-96px)] rounded-[18px]" : "h-12 rounded-full"
+        ].join(" ")}>
           {activitySidebarOpen ? (
             <div className="flex h-full flex-col p-3">
               <div className="mb-3 flex items-center justify-between gap-2">
@@ -1888,7 +1896,7 @@ function GuidedBrowserCollector({
               </div>
             </div>
           ) : (
-            <button className="flex h-full w-full items-start justify-center pt-3 text-ink-400 hover:text-white" type="button" onClick={() => setActivitySidebarOpen(true)} aria-label="Open activity">
+            <button className="flex h-full w-full items-center justify-center text-ink-400 hover:text-white" type="button" onClick={() => setActivitySidebarOpen(true)} aria-label="Open activity" title="Activity">
               <Gauge size={17} />
             </button>
           )}
@@ -2158,6 +2166,7 @@ function FloatingStepController({
   targetUrl,
   captured,
   subActionCounts,
+  subActionStates,
   saving,
   onOpenTarget,
   onCollect,
@@ -2175,6 +2184,7 @@ function FloatingStepController({
   targetUrl?: string;
   captured: boolean;
   subActionCounts?: Record<string, number>;
+  subActionStates?: Record<string, "pending" | "collected" | "not-found">;
   saving: boolean;
   onOpenTarget: (subActionId?: string) => void;
   onCollect: (subActionId?: string) => void;
@@ -2275,6 +2285,7 @@ function FloatingStepController({
             {step.subActions.map((action) => {
               const actionTargetUrl = action.targetUrl ?? targetUrl;
               const actionCount = subActionCounts?.[action.id] ?? 0;
+              const actionState = subActionStates?.[action.id] ?? "pending";
               const actionMaxed = action.id === "slides" && actionCount >= 9;
               return (
                 <div
@@ -2288,7 +2299,16 @@ function FloatingStepController({
                     <button className="min-w-0 text-left" type="button" onClick={() => onSelectSubAction(action.id)}>
                       <span className="truncate text-[11px] font-medium text-white">{action.label}</span>
                     </button>
-                    <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-ink-500">{subActionModeLabel(action)}</span>
+                    <span
+                      className={[
+                        "rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em]",
+                        actionState === "collected" ? "bg-signal-green/15 text-signal-green" : "",
+                        actionState === "not-found" ? "bg-signal-rose/15 text-signal-rose" : "",
+                        actionState === "pending" ? "bg-white/8 text-ink-500" : ""
+                      ].join(" ")}
+                    >
+                      {actionState === "collected" ? "collected" : actionState === "not-found" ? "not found" : subActionModeLabel(action)}
+                    </span>
                   </div>
                   <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
                     <div className="truncate text-[10px] text-ink-500">{action.description}</div>
@@ -3049,9 +3069,9 @@ function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; 
     { id: "key-store", label: "Key Store", depth: 0 },
     { id: "key-store", label: "Overall", depth: 1 },
     { id: "key-store", label: "Store Home Page", depth: 1 },
-    { id: "key-store", label: "Products", depth: 1 },
+    { id: "key-store", label: "Popular Products", depth: 1 },
     { id: "key-store", label: "Best Sellers", depth: 1 },
-    { id: "key-store", label: "Visual Style", depth: 1 },
+    { id: "key-store", label: "Visual Shop Banner", depth: 1 },
     { id: "tiktok-evidence", label: "TikTok Evidence", depth: 0 }
   ];
 }
@@ -3225,7 +3245,7 @@ function KeyStorePanel({
         <AssetList assets={homeAssets} limit={12} />
       </NestedReportSection>
 
-      <NestedReportSection title="Products" defaultOpen={false}>
+      <NestedReportSection title="Popular Products" defaultOpen={false}>
         <ProductCardGrid products={storeProducts.length > 0 ? storeProducts : matchingProducts} limit={80} />
       </NestedReportSection>
 
@@ -3233,7 +3253,7 @@ function KeyStorePanel({
         <ProductCardGrid products={storeBestSellers} limit={80} />
       </NestedReportSection>
 
-      <NestedReportSection title="Visual Style" defaultOpen={false}>
+      <NestedReportSection title="Visual Shop Banner" defaultOpen={false}>
         <AssetList assets={bannerAssets} limit={80} />
       </NestedReportSection>
     </div>
@@ -3471,7 +3491,7 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
             <tr key={product.id} className="border-t border-white/8">
               <td className="px-3 py-2">{index + 1}</td>
               <td className="px-3 py-2">{productSourcePlacement(product)}</td>
-              <td className="px-3 py-2">{product.selectionReason ?? "-"}</td>
+              <td className="px-3 py-2">{selectionReasonForDisplay(product, products)}</td>
               <td className="px-3 py-2">{displayProductTitle(product)}</td>
               <td className="px-3 py-2">{product.productType ?? inferredProductTypeLabel(displayProductTitle(product))}</td>
               <td className="px-3 py-2">{product.monthlySoldText ?? formatOptionalNumber(product.monthlySold)}</td>
@@ -3856,7 +3876,7 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
   );
 }
 
-function ReportsView() {
+function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   const queryClient = useQueryClient();
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
   const reports = useQuery({ queryKey: ["reports"], queryFn: apiClient.reports });
@@ -3895,6 +3915,7 @@ function ReportsView() {
     generateReport.mutate({
       projectId: selectedProjectId,
       templateId: "marketplace-research-os-v1",
+      theme: themeMode,
       sections
     });
   }
@@ -4498,6 +4519,27 @@ function isCurrentCollectorTargetSaved(
   return isCollectionStepComplete(step, stepAssetPaths);
 }
 
+function collectionSubActionStates(
+  step: CollectionStep,
+  stepAssetPaths: Record<string, string>,
+  counts: Record<string, number>
+): Record<string, "pending" | "collected" | "not-found"> {
+  const states: Record<string, "pending" | "collected" | "not-found"> = {};
+  for (const action of step.subActions ?? []) {
+    const saved = Boolean(stepAssetPaths[stepProgressKey(step, action.id)]);
+    if (!saved) {
+      states[action.id] = "pending";
+      continue;
+    }
+    if (action.mode === "screenshot") {
+      states[action.id] = "collected";
+      continue;
+    }
+    states[action.id] = (counts[action.id] ?? 0) > 0 ? "collected" : "not-found";
+  }
+  return states;
+}
+
 function isCollectionStepComplete(step: CollectionStep, stepAssetPaths: Record<string, string>): boolean {
   if (stepAssetPaths[step.id]) {
     return true;
@@ -4772,10 +4814,10 @@ function buildShopeeSteps(
       id: "store-products",
       stage: "EVALUATION_KEY_STORE",
       section: "Key Store",
-      label: "Store products popular page",
+      label: "Store popular products",
       kind: "STORE_FEATURED_PRODUCTS",
       targetSelector: ".shop-page__all-products-section",
-      instruction: "Open the store product tab sorted by Popular, then collect the product rows from shop-page__all-products-section. No screenshot is required.",
+      instruction: "Open the store product tab sorted by Popular, then collect the full first-page product rows from shop-page__all-products-section. No screenshot is required.",
       targetUrl: popularStoreTarget,
       ready: storeReady && currentUrl.includes("sortBy=pop")
     },
@@ -4786,7 +4828,7 @@ function buildShopeeSteps(
       label: "Store best-seller page",
       kind: "STORE_BEST_SELLER",
       targetSelector: ".shop-page__all-products-section",
-      instruction: "Open the store product tab sorted by Top Sales, then collect the product rows from shop-page__all-products-section. No screenshot is required.",
+      instruction: "Open the store product tab sorted by Top Sales, then collect the full first-page product rows from shop-page__all-products-section. No screenshot is required.",
       targetUrl: bestSellerTarget,
       ready: storeReady && currentUrl.includes("sortBy=sales")
     },
@@ -4794,7 +4836,7 @@ function buildShopeeSteps(
       id: "store-visual-style",
       stage: "EVALUATION_KEY_STORE",
       section: "Key Store",
-      label: "Store visual style and banners",
+      label: "Visual Shop Banner",
       kind: "STORE_BANNER",
       targetSelector: ".shop-decoration",
       instruction: "Download readable banner and carousel images from shop-decoration. Product-card images are ignored and no screenshot is required.",
@@ -4983,9 +5025,9 @@ function selectKeyProductCandidates(products: ProjectProductEvidence[]): Project
       merged.set(key, mergeProductSignals(product, current));
     }
   }
-  return Array.from(merged.values())
-    .filter((product) => product.title && product.productUrl)
-    .sort((left, right) => productQualityScore(right) - productQualityScore(left))
+  const candidates = Array.from(merged.values()).filter((product) => product.title && product.productUrl);
+  return candidates
+    .sort((left, right) => businessSelectionScore(right, candidates) - businessSelectionScore(left, candidates))
     .slice(0, 10);
 }
 
@@ -5040,6 +5082,94 @@ function productQualityScore(product: ProjectProductEvidence): number {
   const priceScore = product.priceAverage ? 8 : 0;
   const imageScore = product.imageUrl ? 8 : 0;
   return topSalesBoost + monthlySoldScore + totalSoldScore + reviewScore + ratingScore + priceScore + imageScore;
+}
+
+function businessSelectionScore(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): number {
+  return productQualityScore(product) + selectionPriorityBoost(selectionPriority(product, pool));
+}
+
+function selectionPriorityBoost(priority: string): number {
+  switch (priority) {
+    case "Priority":
+      return 95;
+    case "High":
+      return 70;
+    case "Average":
+      return 30;
+    case "Not recommended":
+      return -60;
+    default:
+      return 0;
+  }
+}
+
+function selectionReasonForDisplay(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): string {
+  const priority = selectionPriority(product, pool);
+  const existing = mergeReasonLabels(product.selectionReason);
+  if (priority === "Priority") {
+    return `Priority - high price, high sold/month, and high total sold${existing ? ` / ${existing}` : ""}`;
+  }
+  if (priority === "High") {
+    return `High - low price, high sold/month, and high total sold${existing ? ` / ${existing}` : ""}`;
+  }
+  if (priority === "Average") {
+    return `Average - mixed price, sold/month, and total sold signals${existing ? ` / ${existing}` : ""}`;
+  }
+  if (priority === "Not recommended") {
+    return `Not recommended - low sold/month and low total sold${existing ? ` / ${existing}` : ""}`;
+  }
+  return existing || "platform recommended";
+}
+
+function selectionPriority(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): "Priority" | "High" | "Average" | "Not recommended" | "Review" {
+  const priceBand = priceBandForProduct(product, pool);
+  const soldMonth = product.monthlySold ?? 0;
+  const totalSold = product.totalSold ?? 0;
+  const highMonthly = isHighSignal(soldMonth, pool.map((item) => item.monthlySold ?? 0));
+  const lowMonthly = !highMonthly;
+  const highTotal = isHighSignal(totalSold, pool.map((item) => item.totalSold ?? 0));
+  const lowTotal = !highTotal;
+  if (priceBand === "high" && highMonthly && highTotal) {
+    return "Priority";
+  }
+  if (priceBand === "low" && highMonthly && highTotal) {
+    return "High";
+  }
+  if (priceBand === "mid" && highMonthly && lowTotal) {
+    return "Average";
+  }
+  if (priceBand === "high" && lowMonthly && highTotal) {
+    return "Average";
+  }
+  if (product.priceAverage && lowMonthly && lowTotal) {
+    return "Not recommended";
+  }
+  return "Review";
+}
+
+function priceBandForProduct(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): "low" | "mid" | "high" | "unknown" {
+  const prices = pool.map((item) => item.priceAverage).filter((value): value is number => typeof value === "number" && value > 0).sort((left, right) => left - right);
+  if (!product.priceAverage || prices.length === 0) {
+    return "unknown";
+  }
+  const medianPrice = prices[Math.floor(prices.length / 2)] ?? product.priceAverage;
+  if (product.priceAverage >= medianPrice * 1.25) {
+    return "high";
+  }
+  if (product.priceAverage <= medianPrice * 0.78) {
+    return "low";
+  }
+  return "mid";
+}
+
+function isHighSignal(value: number, values: number[]): boolean {
+  const usable = values.filter((item) => item > 0).sort((left, right) => left - right);
+  if (value <= 0 || usable.length === 0) {
+    return false;
+  }
+  const index = Math.max(0, Math.floor(usable.length * 0.62));
+  const threshold = usable[index] ?? usable[usable.length - 1] ?? 0;
+  return value >= Math.max(threshold, 1);
 }
 
 function productSourcePlacement(product: ProjectProductEvidence): string {
@@ -5565,7 +5695,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         productScopeRoot.scrollIntoView({ block: "start", inline: "nearest" });
         await wait(250);
         let previousCount = 0;
-        const passes = isStoreProductScope ? 18 : 4;
+        let stablePasses = 0;
+        const passes = isStoreProductScope ? 56 : 4;
         for (let index = 0; index < passes; index += 1) {
           const currentCount = productScopeRoot.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
           const elementCanScroll = productScopeRoot.scrollHeight > productScopeRoot.clientHeight + 24;
@@ -5574,7 +5705,18 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           } else {
             window.scrollBy(0, Math.max(420, window.innerHeight * 0.64));
           }
+          productScopeRoot.dispatchEvent?.(new Event("scroll", { bubbles: true }));
+          window.dispatchEvent(new Event("scroll"));
           await wait(isStoreProductScope ? 520 : 260);
+          if (isStoreProductScope) {
+            stablePasses = currentCount === previousCount ? stablePasses + 1 : 0;
+            if (currentCount >= 30 && stablePasses >= 3) {
+              break;
+            }
+            if (stablePasses >= 10 && index >= 18) {
+              break;
+            }
+          }
           if (!isStoreProductScope && currentCount === previousCount && index >= 3) {
             break;
           }
@@ -5769,7 +5911,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       };
       const findCard = (anchor) => {
         let node = anchor;
-        let best = anchor;
+        let best = anchor.closest?.("[data-sqe='item'], [class*='shop-search-result-view'], [class*='product-card'], [class*='item-card']") || anchor;
         for (let depth = 0; depth < 7 && node?.parentElement; depth += 1) {
           node = node.parentElement;
           const text = node.innerText || "";
@@ -5789,7 +5931,15 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       const seen = new Set();
       const products = [];
       const collectVisibleProductRows = async () => {
-        const anchors = Array.from(productScopeRoot.querySelectorAll('a[href]'))
+        const anchorCandidates = [
+          ...Array.from(productScopeRoot.querySelectorAll('a[href]')),
+          ...Array.from(productScopeRoot.querySelectorAll("div.p-2, [data-sqe='item'], [class*='shop-search-result-view'], [class*='product-card'], [class*='item-card']"))
+            .flatMap((card) => [
+              card.closest?.('a[href*="-i."], a[href*="/product/"], a[href*="i."]'),
+              card.querySelector?.('a[href*="-i."], a[href*="/product/"], a[href*="i."]')
+            ])
+        ].filter(Boolean);
+        const anchors = Array.from(new Set(anchorCandidates))
           .filter((anchor) => /(?:-i\\.|\\/product\\/|i\\.)/i.test(anchor.getAttribute("href") || ""))
           .filter((anchor) => !/cart|checkout|help|seller/i.test(anchor.getAttribute("href") || ""));
         for (const anchor of anchors) {
@@ -5845,13 +5995,33 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         const originalScrollY = window.scrollY || root.scrollTop || 0;
         const rect = productScopeRoot.getBoundingClientRect();
         const startY = Math.max(0, rect.top + (window.scrollY || root.scrollTop || 0) - 80);
-        const estimatedEndY = Math.max(startY, startY + Math.max(productScopeRoot.scrollHeight, rect.height, window.innerHeight * 2));
         const step = Math.max(360, window.innerHeight * 0.58);
-        for (let y = startY, pass = 0; y <= estimatedEndY && pass < 28; y += step, pass += 1) {
-          window.scrollTo({ top: y, behavior: "auto" });
-          await wait(360);
+        let stablePasses = 0;
+        let lastCount = -1;
+        window.scrollTo({ top: startY, behavior: "auto" });
+        await wait(420);
+        for (let pass = 0; pass < 72; pass += 1) {
           await collectVisibleProductRows();
+          if (products.length === lastCount) {
+            stablePasses += 1;
+          } else {
+            stablePasses = 0;
+          }
+          lastCount = products.length;
+          if (products.length >= 30 && stablePasses >= 3) {
+            break;
+          }
+          if (stablePasses >= 10 && pass >= 18) {
+            break;
+          }
+          const nextTop = Math.min(
+            Math.max(root.scrollHeight - window.innerHeight, startY),
+            (window.scrollY || root.scrollTop || startY) + step
+          );
+          window.scrollTo({ top: nextTop, behavior: "auto" });
+          await wait(460);
         }
+        await collectVisibleProductRows();
         window.scrollTo({ top: originalScrollY, behavior: "auto" });
       };
       await collectStoreGridRowsAcrossPage();
@@ -6169,39 +6339,43 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         const card = element.closest?.('a[href*="-i."], a[href*="/product/"], [class*="product-card"], [class*="item-card"], [class*="shop-search-result-view"]');
         return Boolean(card && /(rp\\s*[\\d.]|sold|terjual|rating|penilaian)/iu.test(textFrom(card)));
       };
+      const isDecorationCarouselImage = (element) => Boolean(element.closest?.(".image-carousel, .image-carousel__item-list-wrapper, .image-carousel__item-list, .image-carousel__item"));
+      const isDirectDecorationImage = (element) => {
+        const link = element.closest?.("a");
+        return Boolean(link && storeDecorationRoot.contains(link) && !isProductCardDecorationImage(element));
+      };
       const isUsefulDecorationImage = (element, url, width, height) => {
         if (!url || isProductCardDecorationImage(element)) return false;
         const lowerUrl = String(url).toLowerCase();
-        if (/sprite|icon|avatar|profile|rating|star|cart|chat|help|logo-shopee|favicon/iu.test(lowerUrl)) return false;
-        if (width >= 260 && height >= 80) return true;
+        if (/sprite|icon|avatar|profile|rating|star|cart|chat|help|logo-shopee|favicon|arrow|chevron|next|prev|previous/iu.test(lowerUrl)) return false;
+        if (width >= 260 && height >= 80 && (isDecorationCarouselImage(element) || isDirectDecorationImage(element))) return true;
         if (width >= 160 && height >= 120 && /banner|decoration|carousel|shop|voucher|promo|campaign/iu.test(lowerUrl)) return true;
         return /shop[-_/.]?decoration|banner|carousel|campaign|voucher|promo/iu.test(lowerUrl) && width >= 120 && height >= 60;
       };
+      const decorationMediaCandidate = (element) => {
+        const visualElement = element.tagName === "SOURCE"
+          ? element.closest("picture")?.querySelector("img") || element.closest("picture") || element
+          : element.tagName === "PICTURE"
+            ? element.querySelector("img") || element
+            : element;
+        const rect = visualElement.getBoundingClientRect?.();
+        const width = Math.round(rect?.width || visualElement.naturalWidth || 0);
+        const height = Math.round(rect?.height || visualElement.naturalHeight || 0);
+        const url = imageUrlFrom(element);
+        return { element: visualElement, url, width, height };
+      };
       const storeDecorationImages = storeDecorationRoot
         ? unique([
+            ...Array.from(storeDecorationRoot.querySelectorAll(".image-carousel__item img, .image-carousel img, .image-carousel__item picture, .image-carousel source[srcset], a img, a picture, a source[srcset]"))
+              .map(decorationMediaCandidate)
+              .filter((item) => isUsefulDecorationImage(item.element, item.url, item.width, item.height))
+              .map((item) => item.url),
             ...Array.from(storeDecorationRoot.querySelectorAll("picture, source[srcset], source[data-srcset], source[scrset], img[srcset], img[data-srcset], img[src], img[data-src]"))
-              .map((element) => {
-                const visualElement = element.tagName === "SOURCE"
-                  ? element.closest("picture")?.querySelector("img") || element.closest("picture") || element
-                  : element.tagName === "PICTURE"
-                    ? element.querySelector("img") || element
-                    : element;
-                const rect = visualElement.getBoundingClientRect?.();
-                const width = Math.round(rect?.width || visualElement.naturalWidth || 0);
-                const height = Math.round(rect?.height || visualElement.naturalHeight || 0);
-                const url = imageUrlFrom(element);
-                return { element: visualElement, url, width, height };
-              })
+              .map(decorationMediaCandidate)
               .filter((item) => isUsefulDecorationImage(item.element, item.url, item.width, item.height))
               .map((item) => item.url),
             ...Array.from(storeDecorationRoot.querySelectorAll("img"))
-              .map((element) => {
-                const rect = element.getBoundingClientRect?.();
-                const width = Math.round(rect?.width || element.naturalWidth || 0);
-                const height = Math.round(rect?.height || element.naturalHeight || 0);
-                const url = imageUrlFrom(element);
-                return { element, url, width, height };
-              })
+              .map(decorationMediaCandidate)
               .filter((item) => isUsefulDecorationImage(item.element, item.url, item.width, item.height))
               .map((item) => item.url),
             ...Array.from(storeDecorationRoot.querySelectorAll("[style*='url(']")).flatMap((element) => {

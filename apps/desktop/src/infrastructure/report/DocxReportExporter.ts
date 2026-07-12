@@ -118,10 +118,10 @@ async function keywordGeneralSection(data: ReportData): Promise<DocxChild[]> {
   const children: DocxChild[] = [
     sectionHeading("Keyword General"),
     subHeading("Relevance"),
-    ...await assetImageBlocks(data.assets.filter((asset) => asset.kind === "SEARCH_RESULT").slice(0, 2), "Relevance screenshot"),
+    ...await assetImageBlocks(data.assets.filter((asset) => asset.kind === "SEARCH_RESULT").slice(0, 2), "Relevance screenshot", { captions: false }),
     await snapshotProductTable(data.products.filter((product) => product.source === "Relevance").slice(0, 40)),
     subHeading("Top Sales"),
-    ...await assetImageBlocks(data.assets.filter((asset) => asset.kind === "TOP_SALES").slice(0, 2), "Top sales screenshot"),
+    ...await assetImageBlocks(data.assets.filter((asset) => asset.kind === "TOP_SALES").slice(0, 2), "Top sales screenshot", { captions: false }),
     await snapshotProductTable(data.products.filter((product) => product.source === "Top Sales").slice(0, 40)),
     spacer()
   ];
@@ -161,7 +161,7 @@ async function productDetailSections(data: ReportData, sections: Set<ReportSecti
     const reviewVideos = uniqueMediaUrls(raw.reviewMediaVideos ?? []).filter(isLikelyProductVideoUrl).slice(0, 12);
     children.push(subHeading(`Product ${index + 1}: ${product.title}`), productFactTable(product));
     if (showFirstPage) {
-      children.push(tinyHeading("1st page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "PRODUCT_PAGE"), "Product first page"));
+      children.push(tinyHeading("1st page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "PRODUCT_PAGE"), "Product first page", { captions: false }));
     }
     if (showSlides) {
       children.push(tinyHeading("Slides"), ...await remoteImageGridBlocks(productImages, "Product slide", 9));
@@ -187,7 +187,7 @@ async function productDetailSections(data: ReportData, sections: Set<ReportSecti
       children.push(tinyHeading("Shop Home Page"), ...await assetImageBlocks([
         ...assets.filter((asset) => asset.kind === "STORE_HOME"),
         ...storeAssets.filter((asset) => asset.kind === "STORE_HOME")
-      ], "Shop home page"));
+      ], "Shop home page", { captions: false }));
     }
     children.push(spacer());
   }
@@ -213,16 +213,16 @@ async function keyStoreSection(data: ReportData, sections: Set<ReportSectionConf
     paragraph(storeOverall(store, data), { preserveLines: true })
   ];
   if (showHome) {
-    children.push(tinyHeading("Store Home Page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_HOME"), "Store home page"));
+    children.push(tinyHeading("Store Home Page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_HOME"), "Store home page", { captions: false }));
   }
   if (showProducts) {
-    children.push(tinyHeading("Products"), await snapshotProductTable(data.products.filter((product) => product.source === "Store Products")));
+    children.push(tinyHeading("Popular Products"), await snapshotProductTable(data.products.filter((product) => product.source === "Store Products")));
   }
   if (showBestSellers) {
     children.push(tinyHeading("Best Sellers"), await snapshotProductTable(data.products.filter((product) => product.source === "Store Best Sellers")));
   }
   if (showVisualStyle) {
-    children.push(tinyHeading("Visual Style"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_BANNER"), "Store banner"));
+    children.push(tinyHeading("Visual Shop Banner"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_BANNER"), "Store banner", { captions: false }));
   }
   return children;
 }
@@ -230,7 +230,7 @@ async function keyStoreSection(data: ReportData, sections: Set<ReportSectionConf
 async function tiktokSection(data: ReportData): Promise<DocxChild[]> {
   return [
     sectionHeading("TikTok Evidence"),
-    ...await assetImageBlocks(data.assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT"), "TikTok evidence")
+    ...await assetImageBlocks(data.assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT"), "TikTok evidence", { captions: false })
   ];
 }
 
@@ -247,7 +247,7 @@ function keyProductTable(data: ReportData): Table {
   const rows = keyProductsForReport(data.products).map((product, index) => [
     String(index + 1),
     productSourcePlacement(product),
-    product.selectionReason ?? "-",
+    selectionReasonForDisplay(product, data.products),
     product.title,
     productRawText(product, "productType") ?? product.productType ?? inferredProductType(product.title),
     productRawText(product, "monthlySoldText") ?? formatNumber(product.monthlySold),
@@ -344,10 +344,17 @@ async function remoteImageGridBlocks(urls: string[], label: string, limit: numbe
   ];
 }
 
-async function assetImageBlocks(assets: ReportData["assets"], label: string): Promise<DocxChild[]> {
+async function assetImageBlocks(
+  assets: ReportData["assets"],
+  label: string,
+  options: { captions?: boolean } = {}
+): Promise<DocxChild[]> {
   const blocks: DocxChild[] = [];
   for (const [index, asset] of assets.slice(0, 24).entries()) {
-    const image = await imageParagraph(asset.path, asset.label || `${label} ${index + 1}`);
+    const caption = asset.label || `${label} ${index + 1}`;
+    const image = options.captions === false
+      ? await imageOnlyParagraph(asset.path, caption, { maxWidth: 520, maxHeight: 360, minWidth: 80, minHeight: 80 })
+      : await imageParagraph(asset.path, caption);
     if (image) {
       blocks.push(image);
     }
@@ -598,9 +605,9 @@ function keyProductsForReport(products: ReportData["products"]): ReportData["pro
     }
     merged.set(key, mergeReportProductSignals(existing, product));
   }
-  return [...merged.values()]
-    .filter((product) => product.title && product.productUrl)
-    .sort((left, right) => productQualityScore(right) - productQualityScore(left))
+  const candidates = [...merged.values()].filter((product) => product.title && product.productUrl);
+  return candidates
+    .sort((left, right) => businessSelectionScore(right, candidates) - businessSelectionScore(left, candidates))
     .slice(0, 10);
 }
 
@@ -651,6 +658,77 @@ function productQualityScore(product: ReportData["products"][number]): number {
   const priceScore = product.priceAverage ? 8 : 0;
   const imageScore = productImage(product) ? 8 : 0;
   return topSalesBoost + monthlySoldScore + totalSoldScore + reviewScore + ratingScore + priceScore + imageScore;
+}
+
+function businessSelectionScore(product: ReportData["products"][number], pool: ReportData["products"]): number {
+  return productQualityScore(product) + selectionPriorityBoost(selectionPriority(product, pool));
+}
+
+function selectionPriorityBoost(priority: string): number {
+  switch (priority) {
+    case "Priority":
+      return 95;
+    case "High":
+      return 70;
+    case "Average":
+      return 30;
+    case "Not recommended":
+      return -60;
+    default:
+      return 0;
+  }
+}
+
+function selectionReasonForDisplay(product: ReportData["products"][number], pool: ReportData["products"]): string {
+  const priority = selectionPriority(product, pool);
+  const existing = product.selectionReason?.trim() || "-";
+  if (priority === "Priority") {
+    return `Priority - high price, high sold/month, and high total sold / ${existing}`;
+  }
+  if (priority === "High") {
+    return `High - low price, high sold/month, and high total sold / ${existing}`;
+  }
+  if (priority === "Average") {
+    return `Average - mixed price, sold/month, and total sold signals / ${existing}`;
+  }
+  if (priority === "Not recommended") {
+    return `Not recommended - low sold/month and low total sold / ${existing}`;
+  }
+  return existing;
+}
+
+function selectionPriority(product: ReportData["products"][number], pool: ReportData["products"]): "Priority" | "High" | "Average" | "Not recommended" | "Review" {
+  const priceBand = priceBandForProduct(product, pool);
+  const soldMonth = product.monthlySold ?? 0;
+  const totalSold = product.totalSold ?? 0;
+  const highMonthly = isHighSignal(soldMonth, pool.map((item) => item.monthlySold ?? 0));
+  const highTotal = isHighSignal(totalSold, pool.map((item) => item.totalSold ?? 0));
+  if (priceBand === "high" && highMonthly && highTotal) return "Priority";
+  if (priceBand === "low" && highMonthly && highTotal) return "High";
+  if (priceBand === "mid" && highMonthly && !highTotal) return "Average";
+  if (priceBand === "high" && !highMonthly && highTotal) return "Average";
+  if (product.priceAverage && !highMonthly && !highTotal) return "Not recommended";
+  return "Review";
+}
+
+function priceBandForProduct(product: ReportData["products"][number], pool: ReportData["products"]): "low" | "mid" | "high" | "unknown" {
+  const prices = pool.map((item) => item.priceAverage).filter((value): value is number => typeof value === "number" && value > 0).sort((left, right) => left - right);
+  if (!product.priceAverage || prices.length === 0) {
+    return "unknown";
+  }
+  const medianPrice = prices[Math.floor(prices.length / 2)] ?? product.priceAverage;
+  if (product.priceAverage >= medianPrice * 1.25) return "high";
+  if (product.priceAverage <= medianPrice * 0.78) return "low";
+  return "mid";
+}
+
+function isHighSignal(value: number, values: number[]): boolean {
+  const usable = values.filter((item) => item > 0).sort((left, right) => left - right);
+  if (value <= 0 || usable.length === 0) {
+    return false;
+  }
+  const threshold = usable[Math.max(0, Math.floor(usable.length * 0.62))] ?? usable[usable.length - 1] ?? 0;
+  return value >= Math.max(threshold, 1);
 }
 
 function productImage(product: { rawJson: string }): string | undefined {

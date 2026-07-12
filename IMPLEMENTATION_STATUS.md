@@ -114,7 +114,8 @@ Release blocker fixes:
 - 2026-07-11: Improved report export fidelity by replacing the legacy DOCX writer with a structured DOCX exporter, converting images to JPEG for Word, cleaning PDF pagination/media layout, preserving multiline Shopee review formatting, and preventing carousel arrows/review videos from appearing in Product Detail slides.
 - 2026-07-12: Fixed DOCX thumbnails to render as images, changed Product Detail Slides and Media in user DOCX output into compact image grids, and aligned HTML/PDF product sections with Project Inspector-style expanded list views.
 - 2026-07-12: Changed Key Store Overall report text to the same narrative selection model used in Project Inspector, including keyword benchmark rationale, GMV/sold/promotion signals, and AI summary text when available.
-- 2026-07-12: Refined Part 3 Key Store collection so Store Home Page captures from top through `.shop-decoration`, Products/Best Sellers no longer show screenshot placeholders, store-grid extraction scans lazy-loaded rows while scrolling, and Visual Style hydrates `.shop-decoration` carousel/banner images before download.
+- 2026-07-12: Refined Part 3 Key Store collection so Store Home Page captures from top through `.shop-decoration`, Popular Products/Best Sellers no longer show screenshot placeholders, store-grid extraction scans lazy-loaded rows while scrolling, and Visual Shop Banner hydrates `.shop-decoration` carousel/banner images before download.
+- 2026-07-12: Added business-priority scoring for Part 1 Key Product selection and made generated HTML/PDF reports use the user's last light/dark theme while preserving the Project Inspector-style expanded layout.
 
 ## M1 Product Experience
 
@@ -307,14 +308,14 @@ Implemented:
 - Store page collection exists.
 - Store homepage, banner, popular-products, and best-seller screenshots are captured where Shopee allows access.
 - Part 3 store homepage capture now focuses on `.shop-decoration`, while store popular-products and best-seller captures focus on `.shop-page__all-products-section`.
-- Store Products and Store Best Sellers product rows are collected through data-only actions, hydrate the Shopee store grid before extraction, and are persisted separately from Relevance/Top Sales so Key Product remains stable while Key Store product matrices can be inspected.
-- Visual Style collection localizes readable `.shop-decoration` banner images as `STORE_BANNER` assets, including carousel banners already present in the DOM, and does not persist a broad base screenshot when banner images were successfully localized.
-- Key Store inspection now filters Store Home Page, Products, Best Sellers, and Visual Style to store-owned assets for the selected Key Store URL so unrelated product-level shop captures do not appear in the Key Store section.
-- Store evidence now normalizes store profile records from guided captures and renders homepage, product matrix, bestseller, visual style, TikTok account evidence, and theme signals inside the project inspector.
+- Store Popular Products and Store Best Sellers product rows are collected through data-only actions, hydrate the Shopee store grid before extraction, and are persisted separately from Relevance/Top Sales so Key Product remains stable while Key Store product matrices can be inspected.
+- Visual Shop Banner collection localizes readable `.shop-decoration` banner images as `STORE_BANNER` assets, including carousel banners already present in the DOM, and does not persist a broad base screenshot when banner images were successfully localized.
+- Key Store inspection now filters Store Home Page, Popular Products, Best Sellers, and Visual Shop Banner to store-owned assets for the selected Key Store URL so unrelated product-level shop captures do not appear in the Key Store section.
+- Store evidence now normalizes store profile records from guided captures and renders homepage, product matrix, bestseller, visual shop banner, TikTok account evidence, and theme signals inside the project inspector.
 - Screenshot capture is wired.
 - Review inference now targets three positive 5-star and two negative 1-star browser-readable review signals when available.
 - Basic product and store metric parsing exists.
-- The generated HTML/PDF report renderer now follows the PDF-defined M2 structure: Keyword General, Key Product, repeated Product detail dossiers, review tables, store overview, store dossiers, visual style, TikTok evidence, and AI recommendations.
+- The generated HTML/PDF report renderer now follows the PDF-defined M2 structure: Keyword General, Key Product, repeated Product detail dossiers, review tables, store overview, store dossiers, visual shop banners, TikTok evidence, and AI recommendations.
 
 Incomplete:
 
@@ -339,7 +340,7 @@ Sprint 1 completion evidence:
 
 ## M3 Intelligence
 
-[###############-----] 75%
+[##################--] 88%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -373,7 +374,8 @@ Implemented:
 - HTML report generation now produces interactive collapsible report sections with embedded CSS and script while remaining printable/PDF-compatible.
 - Report section customization now follows the current inspector headings: Keyword General, Key Products, Product Detail subparts, Key Store subparts, and TikTok Evidence.
 - Report Key Products now uses the same max-10 selected Key Product set shown in Project Inspector, excluding Store Products and Store Best Sellers rows from the Key Product table.
-- Report Summary Metrics can be enabled or disabled independently, Key Product source cells show readable placement labels, product dossier media is deduped to the inspector's selected media set with at most one video, and Key Store Visual Style renders the same stored banner assets as Project Inspector.
+- Report Summary Metrics can be enabled or disabled independently, Key Product source cells show readable placement labels, product dossier media is deduped to the inspector's selected media set with at most one video, and Key Store Visual Shop Banner renders the same stored banner assets as Project Inspector.
+- HTML/PDF reports are theme-aware and use the user's last light/dark mode while keeping embedded CSS and collapsible report behavior.
 - DOCX export now renders from structured report data instead of HTML text extraction, converts supported report images to JPEG, and keeps review evidence as multiline Shopee-style rows.
 - Generated report headers include the developer attribution for Wildan Ega Pradana and the LinkedIn profile link.
 - Report rendering now maps AI output into score cards, recommendation tables, store overall text, and explicit missing-evidence notes instead of hiding incomplete sections.

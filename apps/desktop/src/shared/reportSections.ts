@@ -101,19 +101,19 @@ export const DEFAULT_REPORT_SECTIONS: ReportSectionConfig[] = [
   },
   {
     id: "keyStoreProducts",
-    label: "Key Store - Products",
+    label: "Key Store - Popular Products",
     enabled: true,
-    requiredEvidence: ["popularProductsScreenshot", "productGrid"]
+    requiredEvidence: ["popularProducts", "productGrid"]
   },
   {
     id: "keyStoreBestSellers",
     label: "Key Store - Best Sellers",
     enabled: true,
-    requiredEvidence: ["bestSellerScreenshot", "productGrid"]
+    requiredEvidence: ["bestSellerProducts", "productGrid"]
   },
   {
     id: "keyStoreVisualStyle",
-    label: "Key Store - Visual Style",
+    label: "Key Store - Visual Shop Banner",
     enabled: true,
     requiredEvidence: ["shopDecorationBanners"]
   },

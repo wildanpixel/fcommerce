@@ -9,9 +9,13 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 - Changed generated Key Store Overall text to use the same narrative selection logic as Project Inspector: why the store is selected for the keyword, benchmark use, GMV/sold/promotion signals, and AI summary when available.
 - Restyled generated HTML/PDF product sections to use list-style product rows and expanded Project Inspector-like report sections from Keyword General through TikTok Evidence.
 - Changed Key Store Store Home Page capture to start at the top of the store page and stop at the bottom of `.shop-decoration`.
-- Removed screenshot placeholder evidence boxes from Key Store Products and Best Sellers in Project Inspector because those Part 3 steps are data-only product matrix collection steps.
-- Strengthened Store Products and Best Sellers extraction to scan the store grid while scrolling through the first page, preserving unique products across lazy-loaded viewports instead of only the final mounted rows.
-- Improved Key Store Visual Style extraction by hydrating `.shop-decoration`, cycling likely carousel controls, and downloading readable non-product banner images.
+- Removed screenshot placeholder evidence boxes from Key Store Popular Products and Best Sellers in Project Inspector because those Part 3 steps are data-only product matrix collection steps.
+- Strengthened Store Popular Products and Best Sellers extraction to scan the store grid while scrolling through the first page, preserving unique products across lazy-loaded viewports instead of only the final mounted rows.
+- Renamed Key Store Products to Popular Products and Visual Style to Visual Shop Banner across the collector, Project Inspector, report section metadata, HTML/PDF, and DOCX output.
+- Improved Key Store Visual Shop Banner extraction by hydrating `.shop-decoration`, cycling likely carousel controls, and downloading readable non-product banner images.
+- Added Part 1 business-priority scoring for Key Product selection, classifying high-price/high-demand products as Priority, low-price/high-demand products as High, weaker but viable combinations as Average, and low-demand products as Not recommended.
+- Made generated HTML/PDF reports theme-aware so the export follows the user's last light or dark mode and uses the Project Inspector-style expanded layout.
+- Made the collapsed collection activity control more compact while keeping actions reachable.
 
 ## Unreleased - 2026-07-11
 

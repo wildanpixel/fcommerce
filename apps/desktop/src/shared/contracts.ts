@@ -257,6 +257,7 @@ export type ReportGenerationPayload = {
   projectId: string;
   templateId: string;
   sections: ReportSectionConfig[];
+  theme?: "light" | "dark";
 };
 
 export type ReportGenerationResult = {

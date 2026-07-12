@@ -103,6 +103,7 @@ const settingsSchema = z.object({
 const reportSchema = z.object({
   projectId: z.string().uuid(),
   templateId: z.string().min(2),
+  theme: z.enum(["light", "dark"]).optional(),
   sections: z.array(
     z.object({
       id: z.enum([

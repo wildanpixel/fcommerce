@@ -13,7 +13,7 @@ export class ConsultingHtmlReportRenderer implements HtmlReportRenderer {
     const enabled = new Set(payload.sections.filter((section) => section.enabled).map((section) => section.id));
     const include = (...ids: Array<(typeof payload.sections)[number]["id"]>) => ids.some((id) => enabled.has(id));
     const parts = [
-      documentStart(data.project.name),
+      documentStart(data.project.name, payload.theme ?? "light"),
       reportHeader(data),
       include("summaryMetrics", "cover") ? summaryMetrics(data) : "",
       include("keywordGeneral", "keywordRelevance", "topSales") ? keywordGeneral(data) : "",
@@ -48,7 +48,8 @@ export class PrismaReportDataAdapter implements ReportDataLoader {
   }
 }
 
-function documentStart(title: string): string {
+function documentStart(title: string, theme: "light" | "dark"): string {
+  const bodyClass = theme === "dark" ? "report-dark" : "report-light";
   return `<!doctype html>
 <html>
 <head>
@@ -57,49 +58,72 @@ function documentStart(title: string): string {
   <style>
     @page { size: A4; margin: 14mm 12mm; }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: Inter, Arial, sans-serif; color: #20242c; background: #fff; font-size: 12px; }
+    :root { color-scheme: light dark; }
+    body.report-light {
+      --report-bg: #f4f7fb;
+      --report-panel: #ffffff;
+      --report-panel-soft: #f8fafc;
+      --report-text: #101828;
+      --report-muted: #667085;
+      --report-border: #d7dee8;
+      --report-accent: #2563eb;
+      --report-row: #fbfcff;
+      --report-image-bg: #ffffff;
+    }
+    body.report-dark {
+      --report-bg: #11161f;
+      --report-panel: #20252f;
+      --report-panel-soft: #303641;
+      --report-text: #eef3f9;
+      --report-muted: #aab8cc;
+      --report-border: #3b4656;
+      --report-accent: #62a8ff;
+      --report-row: #343a45;
+      --report-image-bg: #ffffff;
+    }
+    body { margin: 0; font-family: Inter, Arial, sans-serif; color: var(--report-text); background: var(--report-bg); font-size: 12px; }
     h1 { margin: 0 0 10px; font-size: 28px; line-height: 1.15; }
     h2 { margin: 0 0 14px; font-size: 22px; break-after: avoid; }
     h3 { margin: 0 0 10px; font-size: 16px; break-after: avoid; }
     p { margin: 0 0 10px; line-height: 1.45; }
     .page { page-break-after: auto; break-after: auto; }
     .cover-page { min-height: 190mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; break-after: page; }
-    .muted { color: #667085; }
-    .kicker { color: #3767d6; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; font-size: 11px; }
+    .muted { color: var(--report-muted); }
+    .kicker { color: var(--report-accent); font-weight: 700; letter-spacing: .02em; text-transform: uppercase; font-size: 11px; }
     .grid { display: grid; gap: 14px; }
     .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .metric { border: 1px solid #dfe4ef; border-radius: 8px; padding: 12px; background: #fbfcff; }
+    .metric { border: 1px solid var(--report-border); border-radius: 8px; padding: 12px; background: var(--report-panel-soft); }
     .metric b { display: block; font-size: 20px; margin-top: 4px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 10px 0 18px; }
-    th { background: #4778ef; color: white; text-align: left; padding: 8px; font-size: 11px; }
-    td { border: 1px solid #e2e6ee; vertical-align: top; padding: 8px; font-size: 11px; line-height: 1.35; word-break: break-word; }
+    th { background: var(--report-accent); color: white; text-align: left; padding: 8px; font-size: 11px; }
+    td { border: 1px solid var(--report-border); vertical-align: top; padding: 8px; font-size: 11px; line-height: 1.35; word-break: break-word; }
     .asset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 18px; }
-    .asset { border: 1px solid #e2e6ee; border-radius: 8px; overflow: hidden; background: #f8fafc; break-inside: avoid; }
-    .asset img { display: block; width: 100%; height: 170px; object-fit: contain; background: #fff; }
+    .asset { border: 1px solid var(--report-border); border-radius: 8px; overflow: hidden; background: var(--report-panel-soft); break-inside: avoid; }
+    .asset img { display: block; width: 100%; height: 170px; object-fit: contain; background: var(--report-image-bg); }
     .asset video { display: block; width: 100%; aspect-ratio: 9 / 16; max-height: 300px; object-fit: contain; background: #111827; }
-    .asset span { display: block; padding: 6px 8px; font-size: 10px; color: #475467; }
-    .product-thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e6ee; background: #f8fafc; }
+    .asset span { display: block; padding: 6px 8px; font-size: 10px; color: var(--report-muted); }
+    .product-thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid var(--report-border); background: var(--report-image-bg); }
     .product-list { display: grid; gap: 8px; margin: 10px 0 18px; }
-    .product-row { display: grid; grid-template-columns: 68px minmax(0, 1fr) 104px 64px 88px; gap: 10px; align-items: center; border: 1px solid #e2e6ee; border-radius: 8px; padding: 8px; background: #fbfcff; break-inside: avoid; }
+    .product-row { display: grid; grid-template-columns: 68px minmax(0, 1fr) 104px 64px 88px; gap: 10px; align-items: center; border: 1px solid var(--report-border); border-radius: 8px; padding: 8px; background: var(--report-row); break-inside: avoid; }
     .product-row b { display: block; margin-bottom: 3px; line-height: 1.3; }
-    .product-row span { color: #667085; font-size: 10px; line-height: 1.3; }
-    .link-button { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid #cfd8ea; border-radius: 999px; padding: 6px 10px; background: #f8fafc; color: #2855ba; font-size: 10px; text-decoration: none; overflow-wrap: anywhere; }
-    .badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: #eef4ff; color: #2855ba; font-size: 10px; font-weight: 700; }
-    .analysis { border: 1px solid #dfe4ef; border-radius: 8px; padding: 14px; margin-bottom: 12px; break-inside: avoid; }
+    .product-row span { color: var(--report-muted); font-size: 10px; line-height: 1.3; }
+    .link-button { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid var(--report-border); border-radius: 999px; padding: 6px 10px; background: var(--report-panel-soft); color: var(--report-accent); font-size: 10px; text-decoration: none; overflow-wrap: anywhere; }
+    .badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: var(--report-panel-soft); color: var(--report-accent); font-size: 10px; font-weight: 700; }
+    .analysis { border: 1px solid var(--report-border); border-radius: 8px; padding: 14px; margin-bottom: 12px; break-inside: avoid; }
     .score-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 12px 0; }
-    .score { background: #f2f5fb; border-radius: 8px; padding: 8px; font-size: 10px; }
-    .score b { display: block; font-size: 18px; color: #1d4ed8; }
-    .section-note { border-left: 3px solid #4778ef; padding-left: 10px; color: #475467; margin-bottom: 12px; }
+    .score { background: var(--report-panel-soft); border-radius: 8px; padding: 8px; font-size: 10px; }
+    .score b { display: block; font-size: 18px; color: var(--report-accent); }
+    .section-note { border-left: 3px solid var(--report-accent); padding-left: 10px; color: var(--report-muted); margin-bottom: 12px; }
     .small { font-size: 10px; }
     .review-list { display: grid; gap: 10px; margin: 10px 0 18px; }
-    .review-card { border: 1px solid #e2e6ee; border-radius: 8px; padding: 10px; background: #fbfcff; break-inside: avoid; }
-    .review-card b { display: block; margin-bottom: 6px; color: #1d2939; }
+    .review-card { border: 1px solid var(--report-border); border-radius: 8px; padding: 10px; background: var(--report-row); break-inside: avoid; }
+    .review-card b { display: block; margin-bottom: 6px; color: var(--report-text); }
     .review-card p { white-space: pre-line; margin: 0; }
-    details.report-section { border: 1px solid #dfe4ef; border-radius: 10px; padding: 14px; margin: 0 0 18px; break-after: auto; page-break-after: auto; break-inside: auto; }
-    details.report-section > summary { cursor: pointer; font-weight: 800; color: #1d2939; list-style: none; }
+    details.report-section { border: 1px solid var(--report-border); border-radius: 10px; padding: 14px; margin: 0 0 18px; break-after: auto; page-break-after: auto; break-inside: auto; background: var(--report-panel); }
+    details.report-section > summary { cursor: pointer; font-weight: 800; color: var(--report-text); list-style: none; }
     details.report-section > summary::-webkit-details-marker { display: none; }
-    details.report-section > summary::before { content: "▾"; display: inline-block; margin-right: 8px; color: #4778ef; }
+    details.report-section > summary::before { content: "▾"; display: inline-block; margin-right: 8px; color: var(--report-accent); }
     details.report-section:not([open]) > summary::before { content: "▸"; }
     .report-body { margin-top: 14px; }
     @media print {
@@ -110,7 +134,7 @@ function documentStart(title: string): string {
     }
   </style>
 </head>
-<body>`;
+<body class="${bodyClass}">`;
 }
 
 function documentEnd(): string {
@@ -242,7 +266,7 @@ function keyProductTable(data: ReportData): string {
             (product, index) => `<tr>
               <td>${index + 1}</td>
               <td>${escapeHtml(productSourcePlacement(product))}</td>
-              <td>${escapeHtml(product.selectionReason ?? "platform recommended")}</td>
+              <td>${escapeHtml(selectionReasonForDisplay(product, products))}</td>
               <td><a href="${escapeAttribute(product.productUrl)}">${escapeHtml(product.title)}</a></td>
               <td>${escapeHtml(productRawText(product, "productType") || inferredProductType(product.title))}</td>
               <td>${escapeHtml(productRawText(product, "monthlySoldText") || formatNumber(product.monthlySold))}</td>
@@ -349,9 +373,9 @@ function keyStoreReport(data: ReportData, enabled: Set<string>): string {
       <h3>Overall</h3>
       <p>${escapeHtml(storeOverall(store, data))}</p>
       ${showHome ? `<h3>Store Home Page</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"), 12)}` : ""}
-      ${showProducts ? `<h3>Products</h3>${snapshotProductTable(storeProducts)}` : ""}
+      ${showProducts ? `<h3>Popular Products</h3>${snapshotProductTable(storeProducts)}` : ""}
       ${showBestSellers ? `<h3>Best Sellers</h3>${snapshotProductTable(storeBestSellers)}` : ""}
-      ${showVisualStyle ? `<h3>Visual Style</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_BANNER"), 80)}` : ""}
+      ${showVisualStyle ? `<h3>Visual Shop Banner</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_BANNER"), 80)}` : ""}
     </div>
   </details>`;
 }
@@ -430,11 +454,11 @@ function _storeDossiers(data: ReportData): string {
         </div>
         <h3>Store Homepage</h3>
         ${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"))}
-        <h3>Products</h3>
+        <h3>Popular Products</h3>
         ${assetGrid(assets.filter((asset) => asset.kind === "STORE_FEATURED_PRODUCTS"))}
         <h3>Bestseller</h3>
         ${assetGrid(assets.filter((asset) => asset.kind === "STORE_BEST_SELLER"))}
-        <h3>Visual Style</h3>
+        <h3>Visual Shop Banner</h3>
         ${assetGrid(assets.filter((asset) => asset.kind === "STORE_BANNER" || asset.kind === "STORE_PROMOTION"))}
         </div>
       </details>`;
@@ -444,9 +468,9 @@ function _storeDossiers(data: ReportData): string {
 
 function _visualStyle(data: ReportData): string {
   return `<details class="page report-section" open>
-    <summary>Visual Style</summary>
+    <summary>Visual Shop Banner</summary>
     <div class="report-body">
-    <p class="kicker">Visual Style</p>
+    <p class="kicker">Visual Shop Banner</p>
     <h2>Store Banners And Creative Assets</h2>
     ${assetGrid(
       data.assets.filter((asset) =>
@@ -711,9 +735,9 @@ function keyProductsForReport(products: ReportData["products"]): ReportData["pro
     }
     merged.set(key, mergeReportProductSignals(existing, product));
   }
-  return [...merged.values()]
-    .filter((product) => product.title && product.productUrl)
-    .sort((left, right) => productQualityScore(right) - productQualityScore(left))
+  const candidates = [...merged.values()].filter((product) => product.title && product.productUrl);
+  return candidates
+    .sort((left, right) => businessSelectionScore(right, candidates) - businessSelectionScore(left, candidates))
     .slice(0, 10);
 }
 
@@ -764,6 +788,77 @@ function productQualityScore(product: ReportData["products"][number]): number {
   const priceScore = product.priceAverage ? 8 : 0;
   const imageScore = productImage(product) ? 8 : 0;
   return topSalesBoost + monthlySoldScore + totalSoldScore + reviewScore + ratingScore + priceScore + imageScore;
+}
+
+function businessSelectionScore(product: ReportData["products"][number], pool: ReportData["products"]): number {
+  return productQualityScore(product) + selectionPriorityBoost(selectionPriority(product, pool));
+}
+
+function selectionPriorityBoost(priority: string): number {
+  switch (priority) {
+    case "Priority":
+      return 95;
+    case "High":
+      return 70;
+    case "Average":
+      return 30;
+    case "Not recommended":
+      return -60;
+    default:
+      return 0;
+  }
+}
+
+function selectionReasonForDisplay(product: ReportData["products"][number], pool: ReportData["products"]): string {
+  const priority = selectionPriority(product, pool);
+  const existing = product.selectionReason?.trim() || "platform recommended";
+  if (priority === "Priority") {
+    return `Priority - high price, high sold/month, and high total sold / ${existing}`;
+  }
+  if (priority === "High") {
+    return `High - low price, high sold/month, and high total sold / ${existing}`;
+  }
+  if (priority === "Average") {
+    return `Average - mixed price, sold/month, and total sold signals / ${existing}`;
+  }
+  if (priority === "Not recommended") {
+    return `Not recommended - low sold/month and low total sold / ${existing}`;
+  }
+  return existing;
+}
+
+function selectionPriority(product: ReportData["products"][number], pool: ReportData["products"]): "Priority" | "High" | "Average" | "Not recommended" | "Review" {
+  const priceBand = priceBandForProduct(product, pool);
+  const soldMonth = product.monthlySold ?? 0;
+  const totalSold = product.totalSold ?? 0;
+  const highMonthly = isHighSignal(soldMonth, pool.map((item) => item.monthlySold ?? 0));
+  const highTotal = isHighSignal(totalSold, pool.map((item) => item.totalSold ?? 0));
+  if (priceBand === "high" && highMonthly && highTotal) return "Priority";
+  if (priceBand === "low" && highMonthly && highTotal) return "High";
+  if (priceBand === "mid" && highMonthly && !highTotal) return "Average";
+  if (priceBand === "high" && !highMonthly && highTotal) return "Average";
+  if (product.priceAverage && !highMonthly && !highTotal) return "Not recommended";
+  return "Review";
+}
+
+function priceBandForProduct(product: ReportData["products"][number], pool: ReportData["products"]): "low" | "mid" | "high" | "unknown" {
+  const prices = pool.map((item) => item.priceAverage).filter((value): value is number => typeof value === "number" && value > 0).sort((left, right) => left - right);
+  if (!product.priceAverage || prices.length === 0) {
+    return "unknown";
+  }
+  const medianPrice = prices[Math.floor(prices.length / 2)] ?? product.priceAverage;
+  if (product.priceAverage >= medianPrice * 1.25) return "high";
+  if (product.priceAverage <= medianPrice * 0.78) return "low";
+  return "mid";
+}
+
+function isHighSignal(value: number, values: number[]): boolean {
+  const usable = values.filter((item) => item > 0).sort((left, right) => left - right);
+  if (value <= 0 || usable.length === 0) {
+    return false;
+  }
+  const threshold = usable[Math.max(0, Math.floor(usable.length * 0.62))] ?? usable[usable.length - 1] ?? 0;
+  return value >= Math.max(threshold, 1);
 }
 
 function productRawText(product: { rawJson?: string }, key: string): string | undefined {
