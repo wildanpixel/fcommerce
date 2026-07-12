@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -31,8 +31,8 @@ The overall percentage is a weighted product estimate based on foundation readin
 | --- | --- | ---: | --- |
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
-| M2 | Shopee Desktop | [####################] 98% | Partial |
-| M3 | Intelligence | [#################---] 85% | Partial |
+| M2 | Shopee Desktop | [####################] 99% | Partial |
+| M3 | Intelligence | [##################--] 88% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -112,6 +112,9 @@ Release blocker fixes:
 - 2026-07-11: Reworked Keyword Projects progress into circular indicators, scoped Part 1 screenshots/product extraction to `section.shopee-search-item-result`, added capture/download loading states, limited Key Store assets to store-owned evidence, and aligned report section selection/headings with the current inspector hierarchy.
 - 2026-07-11: Changed Part 3 Key Store Products and Best Sellers into data-only collection steps that hydrate Shopee store grids before extraction, removed screenshot persistence for those matrix steps, tightened Visual Style to `.shop-decoration` banner assets only, added configurable report Summary Metrics, deduped report media, and normalized Key Product source labels as readable placement text.
 - 2026-07-11: Improved report export fidelity by replacing the legacy DOCX writer with a structured DOCX exporter, converting images to JPEG for Word, cleaning PDF pagination/media layout, preserving multiline Shopee review formatting, and preventing carousel arrows/review videos from appearing in Product Detail slides.
+- 2026-07-12: Fixed DOCX thumbnails to render as images, changed Product Detail Slides and Media in user DOCX output into compact image grids, and aligned HTML/PDF product sections with Project Inspector-style expanded list views.
+- 2026-07-12: Changed Key Store Overall report text to the same narrative selection model used in Project Inspector, including keyword benchmark rationale, GMV/sold/promotion signals, and AI summary text when available.
+- 2026-07-12: Refined Part 3 Key Store collection so Store Home Page captures from top through `.shop-decoration`, Products/Best Sellers no longer show screenshot placeholders, store-grid extraction scans lazy-loaded rows while scrolling, and Visual Style hydrates `.shop-decoration` carousel/banner images before download.
 
 ## M1 Product Experience
 

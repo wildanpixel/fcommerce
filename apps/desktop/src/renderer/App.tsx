@@ -111,6 +111,7 @@ type CollectionSubAction = {
   collectLabel?: string;
   captureMode?: "viewport" | "full-page";
   targetSelector?: string;
+  captureStrategy?: "selector" | "top-through-selector";
   guidance?: string;
   targetUrl?: string;
   preferredViewMode?: PlatformViewMode;
@@ -125,6 +126,7 @@ type CollectionStep = {
   mode?: "CAPTURE" | "PROCESS";
   captureMode?: "viewport" | "full-page";
   targetSelector?: string;
+  captureStrategy?: "selector" | "top-through-selector";
   substeps?: string[];
   subActions?: CollectionSubAction[];
   ownerType?: ManualEvidencePayload["ownerType"];
@@ -1405,6 +1407,7 @@ function GuidedBrowserCollector({
     }
     const captureMode = subAction?.captureMode ?? step.captureMode ?? "full-page";
     const targetSelector = subAction?.targetSelector ?? step.targetSelector;
+    const captureStrategy = subAction?.captureStrategy ?? step.captureStrategy ?? "selector";
     const dataOnlyEvidence = isDataOnlyEvidenceStep(step, subAction);
     setCaptureStatus({
       message: dataOnlyEvidence
@@ -1417,7 +1420,9 @@ function GuidedBrowserCollector({
     const screenshot = dataOnlyEvidence
       ? DATA_ONLY_EVIDENCE_IMAGE
       : targetSelector
-        ? await captureElementScreenshot(webview, targetSelector)
+        ? captureStrategy === "top-through-selector"
+          ? await captureTopThroughElementScreenshot(webview, targetSelector)
+          : await captureElementScreenshot(webview, targetSelector)
         : captureMode === "viewport"
           ? await captureViewportScreenshot(webview)
           : await captureFullPageScreenshot(webview);
@@ -1485,6 +1490,7 @@ function GuidedBrowserCollector({
         zoomFactor,
         dataOnlyEvidence,
         screenshotMode: captureMode,
+        captureStrategy,
         actualScreenshotMode: screenshot.mode,
         screenshotClipped: screenshot.clipped,
         targetSelector,
@@ -3186,8 +3192,6 @@ function KeyStorePanel({
     (!candidate.url || !asset.sourceUrl || sameUrlIntent(asset.sourceUrl, candidate.url) || sameUrlIntent(candidate.url, asset.sourceUrl))
   );
   const homeAssets = storeAssets.filter((asset) => asset.kind === "STORE_HOME");
-  const productAssets = storeAssets.filter((asset) => asset.kind === "STORE_FEATURED_PRODUCTS");
-  const bestSellerAssets = storeAssets.filter((asset) => asset.kind === "STORE_BEST_SELLER");
   const bannerAssets = storeAssets.filter((asset) => asset.kind === "STORE_BANNER");
 
   return (
@@ -3222,19 +3226,11 @@ function KeyStorePanel({
       </NestedReportSection>
 
       <NestedReportSection title="Products" defaultOpen={false}>
-        <AssetList assets={productAssets} limit={12} />
-        <div className="mt-3">
-          <ProductCardGrid products={storeProducts.length > 0 ? storeProducts : matchingProducts} limit={80} />
-        </div>
+        <ProductCardGrid products={storeProducts.length > 0 ? storeProducts : matchingProducts} limit={80} />
       </NestedReportSection>
 
       <NestedReportSection title="Best Sellers" defaultOpen={false}>
-        <AssetList assets={bestSellerAssets} limit={12} />
-        {storeBestSellers.length > 0 && (
-          <div className="mt-3">
-            <ProductCardGrid products={storeBestSellers} limit={80} />
-          </div>
-        )}
+        <ProductCardGrid products={storeBestSellers} limit={80} />
       </NestedReportSection>
 
       <NestedReportSection title="Visual Style" defaultOpen={false}>
@@ -4767,6 +4763,7 @@ function buildShopeeSteps(
       label: "Store homepage",
       kind: "STORE_HOME",
       targetSelector: ".shop-decoration",
+      captureStrategy: "top-through-selector",
       instruction: "Open the inspected product store page and capture only the shop-decoration homepage area.",
       targetUrl: keyStoreUrl,
       ready: Boolean(storeReady && (!keyStoreUrl || sameUrlIntent(currentUrl, keyStoreUrl)))
@@ -5557,33 +5554,33 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       const htmlRoot = pickShopeeContentRoot();
       const productScopeSelector = ${JSON.stringify(productScopeSelector ?? "")};
       const productScopeRoot = productScopeSelector ? document.querySelector(productScopeSelector) || htmlRoot : htmlRoot;
+      const isStoreProductScope = /shop-page__all-products-section/i.test(productScopeSelector);
+      const isSearchProductScope = /shopee-search-item-result/i.test(productScopeSelector);
       const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
       const hydrateProductScope = async () => {
         if (!productScopeSelector || !productScopeRoot) return;
-        const isStoreGrid = /shop-page__all-products-section/i.test(productScopeSelector);
-        const isSearchGrid = /shopee-search-item-result/i.test(productScopeSelector);
-        if (!isStoreGrid && !isSearchGrid) return;
+        if (!isStoreProductScope && !isSearchProductScope) return;
         const root = document.scrollingElement || document.documentElement || document.body;
         const originalScrollY = window.scrollY || root.scrollTop || 0;
         productScopeRoot.scrollIntoView({ block: "start", inline: "nearest" });
         await wait(250);
         let previousCount = 0;
-        const passes = isStoreGrid ? 10 : 4;
+        const passes = isStoreProductScope ? 18 : 4;
         for (let index = 0; index < passes; index += 1) {
           const currentCount = productScopeRoot.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
           const elementCanScroll = productScopeRoot.scrollHeight > productScopeRoot.clientHeight + 24;
           if (elementCanScroll) {
-            productScopeRoot.scrollTop = Math.min(productScopeRoot.scrollHeight, productScopeRoot.scrollTop + Math.max(360, productScopeRoot.clientHeight * 0.85));
+            productScopeRoot.scrollTop = Math.min(productScopeRoot.scrollHeight, productScopeRoot.scrollTop + Math.max(360, productScopeRoot.clientHeight * 0.72));
           } else {
-            window.scrollBy(0, Math.max(520, window.innerHeight * 0.82));
+            window.scrollBy(0, Math.max(420, window.innerHeight * 0.64));
           }
-          await wait(isStoreGrid ? 420 : 260);
-          if (currentCount === previousCount && index >= 3) {
+          await wait(isStoreProductScope ? 520 : 260);
+          if (!isStoreProductScope && currentCount === previousCount && index >= 3) {
             break;
           }
           previousCount = currentCount;
         }
-        if (!isStoreGrid) {
+        if (!isStoreProductScope) {
           window.scrollTo({ top: originalScrollY });
         }
       };
@@ -5789,54 +5786,75 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         }
         return best;
       };
-      const anchors = Array.from(productScopeRoot.querySelectorAll('a[href]'))
-        .filter((anchor) => /(?:-i\\.|\\/product\\/|i\\.)/i.test(anchor.getAttribute("href") || ""))
-        .filter((anchor) => !/cart|checkout|help|seller/i.test(anchor.getAttribute("href") || ""));
       const seen = new Set();
       const products = [];
-      for (const anchor of anchors) {
-        const url = absoluteUrl(anchor.getAttribute("href"));
-        const key = url.split("?")[0];
-        if (!url || seen.has(key)) continue;
-        const card = findCard(anchor);
-        const dataRoot = card.querySelector("div.p-2") || card;
-        const text = dataRoot.innerText || card.innerText || anchor.innerText || "";
-        const cardText = card.innerText || text;
-        const image = card.querySelector('picture._displayContents_, picture, picture._displayContents_ img, picture img, img');
-        const productImageUrl = imageUrlFrom(image);
-        const title = meaningfulTitle(text, image?.alt || image?.querySelector?.("img")?.alt);
-        if (!title) continue;
-        seen.add(key);
-        const badgeImage = findStoreBadgeImage(card, productImageUrl);
-        const badgeImageUrl = imageUrlFrom(badgeImage);
-        const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title, badgeImage?.outerHTML].filter(Boolean).join(" "));
-        const storeType = inferStoreType(badgeText, badgeImageUrl, badgeImage?.outerHTML) || await classifyBadgeImageByPixels(badgeImage);
-        const priceText = compact((text.match(/Rp\\s*[\\d.]+(?:\\s*-\\s*Rp\\s*[\\d.]+)?/i) || [])[0] || "");
-        const soldText = extractSoldText(text);
-        const ratingText = extractRatingText(text, soldText);
-        const reviewText = extractReviewText(text);
-        products.push({
-          rank: products.length + 1,
-          title,
-          url,
-          imageUrl: productImageUrl,
-          priceText: priceText || undefined,
-          priceAverage: parsePrice(priceText),
-          rating: ratingText ? Number(ratingText.replace(",", ".")) : undefined,
-          ratingText,
-          reviewText,
-          soldCount: soldText ? parseHumanNumber(soldText) : undefined,
-          soldText,
-          productType: inferProductType(title),
-          storeType,
-          storeBadgeImageUrl: badgeImageUrl,
-          sourcePlacement: String(products.length + 1),
-          mallStatus: storeType === "Mall ORI",
-          officialStatus: /official|resmi/i.test(cardText),
-          starSeller: storeType === "Star" || storeType === "Star+",
-          rawText: compact(cardText).slice(0, 1200)
-        });
-      }
+      const collectVisibleProductRows = async () => {
+        const anchors = Array.from(productScopeRoot.querySelectorAll('a[href]'))
+          .filter((anchor) => /(?:-i\\.|\\/product\\/|i\\.)/i.test(anchor.getAttribute("href") || ""))
+          .filter((anchor) => !/cart|checkout|help|seller/i.test(anchor.getAttribute("href") || ""));
+        for (const anchor of anchors) {
+          const url = absoluteUrl(anchor.getAttribute("href"));
+          const key = url.split("?")[0];
+          if (!url || seen.has(key)) continue;
+          const card = findCard(anchor);
+          const dataRoot = card.querySelector("div.p-2") || card;
+          const text = dataRoot.innerText || card.innerText || anchor.innerText || "";
+          const cardText = card.innerText || text;
+          const image = card.querySelector('picture._displayContents_, picture, picture._displayContents_ img, picture img, img');
+          const productImageUrl = imageUrlFrom(image);
+          const title = meaningfulTitle(text, image?.alt || image?.querySelector?.("img")?.alt);
+          if (!title) continue;
+          seen.add(key);
+          const badgeImage = findStoreBadgeImage(card, productImageUrl);
+          const badgeImageUrl = imageUrlFrom(badgeImage);
+          const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title, badgeImage?.outerHTML].filter(Boolean).join(" "));
+          const storeType = inferStoreType(badgeText, badgeImageUrl, badgeImage?.outerHTML) || await classifyBadgeImageByPixels(badgeImage);
+          const priceText = compact((text.match(/Rp\\s*[\\d.]+(?:\\s*-\\s*Rp\\s*[\\d.]+)?/i) || [])[0] || "");
+          const soldText = extractSoldText(text);
+          const ratingText = extractRatingText(text, soldText);
+          const reviewText = extractReviewText(text);
+          products.push({
+            rank: products.length + 1,
+            title,
+            url,
+            imageUrl: productImageUrl,
+            priceText: priceText || undefined,
+            priceAverage: parsePrice(priceText),
+            rating: ratingText ? Number(ratingText.replace(",", ".")) : undefined,
+            ratingText,
+            reviewText,
+            soldCount: soldText ? parseHumanNumber(soldText) : undefined,
+            soldText,
+            productType: inferProductType(title),
+            storeType,
+            storeBadgeImageUrl: badgeImageUrl,
+            sourcePlacement: String(products.length + 1),
+            mallStatus: storeType === "Mall ORI",
+            officialStatus: /official|resmi/i.test(cardText),
+            starSeller: storeType === "Star" || storeType === "Star+",
+            rawText: compact(cardText).slice(0, 1200)
+          });
+        }
+      };
+      const collectStoreGridRowsAcrossPage = async () => {
+        if (!isStoreProductScope) {
+          await collectVisibleProductRows();
+          return;
+        }
+        const root = document.scrollingElement || document.documentElement || document.body;
+        const originalScrollY = window.scrollY || root.scrollTop || 0;
+        const rect = productScopeRoot.getBoundingClientRect();
+        const startY = Math.max(0, rect.top + (window.scrollY || root.scrollTop || 0) - 80);
+        const estimatedEndY = Math.max(startY, startY + Math.max(productScopeRoot.scrollHeight, rect.height, window.innerHeight * 2));
+        const step = Math.max(360, window.innerHeight * 0.58);
+        for (let y = startY, pass = 0; y <= estimatedEndY && pass < 28; y += step, pass += 1) {
+          window.scrollTo({ top: y, behavior: "auto" });
+          await wait(360);
+          await collectVisibleProductRows();
+        }
+        window.scrollTo({ top: originalScrollY, behavior: "auto" });
+      };
+      await collectStoreGridRowsAcrossPage();
       const textFrom = (element) => compact(element?.innerText || element?.textContent || "");
       const blockTextFromHtml = (element) => {
         if (!element) return "";
@@ -6120,6 +6138,33 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         reviewMediaVideos: reviewMediaVideos.slice(0, 12)
       };
       const storeDecorationRoot = document.querySelector(".shop-decoration");
+      const hydrateStoreDecorationRoot = async () => {
+        if (!storeDecorationRoot) return;
+        storeDecorationRoot.scrollIntoView({ block: "start", inline: "nearest" });
+        await wait(300);
+        const clickCandidates = Array.from(storeDecorationRoot.querySelectorAll("button, [role='button'], [aria-label], [class*='next'], [class*='arrow'], [class*='carousel']"))
+          .filter((element) => {
+            const text = compact([
+              element.getAttribute?.("aria-label"),
+              element.getAttribute?.("title"),
+              element.className,
+              element.textContent
+            ].filter(Boolean).join(" "));
+            const rect = element.getBoundingClientRect?.();
+            return /next|selanjutnya|arrow|carousel|slide|right/i.test(text) &&
+              (!rect || (rect.width <= 90 && rect.height <= 90));
+          });
+        for (let index = 0; index < Math.min(8, clickCandidates.length || 8); index += 1) {
+          const target = clickCandidates[index % Math.max(1, clickCandidates.length)];
+          try {
+            target?.dispatchEvent?.(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+          } catch {
+            // Ignore carousel controls that Shopee blocks from synthetic events.
+          }
+          await wait(220);
+        }
+      };
+      await hydrateStoreDecorationRoot();
       const isProductCardDecorationImage = (element) => {
         const card = element.closest?.('a[href*="-i."], a[href*="/product/"], [class*="product-card"], [class*="item-card"], [class*="shop-search-result-view"]');
         return Boolean(card && /(rp\\s*[\\d.]|sold|terjual|rating|penilaian)/iu.test(textFrom(card)));
@@ -6146,6 +6191,16 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
                 const height = Math.round(rect?.height || visualElement.naturalHeight || 0);
                 const url = imageUrlFrom(element);
                 return { element: visualElement, url, width, height };
+              })
+              .filter((item) => isUsefulDecorationImage(item.element, item.url, item.width, item.height))
+              .map((item) => item.url),
+            ...Array.from(storeDecorationRoot.querySelectorAll("img"))
+              .map((element) => {
+                const rect = element.getBoundingClientRect?.();
+                const width = Math.round(rect?.width || element.naturalWidth || 0);
+                const height = Math.round(rect?.height || element.naturalHeight || 0);
+                const url = imageUrlFrom(element);
+                return { element, url, width, height };
               })
               .filter((item) => isUsefulDecorationImage(item.element, item.url, item.width, item.height))
               .map((item) => item.url),
@@ -6295,6 +6350,31 @@ async function captureElementScreenshot(webview: WebviewElement, selector: strin
   const targetRect = await readElementPageRect(webview, selector) ?? initialRect;
   const screenshot = await captureFullPageScreenshot(webview);
   const cropped = await cropFullPageScreenshotToRect(screenshot, targetRect);
+  if (initialMetrics) {
+    await scrollEmbeddedPage(webview, initialMetrics.scrollY);
+  }
+  return cropped ?? screenshot;
+}
+
+async function captureTopThroughElementScreenshot(webview: WebviewElement, selector: string): Promise<FullPageScreenshot> {
+  const initialMetrics = await readScrollablePageMetrics(webview);
+  const initialRect = await readElementPageRect(webview, selector);
+  if (!initialRect || initialRect.height < 8) {
+    return captureFullPageScreenshot(webview);
+  }
+
+  await scrollEmbeddedPage(webview, 0);
+  await waitForFramePaint();
+  const targetRect = await readElementPageRect(webview, selector) ?? initialRect;
+  const screenshot = await captureFullPageScreenshot(webview);
+  const topThroughRect: ElementPageRect = {
+    ...targetRect,
+    x: 0,
+    y: 0,
+    width: targetRect.viewportWidth,
+    height: Math.max(1, Math.min(targetRect.pageHeight, targetRect.y + targetRect.height))
+  };
+  const cropped = await cropFullPageScreenshotToRect(screenshot, topThroughRect);
   if (initialMetrics) {
     await scrollEmbeddedPage(webview, initialMetrics.scrollY);
   }

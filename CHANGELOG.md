@@ -2,6 +2,17 @@
 
 All notable changes to MarketPlace Keyword Competitor Analysis will be documented in this file.
 
+## Unreleased - 2026-07-12
+
+- Fixed structured DOCX product tables so thumbnail cells render actual JPEG-converted images instead of image URL text.
+- Changed DOCX Product Detail Slides and Media in user output to compact image grids without per-image captions such as `Slide 1` or `Review media 1`.
+- Changed generated Key Store Overall text to use the same narrative selection logic as Project Inspector: why the store is selected for the keyword, benchmark use, GMV/sold/promotion signals, and AI summary when available.
+- Restyled generated HTML/PDF product sections to use list-style product rows and expanded Project Inspector-like report sections from Keyword General through TikTok Evidence.
+- Changed Key Store Store Home Page capture to start at the top of the store page and stop at the bottom of `.shop-decoration`.
+- Removed screenshot placeholder evidence boxes from Key Store Products and Best Sellers in Project Inspector because those Part 3 steps are data-only product matrix collection steps.
+- Strengthened Store Products and Best Sellers extraction to scan the store grid while scrolling through the first page, preserving unique products across lazy-loaded viewports instead of only the final mounted rows.
+- Improved Key Store Visual Style extraction by hydrating `.shop-decoration`, cycling likely carousel controls, and downloading readable non-product banner images.
+
 ## Unreleased - 2026-07-11
 
 - Replaced the fallback HTML-to-DOCX ZIP writer with a structured DOCX exporter that renders report data directly and converts supported images to JPEG for Word compatibility.

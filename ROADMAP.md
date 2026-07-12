@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -77,6 +77,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-11 | Broad Shopee capture and unrelated Key Store assets | Fixed | Part 1 screenshots/product rows are scoped to `section.shopee-search-item-result`, Key Store assets are scoped to the selected store URL, and Visual Style saves `.shop-decoration` banner images instead of broad screenshots or tiny page icons. |
 | 2026-07-11 | Key Store matrix and report media drift | Fixed | Key Store Products/Best Sellers now use data-only collection after hydrating the store grid, Visual Style collects only `.shop-decoration` banners, Summary Metrics is a report toggle, report product media is deduped/capped to the inspector set, and Key Product source labels show readable placement context. |
 | 2026-07-11 | TikTok unsupported flow could look available | Fixed | New Research now shows TikTok Shop as disabled `Coming soon`; M5 remains the owner for future TikTok adapter and normalized collection work. |
+| 2026-07-12 | DOCX thumbnails and oversized media output | Fixed | DOCX tables now render thumbnail images through JPEG conversion, and Product Detail Slides/Media in user export as compact image grids without per-image caption text. |
+| 2026-07-12 | Key Store report Overall did not match Project Inspector rationale | Fixed | HTML/PDF/DOCX Key Store Overall now explains why the selected store is the keyword benchmark using GMV, sold/month, promotion, trust, evidence readiness, and AI summary text when available. |
+| 2026-07-12 | Part 3 store collection still captured broad/partial store evidence | Fixed | Store Home Page capture now runs from page top through `.shop-decoration`; Products/Best Sellers are data-only grids without screenshot placeholders; extraction scans lazy-loaded store rows; Visual Style hydrates `.shop-decoration` banners before download. |
 
 ## Sprint Overview
 

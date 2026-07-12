@@ -80,6 +80,11 @@ function documentStart(title: string): string {
     .asset video { display: block; width: 100%; aspect-ratio: 9 / 16; max-height: 300px; object-fit: contain; background: #111827; }
     .asset span { display: block; padding: 6px 8px; font-size: 10px; color: #475467; }
     .product-thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e6ee; background: #f8fafc; }
+    .product-list { display: grid; gap: 8px; margin: 10px 0 18px; }
+    .product-row { display: grid; grid-template-columns: 68px minmax(0, 1fr) 104px 64px 88px; gap: 10px; align-items: center; border: 1px solid #e2e6ee; border-radius: 8px; padding: 8px; background: #fbfcff; break-inside: avoid; }
+    .product-row b { display: block; margin-bottom: 3px; line-height: 1.3; }
+    .product-row span { color: #667085; font-size: 10px; line-height: 1.3; }
+    .link-button { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid #cfd8ea; border-radius: 999px; padding: 6px 10px; background: #f8fafc; color: #2855ba; font-size: 10px; text-decoration: none; overflow-wrap: anywhere; }
     .badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: #eef4ff; color: #2855ba; font-size: 10px; font-weight: 700; }
     .analysis { border: 1px solid #dfe4ef; border-radius: 8px; padding: 14px; margin-bottom: 12px; break-inside: avoid; }
     .score-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 12px 0; }
@@ -340,7 +345,7 @@ function keyStoreReport(data: ReportData, enabled: Set<string>): string {
     <div class="report-body">
       <p class="kicker">Key Store</p>
       <h2>${escapeHtml(store.name)}</h2>
-      <p><a href="${escapeAttribute(store.url)}">${escapeHtml(store.url)}</a></p>
+      <p><a class="link-button" href="${escapeAttribute(store.url)}">${escapeHtml(store.url)}</a></p>
       <h3>Overall</h3>
       <p>${escapeHtml(storeOverall(store, data))}</p>
       ${showHome ? `<h3>Store Home Page</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"), 12)}` : ""}
@@ -634,17 +639,65 @@ function storeType(product: { mallStatus: boolean; officialStatus: boolean; star
   return "-";
 }
 
-function storeOverall(store: { rating?: number | null; followers?: number | null; voucherCount?: number | null }, data: ReportData): string {
-  const analysis = data.analyses[0]?.resultJson ? safeJson<AiAnalysisJson | null>(data.analyses[0].resultJson, null) : null;
-  if (analysis?.competitivePosition.observations[0]) {
-    return analysis.competitivePosition.observations[0];
-  }
+function storeOverall(store: ReportData["stores"][number], data: ReportData): string {
+  const parsed = data.analyses[0]?.resultJson ? safeJson<Record<string, unknown> | null>(data.analyses[0].resultJson, null) : null;
+  const products = keyProductsForReport(data.products).filter((product) => productMatchesStore(product, store));
+  const gmvEstimate = products.reduce((sum, product) => sum + ((product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0)), 0);
+  const soldEstimate = products.reduce((sum, product) => sum + (product.monthlySold ?? product.totalSold ?? 0), 0);
+  const promotionCount = products.reduce((sum, product) => {
+    const raw = safeJson<{ promotionCount?: number; shopVouchers?: string[]; bundleDeals?: string[] }>(product.rawJson, {});
+    return sum + (raw.promotionCount ?? (raw.shopVouchers?.length ?? 0) + (raw.bundleDeals?.length ?? 0));
+  }, 0);
+  const analysisText = [
+    textFromAnalysisValue(parsed?.executiveSummary),
+    textFromAnalysisValue(parsed?.summary),
+    textFromAnalysisValue(parsed?.storeAnalysis),
+    textFromAnalysisValue(parsed?.competitivePosition),
+    textFromAnalysisValue(parsed?.recommendations)
+  ].filter(Boolean) as string[];
   const cues = [
     store.rating ? `rating ${store.rating}` : undefined,
     store.followers ? `${formatNumber(store.followers)} followers` : undefined,
     store.voucherCount ? `${formatNumber(store.voucherCount)} voucher signals` : undefined
   ].filter(Boolean);
-  return cues.length > 0 ? `AI-ready store candidate with ${cues.join(", ")}.` : "AI-ready store candidate; screenshot evidence required for final scoring.";
+  const evidenceSentence = `${store.name} is selected as the Key Store because it has the strongest combined signal across estimated monthly GMV, sold-per-month volume, promotion activity, store type, and captured evidence readiness.`;
+  const scoreSentence = `The local evidence set links ${products.length || "available"} qualified product signal${products.length === 1 ? "" : "s"} to this store, with estimated GMV ${formatCurrency(gmvEstimate)}, sold/month ${formatNumber(soldEstimate)}, and ${promotionCount} promotion signal${promotionCount === 1 ? "" : "s"}.`;
+  const benchmarkSentence = `Use ${store.name} as the benchmark for homepage structure, product matrix, best-seller presentation, banner style, voucher strategy, and TikTok brand presence.`;
+  return uniqueStrings([
+    evidenceSentence,
+    ...analysisText,
+    cues.length > 0 ? `Trust cues captured for this store include ${cues.join(", ")}.` : undefined,
+    scoreSentence,
+    benchmarkSentence
+  ]).slice(0, 5).join("\n\n");
+}
+
+function productMatchesStore(product: ReportData["products"][number], store: ReportData["stores"][number]): boolean {
+  if (product.storeUrl && sameReportUrl(product.storeUrl, store.url)) {
+    return true;
+  }
+  return Boolean(product.storeName && product.storeName.toLowerCase() === store.name.toLowerCase());
+}
+
+function textFromAnalysisValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim() || undefined;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => (typeof item === "string" ? item : undefined)).filter(Boolean).join(" ").slice(0, 360) || undefined;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const summary = record.summary ?? record.overall ?? record.rationale ?? record.recommendation ?? record.description;
+    if (typeof summary === "string" && summary.trim()) {
+      return summary.trim();
+    }
+    const observations = record.observations;
+    if (Array.isArray(observations)) {
+      return observations.map((item) => (typeof item === "string" ? item : undefined)).filter(Boolean).join(" ").slice(0, 360) || undefined;
+    }
+  }
+  return undefined;
 }
 
 function keyProductsForReport(products: ReportData["products"]): ReportData["products"] {
@@ -883,21 +936,18 @@ function snapshotProductTable(products: ReportData["products"]): string {
   if (products.length === 0) {
     return '<p class="muted">No rendered product rows extracted for this snapshot yet.</p>';
   }
-  return `<table>
-    <thead><tr><th style="width:8%">Thumbnail</th><th>Product name</th><th style="width:14%">Price</th><th style="width:10%">Rating</th><th style="width:12%">Sold</th></tr></thead>
-    <tbody>${products
+  return `<div class="product-list">${products
       .map((product) => {
         const imageUrl = productImage(product);
-        return `<tr>
-          <td>${imageUrl ? `<img class="product-thumb" src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(product.title)}" />` : "-"}</td>
-          <td><a href="${escapeAttribute(product.productUrl)}">${escapeHtml(product.title)}</a></td>
-          <td>${formatCurrency(product.priceAverage)}</td>
-          <td>${escapeHtml(productRawText(product, "ratingText") || (product.rating ? product.rating.toFixed(1) : "-"))}</td>
-          <td>${escapeHtml(productRawText(product, "monthlySoldText") || productRawText(product, "totalSoldText") || formatNumber(product.monthlySold ?? product.totalSold))}</td>
-        </tr>`;
+        return `<div class="product-row">
+          <div>${imageUrl ? `<img class="product-thumb" src="${escapeAttribute(reportMediaSource(imageUrl))}" alt="${escapeAttribute(product.title)}" />` : ""}</div>
+          <div><b><a href="${escapeAttribute(product.productUrl)}">${escapeHtml(product.title)}</a></b><span>${escapeHtml(productSourcePlacement(product))}</span></div>
+          <div><span>Price</span><b>${formatCurrency(product.priceAverage)}</b></div>
+          <div><span>Rating</span><b>${escapeHtml(productRawText(product, "ratingText") || (product.rating ? product.rating.toFixed(1) : "-"))}</b></div>
+          <div><span>Sold</span><b>${escapeHtml(productRawText(product, "monthlySoldText") || productRawText(product, "totalSoldText") || formatNumber(product.monthlySold ?? product.totalSold))}</b></div>
+        </div>`;
       })
-      .join("")}</tbody>
-  </table>`;
+      .join("")}</div>`;
 }
 
 function assetGrid(assets: ReportAsset[], limit = 12): string {

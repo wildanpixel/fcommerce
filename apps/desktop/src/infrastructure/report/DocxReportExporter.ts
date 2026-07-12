@@ -21,6 +21,7 @@ import type { ReportGenerationPayload } from "../../shared/contracts.js";
 import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../../shared/reportSections.js";
 
 type DocxChild = Paragraph | Table;
+type DocxCellValue = string | Paragraph | undefined;
 
 const AUTHOR = "Wildan Ega Pradana";
 const AUTHOR_LINKEDIN = "https://www.linkedin.com/in/wildanegapradana/";
@@ -118,10 +119,10 @@ async function keywordGeneralSection(data: ReportData): Promise<DocxChild[]> {
     sectionHeading("Keyword General"),
     subHeading("Relevance"),
     ...await assetImageBlocks(data.assets.filter((asset) => asset.kind === "SEARCH_RESULT").slice(0, 2), "Relevance screenshot"),
-    snapshotProductTable(data.products.filter((product) => product.source === "Relevance").slice(0, 40)),
+    await snapshotProductTable(data.products.filter((product) => product.source === "Relevance").slice(0, 40)),
     subHeading("Top Sales"),
     ...await assetImageBlocks(data.assets.filter((asset) => asset.kind === "TOP_SALES").slice(0, 2), "Top sales screenshot"),
-    snapshotProductTable(data.products.filter((product) => product.source === "Top Sales").slice(0, 40)),
+    await snapshotProductTable(data.products.filter((product) => product.source === "Top Sales").slice(0, 40)),
     spacer()
   ];
   return children;
@@ -163,7 +164,7 @@ async function productDetailSections(data: ReportData, sections: Set<ReportSecti
       children.push(tinyHeading("1st page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "PRODUCT_PAGE"), "Product first page"));
     }
     if (showSlides) {
-      children.push(tinyHeading("Slides"), ...await remoteImageBlocks(productImages, "Slide"));
+      children.push(tinyHeading("Slides"), ...await remoteImageGridBlocks(productImages, "Product slide", 9));
       if (productVideos.length > 0) {
         children.push(bulletParagraph(`Product gallery video: ${productVideos[0]}`));
       }
@@ -177,7 +178,7 @@ async function productDetailSections(data: ReportData, sections: Set<ReportSecti
       children.push(tinyHeading("Reviews"), reviewTable(data.reviews.filter((review) => review.productId === product.id)));
     }
     if (showUserMedia) {
-      children.push(tinyHeading("Media in user"), ...await remoteImageBlocks(reviewImages, "Review media"));
+      children.push(tinyHeading("Media in user"), ...await remoteImageGridBlocks(reviewImages, "Review media", 12));
       if (reviewVideos.length > 0) {
         children.push(...reviewVideos.map((video, videoIndex) => bulletParagraph(`Review video ${videoIndex + 1}: ${video}`)));
       }
@@ -215,10 +216,10 @@ async function keyStoreSection(data: ReportData, sections: Set<ReportSectionConf
     children.push(tinyHeading("Store Home Page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_HOME"), "Store home page"));
   }
   if (showProducts) {
-    children.push(tinyHeading("Products"), snapshotProductTable(data.products.filter((product) => product.source === "Store Products")));
+    children.push(tinyHeading("Products"), await snapshotProductTable(data.products.filter((product) => product.source === "Store Products")));
   }
   if (showBestSellers) {
-    children.push(tinyHeading("Best Sellers"), snapshotProductTable(data.products.filter((product) => product.source === "Store Best Sellers")));
+    children.push(tinyHeading("Best Sellers"), await snapshotProductTable(data.products.filter((product) => product.source === "Store Best Sellers")));
   }
   if (showVisualStyle) {
     children.push(tinyHeading("Visual Style"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_BANNER"), "Store banner"));
@@ -263,16 +264,17 @@ function keyProductTable(data: ReportData): Table {
   );
 }
 
-function snapshotProductTable(products: ReportData["products"]): Table {
+async function snapshotProductTable(products: ReportData["products"]): Promise<Table> {
+  const rows = await Promise.all(products.map(async (product) => [
+    await imageOnlyParagraph(productImage(product), product.title, { maxWidth: 56, maxHeight: 56, minWidth: 24, minHeight: 24 }) ?? "-",
+    product.title,
+    formatCurrency(product.priceAverage),
+    productRawText(product, "ratingText") ?? (product.rating ? product.rating.toFixed(1) : "-"),
+    productRawText(product, "monthlySoldText") ?? productRawText(product, "totalSoldText") ?? formatNumber(product.monthlySold ?? product.totalSold)
+  ] satisfies DocxCellValue[]));
   return tableWithHeader(
     ["Thumbnail", "Product name", "Price", "Rating", "Sold"],
-    products.map((product) => [
-      productImage(product) ?? "-",
-      product.title,
-      formatCurrency(product.priceAverage),
-      productRawText(product, "ratingText") ?? (product.rating ? product.rating.toFixed(1) : "-"),
-      productRawText(product, "monthlySoldText") ?? productRawText(product, "totalSoldText") ?? formatNumber(product.monthlySold ?? product.totalSold)
-    ])
+    rows
   );
 }
 
@@ -318,6 +320,30 @@ async function remoteImageBlocks(urls: string[], label: string): Promise<DocxChi
   return blocks;
 }
 
+async function remoteImageGridBlocks(urls: string[], label: string, limit: number): Promise<DocxChild[]> {
+  const images = uniqueMediaUrls(urls).filter(isReportProductImageUrl).slice(0, limit);
+  const imageParagraphs = (await Promise.all(images.map((url, index) =>
+    imageOnlyParagraph(url, `${label} ${index + 1}`, { maxWidth: 150, maxHeight: 150, minWidth: 48, minHeight: 48 })
+  ))).filter(Boolean) as Paragraph[];
+  if (imageParagraphs.length === 0) {
+    return [paragraph(`No ${label.toLowerCase()} image captured.`, { color: MUTED })];
+  }
+  const rows: TableRow[] = [];
+  for (let index = 0; index < imageParagraphs.length; index += 3) {
+    const rowItems = imageParagraphs.slice(index, index + 3);
+    rows.push(new TableRow({
+      children: [0, 1, 2].map((cellIndex) => cell(rowItems[cellIndex], { width: 33 }))
+    }));
+  }
+  return [
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: tableBorders(),
+      rows
+    })
+  ];
+}
+
 async function assetImageBlocks(assets: ReportData["assets"], label: string): Promise<DocxChild[]> {
   const blocks: DocxChild[] = [];
   for (const [index, asset] of assets.slice(0, 24).entries()) {
@@ -355,17 +381,49 @@ async function imageParagraph(source: string, caption: string): Promise<Paragrap
   });
 }
 
-async function loadDocxImage(source: string): Promise<{ buffer: Buffer; width: number; height: number } | undefined> {
+async function imageOnlyParagraph(
+  source: string | undefined,
+  altText: string,
+  options?: { maxWidth?: number; maxHeight?: number; minWidth?: number; minHeight?: number }
+): Promise<Paragraph | undefined> {
+  if (!source) {
+    return undefined;
+  }
+  const image = await loadDocxImage(source, options);
+  if (!image) {
+    return undefined;
+  }
+  return new Paragraph({
+    spacing: { before: 40, after: 40 },
+    children: [
+      new ImageRun({
+        type: "jpg",
+        data: image.buffer,
+        transformation: { width: image.width, height: image.height },
+        altText: {
+          title: altText,
+          name: altText,
+          description: altText
+        }
+      })
+    ]
+  });
+}
+
+async function loadDocxImage(
+  source: string,
+  options: { maxWidth?: number; maxHeight?: number; minWidth?: number; minHeight?: number } = {}
+): Promise<{ buffer: Buffer; width: number; height: number } | undefined> {
   try {
     const buffer = await readImageSource(source);
     const metadata = await sharp(buffer).metadata();
     const originalWidth = metadata.width ?? 900;
     const originalHeight = metadata.height ?? 650;
-    const maxWidth = 520;
-    const maxHeight = 360;
+    const maxWidth = options.maxWidth ?? 520;
+    const maxHeight = options.maxHeight ?? 360;
     const ratio = Math.min(maxWidth / originalWidth, maxHeight / originalHeight, 1);
-    const width = Math.max(80, Math.round(originalWidth * ratio));
-    const height = Math.max(80, Math.round(originalHeight * ratio));
+    const width = Math.max(options.minWidth ?? 80, Math.round(originalWidth * ratio));
+    const height = Math.max(options.minHeight ?? 80, Math.round(originalHeight * ratio));
     const output = await sharp(buffer)
       .rotate()
       .resize({ width, height, fit: "inside", withoutEnlargement: true })
@@ -401,7 +459,7 @@ async function readImageSource(source: string): Promise<Buffer> {
   return readFile(localPath);
 }
 
-function tableWithHeader(headers: string[], rows: string[][]): Table {
+function tableWithHeader(headers: string[], rows: DocxCellValue[][]): Table {
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: tableBorders(),
@@ -428,12 +486,14 @@ function simpleTable(rows: string[][], columnWidths: [number, number]): Table {
   });
 }
 
-function cell(value: string, options: { header?: boolean; width?: number } = {}): TableCell {
+function cell(value: DocxCellValue, options: { header?: boolean; width?: number } = {}): TableCell {
   return new TableCell({
     width: options.width ? { size: options.width, type: WidthType.PERCENTAGE } : undefined,
     shading: options.header ? { fill: SOFT_BLUE, color: "auto" } : undefined,
     margins: { top: 100, bottom: 100, left: 100, right: 100 },
-    children: [paragraph(value, { size: options.header ? 18 : 17, bold: options.header, preserveLines: true })]
+    children: [typeof value === "string" || value === undefined
+      ? paragraph(value ?? "", { size: options.header ? 18 : 17, bold: options.header, preserveLines: true })
+      : value]
   });
 }
 
@@ -713,18 +773,65 @@ function storeAssetsForReport(data: ReportData, store: ReportData["stores"][numb
   return data.assets.filter((asset) => assetMatchesStore(asset, store.url));
 }
 
-function storeOverall(store: { rating?: number | null; followers?: number | null; voucherCount?: number | null }, data: ReportData): string {
-  const analysis = data.analyses[0]?.resultJson ? safeJson<{ competitivePosition?: { observations?: string[] } } | null>(data.analyses[0].resultJson, null) : null;
-  const observation = analysis?.competitivePosition?.observations?.[0];
-  if (observation) {
-    return observation;
-  }
+function storeOverall(store: ReportData["stores"][number], data: ReportData): string {
+  const parsed = data.analyses[0]?.resultJson ? safeJson<Record<string, unknown> | null>(data.analyses[0].resultJson, null) : null;
+  const products = keyProductsForReport(data.products).filter((product) => productMatchesStore(product, store));
+  const gmvEstimate = products.reduce((sum, product) => sum + ((product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0)), 0);
+  const soldEstimate = products.reduce((sum, product) => sum + (product.monthlySold ?? product.totalSold ?? 0), 0);
+  const promotionCount = products.reduce((sum, product) => {
+    const raw = safeJson<{ promotionCount?: number; shopVouchers?: string[]; bundleDeals?: string[] }>(product.rawJson, {});
+    return sum + (raw.promotionCount ?? (raw.shopVouchers?.length ?? 0) + (raw.bundleDeals?.length ?? 0));
+  }, 0);
+  const analysisText = [
+    textFromAnalysisValue(parsed?.executiveSummary),
+    textFromAnalysisValue(parsed?.summary),
+    textFromAnalysisValue(parsed?.storeAnalysis),
+    textFromAnalysisValue(parsed?.competitivePosition),
+    textFromAnalysisValue(parsed?.recommendations)
+  ].filter(Boolean) as string[];
   const cues = [
     store.rating ? `rating ${store.rating}` : undefined,
     store.followers ? `${formatNumber(store.followers)} followers` : undefined,
     store.voucherCount ? `${formatNumber(store.voucherCount)} voucher signals` : undefined
   ].filter(Boolean);
-  return cues.length > 0 ? `AI-ready store candidate with ${cues.join(", ")}.` : "AI-ready store candidate; screenshot evidence required for final scoring.";
+  const evidenceSentence = `${store.name} is selected as the Key Store because it has the strongest combined signal across estimated monthly GMV, sold-per-month volume, promotion activity, store type, and captured evidence readiness.`;
+  const scoreSentence = `The local evidence set links ${products.length || "available"} qualified product signal${products.length === 1 ? "" : "s"} to this store, with estimated GMV ${formatCurrency(gmvEstimate)}, sold/month ${formatNumber(soldEstimate)}, and ${promotionCount} promotion signal${promotionCount === 1 ? "" : "s"}.`;
+  const benchmarkSentence = `Use ${store.name} as the benchmark for homepage structure, product matrix, best-seller presentation, banner style, voucher strategy, and TikTok brand presence.`;
+  return uniqueStrings([
+    evidenceSentence,
+    ...analysisText,
+    cues.length > 0 ? `Trust cues captured for this store include ${cues.join(", ")}.` : undefined,
+    scoreSentence,
+    benchmarkSentence
+  ]).slice(0, 5).join("\n\n");
+}
+
+function productMatchesStore(product: ReportData["products"][number], store: ReportData["stores"][number]): boolean {
+  if (product.storeUrl && sameReportUrl(product.storeUrl, store.url)) {
+    return true;
+  }
+  return Boolean(product.storeName && product.storeName.toLowerCase() === store.name.toLowerCase());
+}
+
+function textFromAnalysisValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim() || undefined;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => (typeof item === "string" ? item : undefined)).filter(Boolean).join(" ").slice(0, 360) || undefined;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const summary = record.summary ?? record.overall ?? record.rationale ?? record.recommendation ?? record.description;
+    if (typeof summary === "string" && summary.trim()) {
+      return summary.trim();
+    }
+    const observations = record.observations;
+    if (Array.isArray(observations)) {
+      return observations.map((item) => (typeof item === "string" ? item : undefined)).filter(Boolean).join(" ").slice(0, 360) || undefined;
+    }
+  }
+  return undefined;
 }
 
 function assetMatchesStore(asset: ReportData["assets"][number], storeUrl?: string | null): boolean {
