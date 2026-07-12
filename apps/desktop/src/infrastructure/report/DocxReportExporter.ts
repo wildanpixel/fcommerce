@@ -22,6 +22,16 @@ import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../../shared/
 
 type DocxChild = Paragraph | Table;
 type DocxCellValue = string | Paragraph | undefined;
+type ImageLoadOptions = {
+  maxWidth?: number;
+  maxHeight?: number;
+  minWidth?: number;
+  minHeight?: number;
+  targetWidth?: number;
+  targetHeight?: number;
+  fit?: "inside" | "cover" | "contain" | "fill" | "outside";
+  position?: string;
+};
 
 const AUTHOR = "Wildan Ega Pradana";
 const AUTHOR_LINKEDIN = "https://www.linkedin.com/in/wildanegapradana/";
@@ -187,7 +197,7 @@ async function productDetailSections(data: ReportData, sections: Set<ReportSecti
       children.push(tinyHeading("Shop Home Page"), ...await assetImageBlocks([
         ...assets.filter((asset) => asset.kind === "STORE_HOME"),
         ...storeAssets.filter((asset) => asset.kind === "STORE_HOME")
-      ], "Shop home page", { captions: false }));
+      ], "Shop home page", { captions: false, layout: "portraitEvidence" }));
     }
     children.push(spacer());
   }
@@ -213,7 +223,7 @@ async function keyStoreSection(data: ReportData, sections: Set<ReportSectionConf
     paragraph(storeOverall(store, data), { preserveLines: true })
   ];
   if (showHome) {
-    children.push(tinyHeading("Store Home Page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_HOME"), "Store home page", { captions: false }));
+    children.push(tinyHeading("Store Home Page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_HOME"), "Store home page", { captions: false, layout: "portraitEvidence" }));
   }
   if (showProducts) {
     children.push(tinyHeading("Popular Products"), await snapshotProductTable(data.products.filter((product) => product.source === "Store Products")));
@@ -347,13 +357,15 @@ async function remoteImageGridBlocks(urls: string[], label: string, limit: numbe
 async function assetImageBlocks(
   assets: ReportData["assets"],
   label: string,
-  options: { captions?: boolean } = {}
+  options: { captions?: boolean; layout?: "default" | "portraitEvidence" } = {}
 ): Promise<DocxChild[]> {
   const blocks: DocxChild[] = [];
   for (const [index, asset] of assets.slice(0, 24).entries()) {
     const caption = asset.label || `${label} ${index + 1}`;
     const image = options.captions === false
-      ? await imageOnlyParagraph(asset.path, caption, { maxWidth: 520, maxHeight: 360, minWidth: 80, minHeight: 80 })
+      ? await imageOnlyParagraph(asset.path, caption, options.layout === "portraitEvidence"
+        ? { targetWidth: 288, targetHeight: 512, fit: "cover", position: "top" }
+        : { maxWidth: 520, maxHeight: 360, minWidth: 80, minHeight: 80 })
       : await imageParagraph(asset.path, caption);
     if (image) {
       blocks.push(image);
@@ -391,7 +403,7 @@ async function imageParagraph(source: string, caption: string): Promise<Paragrap
 async function imageOnlyParagraph(
   source: string | undefined,
   altText: string,
-  options?: { maxWidth?: number; maxHeight?: number; minWidth?: number; minHeight?: number }
+  options?: ImageLoadOptions
 ): Promise<Paragraph | undefined> {
   if (!source) {
     return undefined;
@@ -419,13 +431,28 @@ async function imageOnlyParagraph(
 
 async function loadDocxImage(
   source: string,
-  options: { maxWidth?: number; maxHeight?: number; minWidth?: number; minHeight?: number } = {}
+  options: ImageLoadOptions = {}
 ): Promise<{ buffer: Buffer; width: number; height: number } | undefined> {
   try {
     const buffer = await readImageSource(source);
     const metadata = await sharp(buffer).metadata();
     const originalWidth = metadata.width ?? 900;
     const originalHeight = metadata.height ?? 650;
+    if (options.targetWidth && options.targetHeight) {
+      const width = options.targetWidth;
+      const height = options.targetHeight;
+      const output = await sharp(buffer)
+        .rotate()
+        .resize({
+          width,
+          height,
+          fit: options.fit ?? "cover",
+          position: options.position ?? "top"
+        })
+        .jpeg({ quality: 92, mozjpeg: true })
+        .toBuffer();
+      return { buffer: output, width, height };
+    }
     const maxWidth = options.maxWidth ?? 520;
     const maxHeight = options.maxHeight ?? 360;
     const ratio = Math.min(maxWidth / originalWidth, maxHeight / originalHeight, 1);

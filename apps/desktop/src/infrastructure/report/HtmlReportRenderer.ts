@@ -81,13 +81,13 @@ function documentStart(title: string, theme: "light" | "dark"): string {
       --report-row: #343a45;
       --report-image-bg: #ffffff;
     }
-    body { margin: 0; font-family: Inter, Arial, sans-serif; color: var(--report-text); background: var(--report-bg); font-size: 12px; }
+    body { margin: 0; padding: 18px; font-family: Inter, Arial, sans-serif; color: var(--report-text); background: var(--report-bg); font-size: 12px; }
     h1 { margin: 0 0 10px; font-size: 28px; line-height: 1.15; }
     h2 { margin: 0 0 14px; font-size: 22px; break-after: avoid; }
     h3 { margin: 0 0 10px; font-size: 16px; break-after: avoid; }
     p { margin: 0 0 10px; line-height: 1.45; }
     .page { page-break-after: auto; break-after: auto; }
-    .cover-page { min-height: 190mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; break-after: page; }
+    .inspector-header { border: 1px solid var(--report-border); border-radius: 14px; padding: 18px 20px; margin: 0 0 16px; background: var(--report-panel); box-shadow: 0 12px 28px rgba(15, 23, 42, .07); }
     .muted { color: var(--report-muted); }
     .kicker { color: var(--report-accent); font-weight: 700; letter-spacing: .02em; text-transform: uppercase; font-size: 11px; }
     .grid { display: grid; gap: 14px; }
@@ -99,8 +99,10 @@ function documentStart(title: string, theme: "light" | "dark"): string {
     th { background: var(--report-accent); color: white; text-align: left; padding: 8px; font-size: 11px; }
     td { border: 1px solid var(--report-border); vertical-align: top; padding: 8px; font-size: 11px; line-height: 1.35; word-break: break-word; }
     .asset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 18px; }
+    .asset-grid.portrait-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 240px)); align-items: start; }
     .asset { border: 1px solid var(--report-border); border-radius: 8px; overflow: hidden; background: var(--report-panel-soft); break-inside: avoid; }
     .asset img { display: block; width: 100%; height: 170px; object-fit: contain; background: var(--report-image-bg); }
+    .asset.asset-portrait img { aspect-ratio: 9 / 16; height: auto; max-height: 520px; object-fit: cover; object-position: top center; }
     .asset video { display: block; width: 100%; aspect-ratio: 9 / 16; max-height: 300px; object-fit: contain; background: #111827; }
     .asset span { display: block; padding: 6px 8px; font-size: 10px; color: var(--report-muted); }
     .product-thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid var(--report-border); background: var(--report-image-bg); }
@@ -120,7 +122,7 @@ function documentStart(title: string, theme: "light" | "dark"): string {
     .review-card { border: 1px solid var(--report-border); border-radius: 8px; padding: 10px; background: var(--report-row); break-inside: avoid; }
     .review-card b { display: block; margin-bottom: 6px; color: var(--report-text); }
     .review-card p { white-space: pre-line; margin: 0; }
-    details.report-section { border: 1px solid var(--report-border); border-radius: 10px; padding: 14px; margin: 0 0 18px; break-after: auto; page-break-after: auto; break-inside: auto; background: var(--report-panel); }
+    details.report-section { border: 1px solid var(--report-border); border-radius: 10px; padding: 14px; margin: 0 0 18px; break-after: auto; page-break-after: auto; break-inside: auto; background: var(--report-panel); box-shadow: 0 10px 24px rgba(15, 23, 42, .06); }
     details.report-section > summary { cursor: pointer; font-weight: 800; color: var(--report-text); list-style: none; }
     details.report-section > summary::-webkit-details-marker { display: none; }
     details.report-section > summary::before { content: "▾"; display: inline-block; margin-right: 8px; color: var(--report-accent); }
@@ -148,12 +150,12 @@ function documentEnd(): string {
 }
 
 function reportHeader(data: ReportData): string {
-  return `<section class="page cover-page">
+  return `<header class="inspector-header">
     <p class="kicker">MarketPlace Keyword Competitor Analysis</p>
     <h1>${escapeHtml(data.project.keyword)}</h1>
     <p class="muted">${escapeHtml(data.project.marketplace)} keyword competitor report generated from local guided evidence.</p>
     <p class="small muted">Developer: Wildan Ega Pradana · <a href="https://www.linkedin.com/in/wildanegapradana/">https://www.linkedin.com/in/wildanegapradana/</a></p>
-  </section>`;
+  </header>`;
 }
 
 function summaryMetrics(data: ReportData): string {
@@ -341,7 +343,7 @@ function productDossiers(data: ReportData, enabled: Set<string>): string {
         ${showDescription ? `<h3>Description</h3><p style="white-space:pre-line;">${escapeHtml(product.description ?? "No browser-readable description captured. Screenshot evidence is retained.")}</p>${remoteImageGrid(descriptionImages.slice(0, 24))}${assetGrid(productAssets.filter((asset) => asset.kind === "PRODUCT_DESCRIPTION"))}<h3>Variants</h3><p>${escapeHtml(variants.slice(0, 12).join(", ") || "No variants detected")}</p><h3>Specifications</h3><table><tbody>${Object.entries(specs).slice(0, 12).map(([key, value]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table>` : ""}
         ${showReviews ? `<h3>Reviews</h3>${reviewTable(productReviews)}` : ""}
         ${showUserMedia ? `<h3>Media in user</h3>${remoteImageGrid(reviewImages.slice(0, 30), "Review media")}${remoteVideoGrid(reviewVideos.slice(0, 12))}${assetGrid(productAssets.filter((asset) => asset.kind === "REVIEW_IMAGE"))}` : ""}
-        ${showShopHome ? `<h3>Shop Home Page</h3>${assetGrid(shopHomeAssets)}` : ""}
+        ${showShopHome ? `<h3>Shop Home Page</h3>${assetGrid(shopHomeAssets, 12, "portrait")}` : ""}
         </div>
       </details>`;
     })
@@ -372,7 +374,7 @@ function keyStoreReport(data: ReportData, enabled: Set<string>): string {
       <p><a class="link-button" href="${escapeAttribute(store.url)}">${escapeHtml(store.url)}</a></p>
       <h3>Overall</h3>
       <p>${escapeHtml(storeOverall(store, data))}</p>
-      ${showHome ? `<h3>Store Home Page</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"), 12)}` : ""}
+      ${showHome ? `<h3>Store Home Page</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"), 12, "portrait")}` : ""}
       ${showProducts ? `<h3>Popular Products</h3>${snapshotProductTable(storeProducts)}` : ""}
       ${showBestSellers ? `<h3>Best Sellers</h3>${snapshotProductTable(storeBestSellers)}` : ""}
       ${showVisualStyle ? `<h3>Visual Shop Banner</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_BANNER"), 80)}` : ""}
@@ -1045,14 +1047,16 @@ function snapshotProductTable(products: ReportData["products"]): string {
       .join("")}</div>`;
 }
 
-function assetGrid(assets: ReportAsset[], limit = 12): string {
+function assetGrid(assets: ReportAsset[], limit = 12, variant: "default" | "portrait" = "default"): string {
   if (assets.length === 0) {
     return '<p class="muted">No evidence asset captured for this section.</p>';
   }
-  return `<div class="asset-grid">${assets
+  const gridClass = variant === "portrait" ? "asset-grid portrait-grid" : "asset-grid";
+  const assetClass = variant === "portrait" ? "asset asset-portrait" : "asset";
+  return `<div class="${gridClass}">${assets
     .slice(0, limit)
     .map(
-      (asset) => `<figure class="asset">
+      (asset) => `<figure class="${assetClass}">
         <img src="${escapeAttribute(pathToFileURL(asset.path).toString())}" alt="${escapeAttribute(asset.label)}" />
         <span>${escapeHtml(asset.label)}</span>
       </figure>`

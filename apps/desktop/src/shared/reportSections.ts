@@ -42,7 +42,7 @@ export const DEFAULT_REPORT_SECTIONS: ReportSectionConfig[] = [
   {
     id: "summaryMetrics",
     label: "Summary Metrics",
-    enabled: true,
+    enabled: false,
     requiredEvidence: ["products", "stores", "reviews", "media"]
   },
   {

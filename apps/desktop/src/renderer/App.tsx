@@ -5696,7 +5696,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         await wait(250);
         let previousCount = 0;
         let stablePasses = 0;
-        const passes = isStoreProductScope ? 56 : 4;
+        const passes = isStoreProductScope ? 56 : 32;
         for (let index = 0; index < passes; index += 1) {
           const currentCount = productScopeRoot.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
           const elementCanScroll = productScopeRoot.scrollHeight > productScopeRoot.clientHeight + 24;
@@ -5708,21 +5708,22 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           productScopeRoot.dispatchEvent?.(new Event("scroll", { bubbles: true }));
           window.dispatchEvent(new Event("scroll"));
           await wait(isStoreProductScope ? 520 : 260);
-          if (isStoreProductScope) {
+          if (isStoreProductScope || isSearchProductScope) {
             stablePasses = currentCount === previousCount ? stablePasses + 1 : 0;
-            if (currentCount >= 30 && stablePasses >= 3) {
+            const targetCount = isStoreProductScope ? 30 : 60;
+            if (currentCount >= targetCount && stablePasses >= 3) {
               break;
             }
             if (stablePasses >= 10 && index >= 18) {
               break;
             }
           }
-          if (!isStoreProductScope && currentCount === previousCount && index >= 3) {
+          if (!isStoreProductScope && !isSearchProductScope && currentCount === previousCount && index >= 3) {
             break;
           }
           previousCount = currentCount;
         }
-        if (!isStoreProductScope) {
+        if (!isStoreProductScope && !isSearchProductScope) {
           window.scrollTo({ top: originalScrollY });
         }
       };
@@ -5770,10 +5771,10 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       };
       const inferStoreType = (text, imageUrl, outerHtml) => {
         const value = compact([text, imageUrl, outerHtml].filter(Boolean).join(" ")).toLowerCase();
+        if (/star\\s*\\+|starplus|star-plus/u.test(value)) return "Star+";
+        if (/(^|[^a-z])star([^a-z]|$)/u.test(value)) return "Star";
         if (/mall\\s*ori|mallori|mall-ori/u.test(value)) return "Mall ORI";
         if (/shopee\\s*mall|mall/u.test(value)) return "Mall ORI";
-        if (/star\\s*\\+|starplus|star-plus/u.test(value)) return "Star+";
-        if (/star/u.test(value)) return "Star";
         return undefined;
       };
       const classifyBadgeImageByPixels = async (imageElement) => {
@@ -5804,7 +5805,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
             if (r > 180 && g >= 65 && g < 170 && b < 95) orange += 1;
           }
           const denominator = Math.max(bright, 1);
-          if (red / denominator > 0.12) return "Mall ORI";
+          const ratio = width / Math.max(height, 1);
+          if (red / denominator > 0.12) return ratio > 2.55 ? "Mall ORI" : "Star";
           if (orange / denominator > 0.10) {
             return width / height > 2.15 ? "Star+" : "Star";
           }
@@ -5986,8 +5988,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           });
         }
       };
-      const collectStoreGridRowsAcrossPage = async () => {
-        if (!isStoreProductScope) {
+      const collectProductRowsAcrossPage = async () => {
+        if (!isStoreProductScope && !isSearchProductScope) {
           await collectVisibleProductRows();
           return;
         }
@@ -5995,12 +5997,14 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         const originalScrollY = window.scrollY || root.scrollTop || 0;
         const rect = productScopeRoot.getBoundingClientRect();
         const startY = Math.max(0, rect.top + (window.scrollY || root.scrollTop || 0) - 80);
-        const step = Math.max(360, window.innerHeight * 0.58);
+        const step = Math.max(320, window.innerHeight * (isStoreProductScope ? 0.58 : 0.72));
+        const targetCount = isStoreProductScope ? 30 : 60;
+        const passLimit = isStoreProductScope ? 72 : 84;
         let stablePasses = 0;
         let lastCount = -1;
         window.scrollTo({ top: startY, behavior: "auto" });
         await wait(420);
-        for (let pass = 0; pass < 72; pass += 1) {
+        for (let pass = 0; pass < passLimit; pass += 1) {
           await collectVisibleProductRows();
           if (products.length === lastCount) {
             stablePasses += 1;
@@ -6008,23 +6012,30 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
             stablePasses = 0;
           }
           lastCount = products.length;
-          if (products.length >= 30 && stablePasses >= 3) {
+          if (products.length >= targetCount && stablePasses >= 3) {
             break;
           }
-          if (stablePasses >= 10 && pass >= 18) {
+          if (stablePasses >= 12 && pass >= 20) {
             break;
           }
           const nextTop = Math.min(
             Math.max(root.scrollHeight - window.innerHeight, startY),
             (window.scrollY || root.scrollTop || startY) + step
           );
-          window.scrollTo({ top: nextTop, behavior: "auto" });
-          await wait(460);
+          const currentTop = window.scrollY || root.scrollTop || startY;
+          if (nextTop <= currentTop + 4) {
+            stablePasses += 1;
+          } else {
+            window.scrollTo({ top: nextTop, behavior: "auto" });
+            productScopeRoot.dispatchEvent?.(new Event("scroll", { bubbles: true }));
+            window.dispatchEvent(new Event("scroll"));
+          }
+          await wait(isStoreProductScope ? 460 : 520);
         }
         await collectVisibleProductRows();
         window.scrollTo({ top: originalScrollY, behavior: "auto" });
       };
-      await collectStoreGridRowsAcrossPage();
+      await collectProductRowsAcrossPage();
       const textFrom = (element) => compact(element?.innerText || element?.textContent || "");
       const blockTextFromHtml = (element) => {
         if (!element) return "";
@@ -6114,9 +6125,24 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       ];
       const storeName = unique(shopNameCandidates).find(isGoodStoreName);
       const storeUrl = storeAnchor ? absoluteUrl(storeAnchor.getAttribute("href")) : undefined;
-      const pdpBadgeImage = findStoreBadgeImage(productPageRoot || document.body, undefined);
-      const storeType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
       const productPageText = textFrom(productPageRoot);
+      const productTitleText = meaningfulTitle(productPageText, "");
+      const titleElement = Array.from((productPageRoot || document.body).querySelectorAll("h1, h2, div, span"))
+        .find((element) => {
+          const value = compact(element.textContent || "");
+          return Boolean(value && productTitleText && (value === productTitleText || value.includes(productTitleText.slice(0, 48))));
+        });
+      const pdpBadgeRoots = [
+        titleElement?.parentElement,
+        titleElement?.closest?.("section"),
+        titleElement?.closest?.("div"),
+        shopSection,
+        productPageRoot || document.body
+      ].filter(Boolean);
+      const pdpBadgeImage = pdpBadgeRoots
+        .map((root) => findStoreBadgeImage(root, undefined))
+        .find(Boolean);
+      const storeType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
       const pdpSoldText = extractSoldText(productPageText);
       const pdpRatingText = extractRatingText(productPageText, pdpSoldText);
       const pdpReviewText = extractReviewText(productPageText);

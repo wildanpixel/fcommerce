@@ -2,6 +2,14 @@
 
 All notable changes to MarketPlace Keyword Competitor Analysis will be documented in this file.
 
+## Unreleased - 2026-07-13
+
+- Changed Product Detail Shop Home Page and Key Store Store Home Page report evidence to export as 9:16 portrait cards in DOCX, HTML, and PDF so long screenshots no longer render as blurred skinny strips.
+- Changed the default report section selection so Summary Metrics is off by default, matching the requested Project Inspector content view while keeping the section available as an opt-in report toggle.
+- Restyled HTML/PDF report output toward the Project Inspector content layout with a compact report header instead of a cover-style page.
+- Expanded Shopee first-page extraction for Relevance, Top Sales, Key Store Popular Products, and Best Sellers by scrolling the full grid and collecting rows during the scroll pass instead of stopping at the initially visible 12 products.
+- Fixed PDP Store Type badge detection so compact `Star` badges are preferred over broad Mall ORI badges found elsewhere on the page.
+
 ## Unreleased - 2026-07-12
 
 - Fixed structured DOCX product tables so thumbnail cells render actual JPEG-converted images instead of image URL text.

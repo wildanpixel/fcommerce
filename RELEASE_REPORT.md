@@ -1,28 +1,23 @@
 # MarketPlace Keyword Competitor Analysis - Release Report
 
-Release date: 2026-07-12  
+Release date: 2026-07-13
 Version: 1.0.0  
 Local platform: Windows  
-Release task: report export fidelity, Part 1 scoring, and Part 3 Key Store collection refinement
+Release task: report portrait evidence layout and full first-page Shopee extraction
 
 ## Summary
 
-This release fixes the remaining report export mismatch and Key Store collection issues. DOCX product thumbnails now render as real images, Product Detail slide/user-media output is compact, and Key Store Overall uses the same rationale model shown in Project Inspector. HTML/PDF reports now use expanded Project Inspector-style sections with product list rows and follow the user's active light/dark theme. Part 1 Key Product selection now applies the requested business-priority scoring labels. Part 3 Key Store collection captures store homepage evidence from page top through `.shop-decoration`, removes screenshot placeholders from data-only Popular Products and Best Sellers matrices, scans lazy-loaded store-grid rows, and hydrates `.shop-decoration` banner/carousel images before saving Visual Shop Banner assets.
+This release targets the latest report and collection regressions. Product Detail Shop Home Page and Key Store Store Home Page evidence now export as 9:16 portrait cards in DOCX, HTML, and PDF so long page captures do not become unreadable strips. HTML/PDF output now defaults to the Project Inspector content view without the vault metrics strip, while Summary Metrics remains available as an optional report section. Shopee Relevance, Top Sales, Key Store Popular Products, and Best Sellers extraction now scrolls through the first-page grid and collects products during the scroll pass instead of stopping at the first visible viewport. PDP Store Type detection now prioritizes compact `Star` badges from the product title/header area before broader Mall ORI fallback detection.
 
 ## Completed
 
-- Fixed DOCX product-table thumbnails so they render as JPEG-converted images instead of URL text.
-- Changed DOCX Slides and Media in user sections to compact image grids without repeated caption paragraphs.
-- Changed Key Store Overall export text to explain why the store was selected for the keyword using GMV, sold/month, promotion, trust, evidence readiness, and AI summary text when available.
-- Restyled HTML/PDF product sections as expanded Project Inspector-like list rows.
-- Added theme-aware HTML/PDF output that uses the last selected app theme.
-- Added Part 1 business-priority scoring for Key Product selection.
-- Changed Key Store Store Home Page capture to crop from the top of the store page through the bottom of `.shop-decoration`.
-- Renamed Key Store Products to Popular Products and Visual Style to Visual Shop Banner across the collection, inspector, and reports.
-- Removed empty screenshot/evidence placeholder boxes from Key Store Popular Products and Best Sellers in Project Inspector.
-- Strengthened Key Store Popular Products and Best Sellers extraction to scan lazy-loaded store rows while scrolling through the first page.
-- Improved Visual Shop Banner collection by hydrating `.shop-decoration`, cycling likely carousel controls, filtering product-card imagery, and downloading readable banner images.
-- Made the collapsed collection activity control compact while keeping actions reachable.
+- Added 9:16 portrait evidence rendering for Product Detail Shop Home Page and Key Store Store Home Page in DOCX.
+- Added 9:16 portrait evidence cards for the same long home-page captures in HTML/PDF reports.
+- Changed generated HTML/PDF reports to start with a compact Project Inspector-like header instead of a cover page.
+- Disabled Summary Metrics by default so generated reports omit vault metrics unless the user explicitly enables that section.
+- Expanded Relevance and Top Sales collection to scroll and collect the first-page search grid beyond the initially visible viewport.
+- Expanded Key Store Popular Products and Best Sellers collection to scroll and collect the first-page store grid beyond the initially visible viewport.
+- Tightened PDP Store Type extraction so compact `Star` badges are not overwritten by broader Mall ORI badges elsewhere on the page.
 - Updated `CHANGELOG.md`, `IMPLEMENTATION_STATUS.md`, `ROADMAP.md`, and this release report.
 
 ## Release Checklist
@@ -58,12 +53,12 @@ This release fixes the remaining report export mismatch and Key Store collection
 - `pnpm --filter @marketplace-intelligence-os/desktop test:e2e`: passed, 2 Playwright smoke tests.
 - `pnpm --filter @marketplace-intelligence-os/desktop build`: passed and regenerated Prisma.
 - `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64`: passed.
-- Packaged app startup smoke: passed; the Windows unpacked executable stayed running for 12 seconds and was closed cleanly.
+- Packaged app startup smoke: passed; the Windows unpacked executable stayed running for 15 seconds and was closed cleanly.
 
 ## Generated Artifacts
 
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,613,860 bytes.
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,383,581 bytes.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,614,294 bytes.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,384,014 bytes.
 - `apps/desktop/release/win-unpacked/MarketPlace Keyword Competitor Analysis.exe` - 201,233,920 bytes.
 
 ## Remaining Notes

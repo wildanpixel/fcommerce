@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-12
+Last updated: 2026-07-13
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -82,6 +82,10 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-12 | Part 3 store collection still captured broad/partial store evidence | Fixed | Store Home Page capture now runs from page top through `.shop-decoration`; Popular Products/Best Sellers are data-only grids without screenshot placeholders; extraction scans lazy-loaded store rows; Visual Shop Banner hydrates `.shop-decoration` banners before download. |
 | 2026-07-12 | Key Product selection lacked the requested business priority labels | Fixed | Part 1 Key Product processing now classifies selected products as Priority, High, Average, or Not recommended from price band, monthly sold, and total sold signals. |
 | 2026-07-12 | Report HTML/PDF theme drift | Fixed | HTML/PDF generation now receives the user's last light/dark mode and renders Project Inspector-style expanded sections with embedded CSS/JS. |
+| 2026-07-13 | Long shop-home/store-home evidence looked blurred in exports | Fixed | DOCX/HTML/PDF now render Product Detail Shop Home Page and Key Store Store Home Page assets as 9:16 portrait evidence cards instead of compressing the full long screenshot into a thin strip. |
+| 2026-07-13 | Reports still included dashboard metrics by default | Fixed | Summary Metrics is now off by default so generated HTML/PDF exports resemble the Project Inspector content area without the vault metric strip, while remaining selectable from report customization. |
+| 2026-07-13 | Shopee first-page product extraction stopped at the visible viewport | Fixed | Relevance, Top Sales, Key Store Popular Products, and Best Sellers now scroll and collect rows throughout the first-page grid before returning the browser to the original position. |
+| 2026-07-13 | PDP Store Type could misclassify compact Star badges as Mall ORI | Fixed | PDP badge detection now checks the product title/header area first and classifies compact red/orange badges as `Star` before broader Mall ORI fallbacks. |
 
 ## Sprint Overview
 

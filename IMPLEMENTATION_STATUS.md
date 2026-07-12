@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-12
+Last updated: 2026-07-13
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[#################---] 87%
+[##################--] 88%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -32,7 +32,7 @@ The overall percentage is a weighted product estimate based on foundation readin
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
 | M2 | Shopee Desktop | [####################] 99% | Partial |
-| M3 | Intelligence | [##################--] 88% | Partial |
+| M3 | Intelligence | [##################--] 90% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -116,6 +116,9 @@ Release blocker fixes:
 - 2026-07-12: Changed Key Store Overall report text to the same narrative selection model used in Project Inspector, including keyword benchmark rationale, GMV/sold/promotion signals, and AI summary text when available.
 - 2026-07-12: Refined Part 3 Key Store collection so Store Home Page captures from top through `.shop-decoration`, Popular Products/Best Sellers no longer show screenshot placeholders, store-grid extraction scans lazy-loaded rows while scrolling, and Visual Shop Banner hydrates `.shop-decoration` carousel/banner images before download.
 - 2026-07-12: Added business-priority scoring for Part 1 Key Product selection and made generated HTML/PDF reports use the user's last light/dark theme while preserving the Project Inspector-style expanded layout.
+- 2026-07-13: Improved report exports so long Product Detail Shop Home Page and Key Store Store Home Page evidence render as 9:16 portrait cards in DOCX/HTML/PDF, with Summary Metrics disabled by default for inspector-style reports.
+- 2026-07-13: Improved Shopee product extraction to scroll and collect the full first-page Relevance, Top Sales, Popular Products, and Best Sellers grids instead of only the initially visible 12 items.
+- 2026-07-13: Tightened PDP Store Type detection so compact `Star` badges are no longer overwritten by broader Mall ORI badges found elsewhere on the page.
 
 ## M1 Product Experience
 
