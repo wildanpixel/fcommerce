@@ -96,6 +96,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-13 | Screenshot review and Product Detail promotion sync were missing recent UX/data requirements | Fixed | Screenshot review now caps zoom at 400% with explicit area selection, and Product Detail background sync captures minimum-purchase/gift promotion signals alongside description, vouchers, and bundle deals. |
 | 2026-07-13 | Keyword Projects UI controls and delete actions were inconsistent | Fixed | Icon-only controls now render as true circles in light and dark mode, Vault Metrics and Report History use the shared soft card styling, Activity appears only on guided collection screens, and project deletion uses a simpler confirmation flow with pending-state protection. |
 | 2026-07-13 | Collection browser expand still left visible layout margins and some icon controls looked oval | Fixed | The expanded browser now portals to the app root for true edge-to-edge viewport coverage, and icon-only browser/collector controls have enforced circular sizing with Playwright regression coverage. |
+| 2026-07-13 | Embedded browser iframe/webview height could fail to inherit full expanded height | Fixed | Shared iframe/webview CSS now applies `height: 100%`, and the fullscreen smoke test verifies the rendered browser surface matches viewport height. |
 
 ## Sprint Overview
 

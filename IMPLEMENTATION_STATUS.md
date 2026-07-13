@@ -128,6 +128,7 @@ Release blocker fixes:
 - 2026-07-13: Reworked Key Product Top 10 selection to score the captured candidate pool by relevance, monthly sales from Top Sales, total sales from Relevance/PDP-enriched evidence, commercial value, thumbnail quality, duplicate handling, and data confidence.
 - 2026-07-13: Hardened project deletion through exact-title confirmation and explicit local database cleanup, improved screenshot review with 400% zoom limits and explicit area selection, and added minimum-purchase/gift promotions to Product Detail background sync.
 - 2026-07-13: Fixed the guided collection browser expand behavior so fullscreen now portals to the app root and fills the entire Electron viewport, with Playwright regression coverage for edge-to-edge layout and circular icon controls.
+- 2026-07-13: Added explicit iframe height inheritance for browser/report embedded frames and verified fullscreen browser surface height in Playwright.
 
 ## M1 Product Experience
 

@@ -36,6 +36,10 @@ test("renders the guided manual analysis flow", async ({ page }) => {
   expect(Math.round(fullscreenBox?.width ?? -1)).toBe(viewport?.width);
   expect(Math.round(fullscreenBox?.height ?? -1)).toBe(viewport?.height);
 
+  const webviewBox = await page.locator("webview").boundingBox();
+  expect(webviewBox).not.toBeNull();
+  expect(Math.round(webviewBox?.height ?? -1)).toBe(viewport?.height);
+
   const exitButtonBox = await page.getByRole("button", { name: "Exit fullscreen" }).boundingBox();
   expect(exitButtonBox).not.toBeNull();
   expect(Math.round(exitButtonBox?.width ?? -1)).toBe(Math.round(exitButtonBox?.height ?? -2));
