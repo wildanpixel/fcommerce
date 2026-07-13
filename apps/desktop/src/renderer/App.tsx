@@ -1,4 +1,5 @@
 import { FormEvent, PointerEvent, ReactNode, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -1050,6 +1051,7 @@ function GuidedBrowserCollector({
   const [zoomFactor, setZoomFactor] = useState(1);
   const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
   const [manualNoticeVisible, setManualNoticeVisible] = useState(false);
+  const [expandedPortalRoot, setExpandedPortalRoot] = useState<HTMLElement | null>(null);
   const [captureStatus, setCaptureStatus] = useState<BrowserCaptureStatus>({
     message: "Waiting for target page",
     state: "idle"
@@ -1061,6 +1063,10 @@ function GuidedBrowserCollector({
     queryKey: ["project-detail", project.id],
     queryFn: () => apiClient.projectDetail(project.id)
   });
+
+  useEffect(() => {
+    setExpandedPortalRoot(document.querySelector<HTMLElement>(".mio-app"));
+  }, []);
 
   const runAnalysis = useMutation({
     mutationFn: () => apiClient.analyzeProject(project.id),
@@ -1696,12 +1702,12 @@ function GuidedBrowserCollector({
       icon={Globe2}
       className={expanded ? "mio-browser-panel-expanded flex h-screen flex-col rounded-none border-0 p-0" : ""}
       action={
-        <button className="secondary-button h-9 w-9 px-0" type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Exit fullscreen" : "Expand browser"} title={expanded ? "Exit fullscreen" : "Expand browser"}>
+        <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Exit fullscreen" : "Expand browser"} title={expanded ? "Exit fullscreen" : "Expand browser"}>
           {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
         </button>
       }
     >
-      <div className="mio-browser-toolbar mb-3 grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2">
+        <div className="mio-browser-toolbar mb-3 grid min-w-0 grid-cols-[auto_minmax(180px,1fr)_auto_auto] items-center gap-2">
         <div className="flex items-center gap-1 rounded-lg border border-white/8 bg-white/5 p-1">
           <SegmentButton
             active={viewMode === "desktop"}
@@ -1718,29 +1724,29 @@ function GuidedBrowserCollector({
         </div>
         <input value={address} onChange={(event) => setAddress(event.target.value)} className="input mio-address-input" aria-label="Browser address" />
         <div className="flex items-center gap-2">
-          <button className="secondary-button w-10 px-0" type="button" onClick={goToAddress} aria-label="Go to address" title="Go">
+          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={goToAddress} aria-label="Go to address" title="Go">
             <ChevronRight size={15} />
           </button>
-          <button className="secondary-button w-10 px-0" type="button" onClick={() => webviewRef.current?.reload?.()} aria-label="Reload browser" title="Reload">
+          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={() => webviewRef.current?.reload?.()} aria-label="Reload browser" title="Reload">
             <RefreshCcw size={15} />
           </button>
-          <button className="secondary-button w-10 px-0" type="button" onClick={() => applyZoom(zoomFactor - 0.1)} aria-label="Zoom out" title="Zoom out">
+          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={() => applyZoom(zoomFactor - 0.1)} aria-label="Zoom out" title="Zoom out">
             <ZoomOut size={15} />
           </button>
-          <button className="secondary-button w-10 px-0" type="button" onClick={() => applyZoom(zoomFactor + 0.1)} aria-label="Zoom in" title="Zoom in">
+          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={() => applyZoom(zoomFactor + 0.1)} aria-label="Zoom in" title="Zoom in">
             <ZoomIn size={15} />
           </button>
-          <button className="secondary-button w-10 px-0" type="button" onClick={printCurrentPage} aria-label="Print current page" title="Print current page">
+          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={printCurrentPage} aria-label="Print current page" title="Print current page">
             <Printer size={15} />
           </button>
-          <button className="secondary-button w-10 px-0" type="button" onClick={() => void extractCurrentPageText()} aria-label="Extract visible page text" title="Extract visible page text">
+          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={() => void extractCurrentPageText()} aria-label="Extract visible page text" title="Extract visible page text">
             <TerminalSquare size={15} />
           </button>
         </div>
         <LoadStatePill state={loadState} />
       </div>
 
-      <div className={["mio-browser-frame relative min-h-0 overflow-hidden border border-white/12 bg-black", expanded ? "flex-1 rounded-none" : "rounded-[18px]", viewMode === "mobile" && !expanded ? "mx-auto h-[720px] max-w-[430px]" : expanded ? "h-screen w-screen" : "h-[720px] w-full"].join(" ")}>
+      <div className={["mio-browser-frame relative min-h-0 overflow-hidden border border-white/12 bg-black", expanded ? "flex-1 rounded-none" : "rounded-[18px]", viewMode === "mobile" && !expanded ? "mx-auto h-[720px] max-w-[430px]" : expanded ? "h-full w-full" : "h-[720px] w-full"].join(" ")}>
         <webview
           key={`${project.id}-${viewMode}`}
           ref={(node) => {
@@ -1867,7 +1873,7 @@ function GuidedBrowserCollector({
     />
   );
 
-  return (
+  const workspaceContent = (
     <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : `grid gap-5 ${activitySidebarOpen ? "grid-cols-[360px_minmax(0,1fr)_300px]" : "grid-cols-[360px_minmax(0,1fr)]"}`}>
       {!expanded && (
         <aside className="space-y-5">
@@ -2018,6 +2024,8 @@ function GuidedBrowserCollector({
       )}
     </section>
   );
+
+  return expanded && expandedPortalRoot ? createPortal(workspaceContent, expandedPortalRoot) : workspaceContent;
 }
 
 function CollectionStepPreview({
@@ -2427,7 +2435,7 @@ function FloatingStepController({
                   <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
                     <div className="truncate text-[10px] text-ink-500">{action.description}</div>
                     <button
-                      className="secondary-button h-7 w-8 px-0 text-[10px]"
+                      className="secondary-button mio-round-icon-button h-8 w-8 px-0 text-[10px]"
                       type="button"
                       disabled={!actionTargetUrl}
                       onClick={() => {
@@ -2461,10 +2469,10 @@ function FloatingStepController({
         {activeSubAction?.guidance && <div className="mt-2 rounded-md border border-signal-blue/20 bg-signal-blue/10 px-2 py-1.5 text-[10px] leading-4 text-signal-blue">{activeSubAction.guidance}</div>}
       </div>
       <div className={["mt-2 grid gap-2", usesSubActionCollectButtons ? "grid-cols-2" : "grid-cols-[auto_auto_minmax(0,1fr)]"].join(" ")}>
-        <button className="secondary-button h-9 w-10 px-0" type="button" onClick={onPrevious} aria-label="Previous step">
+        <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onPrevious} aria-label="Previous step">
           <ChevronLeft size={15} />
         </button>
-        <button className="secondary-button h-9 w-10 px-0" type="button" onClick={onNext} aria-label="Next step">
+        <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onNext} aria-label="Next step">
           <ChevronRight size={15} />
         </button>
         {!usesSubActionCollectButtons && targetUrl && (

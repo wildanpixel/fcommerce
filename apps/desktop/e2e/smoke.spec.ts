@@ -22,6 +22,23 @@ test("renders the guided manual analysis flow", async ({ page }) => {
   await expect(page.getByText(/Step 1\/\d+/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Expand collector" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Dark" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Expand browser" }).click();
+  const fullscreen = page.locator(".mio-browser-fullscreen");
+  await expect(fullscreen).toBeVisible();
+  const fullscreenBox = await fullscreen.boundingBox();
+  const viewport = page.viewportSize();
+
+  expect(fullscreenBox).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(Math.round(fullscreenBox?.x ?? -1)).toBe(0);
+  expect(Math.round(fullscreenBox?.y ?? -1)).toBe(0);
+  expect(Math.round(fullscreenBox?.width ?? -1)).toBe(viewport?.width);
+  expect(Math.round(fullscreenBox?.height ?? -1)).toBe(viewport?.height);
+
+  const exitButtonBox = await page.getByRole("button", { name: "Exit fullscreen" }).boundingBox();
+  expect(exitButtonBox).not.toBeNull();
+  expect(Math.round(exitButtonBox?.width ?? -1)).toBe(Math.round(exitButtonBox?.height ?? -2));
 });
 
 test("shows TikTok as a coming-soon platform", async ({ page }) => {
