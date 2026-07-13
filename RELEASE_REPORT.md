@@ -1,22 +1,21 @@
 # MarketPlace Keyword Competitor Analysis - Release Report
 
 Release date: 2026-07-13
-Version: 1.0.0  
-Local platform: Windows  
-Release task: PDF image rendering and compact report layout
+Version: 1.0.0
+Local platform: Windows
+Release task: full-grid extraction and Project Inspector UI refresh
 
 ## Summary
 
-This release fixes report export regressions reported in the latest generated PDF. PDF generation now prints from a file-backed temporary HTML document instead of an in-memory `setContent()` page, which lets local evidence images resolve correctly and waits for image loading before printing. HTML/PDF report layout now uses tighter A4 margins, smaller typography, denser product rows, and a centered maximum width for standalone HTML so reports remain comfortable on wide displays.
+This release fixes the remaining issue where Inspect Project could still show only a partial product set for Relevance, Top Sales, Key Store Popular Products, and Best Sellers. The fix raises the capture persistence cap, project-detail product load cap, and Shopee grid hydration targets so full first-page evidence can be saved and rendered. It also refreshes the Project Inspector UI toward the supplied soft white/grey reference with a large keyword title, pill actions, clustered metrics, circular saved progress, and a rounded report workspace.
 
 ## Completed
 
-- Fixed broken PDF report images by writing report HTML to a temporary file and navigating Puppeteer to that file URL before export.
-- Allowed local file evidence images during PDF printing and waited for image load/error completion before writing the final PDF.
-- Increased the Puppeteer PDF timeout for media-heavy reports so large evidence sets can finish rendering.
-- Reduced PDF page margins and print typography to avoid squeezed content and oversized text.
-- Added a centered `.report-shell` for generated HTML reports so wide-screen viewing stays readable.
-- Visually rendered a fresh `eyecream` PDF sample with Poppler and confirmed page images are no longer broken.
+- Increased Shopee search/store grid hydration targets so the collector keeps scrolling until the first-page grid is populated instead of stopping at the first visible cards.
+- Increased manual evidence product persistence from 80 to 120 products per capture.
+- Increased Project Inspector product loading from 50 to 500 products, with assets and reviews raised to support larger projects.
+- Reworked Project Inspector into a dedicated keyword page with large title, marketplace/date subtitle, pill Back/Collect/Delete actions, clustered metrics, saved URL/progress card, and rounded workspace.
+- Applied a broader light-theme visual refresh inspired by the attached reference while keeping existing dark-mode readability overrides.
 - Updated `CHANGELOG.md`, `IMPLEMENTATION_STATUS.md`, `ROADMAP.md`, and this release report.
 
 ## Release Checklist
@@ -25,8 +24,8 @@ This release fixes report export regressions reported in the latest generated PD
 | --- | --- |
 | Delete `dist` | Completed |
 | Delete `dist-node` | Completed |
-| Delete `release` | Completed after closing stale packaged app processes |
-| Generate Prisma | Passed through clean build |
+| Delete `release` | Completed after closing stale packaged app process |
+| Generate Prisma | Passed |
 | Clean build | Passed |
 | TypeScript | Passed |
 | ESLint | Passed |
@@ -38,7 +37,7 @@ This release fixes report export regressions reported in the latest generated PD
 | Generate macOS App | Not available locally on Windows; configured for GitHub Actions macOS runner |
 | Generate macOS DMG | Not available locally on Windows; configured for GitHub Actions macOS runner |
 | Launch packaged application automatically | Passed with `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` |
-| Verify packaged application version | Passed: package version `1.0.0` |
+| Verify packaged application version | Passed: health endpoint returned version `1.0.0` |
 | Update changelog | Completed |
 | Commit | Pending at report generation time |
 | Push | Pending at report generation time |
@@ -50,20 +49,20 @@ This release fixes report export regressions reported in the latest generated PD
 - `pnpm --filter @marketplace-intelligence-os/desktop lint`: passed.
 - `pnpm --filter @marketplace-intelligence-os/desktop test`: passed, 6 test files and 14 tests.
 - `pnpm --filter @marketplace-intelligence-os/desktop test:e2e`: passed, 2 Playwright smoke tests.
-- `pnpm --filter @marketplace-intelligence-os/desktop build`: passed and regenerated Prisma.
-- `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64`: passed.
-- Packaged app startup smoke: passed; the Windows unpacked executable stayed running for 15 seconds and was closed cleanly.
-- Visual PDF QA: generated `tmp/pdfs/current-renderer-report.pdf` from the local `eyecream` project, rendered pages 1-2 with Poppler, and confirmed evidence images render instead of broken placeholders.
+- `pnpm --filter @marketplace-intelligence-os/desktop prisma:generate`: passed.
+- `pnpm --filter @marketplace-intelligence-os/desktop build`: passed.
+- `pnpm --dir apps/desktop exec electron-builder --win --x64`: passed.
+- Packaged app startup smoke: passed; the Windows unpacked executable launched, responded on `http://127.0.0.1:4123/api/health`, reported version `1.0.0`, and was closed cleanly.
 
 ## Generated Artifacts
 
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,614,890 bytes.
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,384,612 bytes.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,615,984 bytes.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,385,701 bytes.
 - `apps/desktop/release/win-unpacked/MarketPlace Keyword Competitor Analysis.exe` - 201,233,920 bytes.
 
 ## Remaining Notes
 
+- Existing projects that were previously captured with only 12 stored rows must be recollected for those sections to contain the larger first-page product set.
 - macOS artifacts must be produced and verified on the GitHub Actions macOS runner.
 - Shopee login, captcha, verification, and protected pages remain user-controlled by design.
 - TikTok Shop is intentionally disabled from New Research until M5 implements a real marketplace adapter and normalized collection flow.
-- DOCX styling is outside this fix; this task addressed PDF image rendering, PDF density, and standalone HTML reading width.

@@ -708,3 +708,288 @@ webview {
   background: #2c3545;
   border-radius: 999px;
 }
+
+/* 2026-07 reference UI pass: softer OS-style surfaces with larger rounded project workspaces. */
+.mio-light {
+  background: #f4f7fb;
+}
+
+.mio-light .mio-main {
+  background: radial-gradient(circle at 50% -10%, rgba(255, 255, 255, 0.95), rgba(244, 247, 251, 0.98) 38%, #f0f4f9 100%);
+}
+
+.mio-light .mio-main::before {
+  background:
+    radial-gradient(circle at 58% 0%, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0) 38%),
+    linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(239, 244, 250, 0.98));
+}
+
+.mio-light .mio-sidebar {
+  background: linear-gradient(180deg, #f8fbff, #eef3f8);
+  border-right-color: rgba(96, 111, 132, 0.22);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.75);
+}
+
+.mio-light .mio-sidebar .secondary-button,
+.mio-light .mio-sidebar button.secondary-button {
+  border-color: transparent;
+  background: #d9dde4;
+  color: #3d4654;
+  box-shadow: none;
+}
+
+.mio-light .mio-nav-button {
+  border-radius: 12px;
+}
+
+.mio-light .mio-nav-active {
+  background: #dceafe;
+  color: #10213a;
+  box-shadow:
+    inset 3px 0 0 #2d6df6,
+    inset 0 0 0 1px rgba(45, 109, 246, 0.16);
+}
+
+.mio-light .mio-panel,
+.mio-light .mio-create-button,
+.mio-light .mio-glass {
+  border-color: rgba(110, 124, 148, 0.16);
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 28px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 18px 50px rgba(65, 78, 98, 0.08);
+}
+
+.mio-light .primary-button {
+  border-radius: 999px;
+  background: #2f63ea;
+  border-color: #2f63ea;
+  box-shadow: 0 14px 30px rgba(47, 99, 234, 0.24);
+}
+
+.mio-light .primary-button:hover {
+  background: #2459df;
+  border-color: #2459df;
+}
+
+.mio-light .secondary-button,
+.mio-light .input {
+  border-radius: 999px;
+}
+
+.mio-light .secondary-button {
+  background: #ffffff;
+  border-color: rgba(109, 121, 141, 0.22);
+  color: #172033;
+  box-shadow: 0 2px 5px rgba(34, 42, 57, 0.05);
+}
+
+.mio-light .secondary-button:hover {
+  background: #eef2f7;
+}
+
+.mio-inspect-page,
+.mio-project-inspector-page {
+  max-width: 1680px;
+  margin: 0 auto;
+}
+
+.mio-project-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.mio-project-title {
+  max-width: 980px;
+  overflow-wrap: anywhere;
+  color: #05070b;
+  font-size: clamp(42px, 4.8vw, 68px);
+  line-height: 0.96;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.mio-dark .mio-project-title {
+  color: #f8fbff;
+}
+
+.mio-project-subtitle {
+  margin-top: 14px;
+  color: #111827;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.mio-dark .mio-project-subtitle {
+  color: #d8e1ef;
+}
+
+.mio-project-hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding-top: 44px;
+}
+
+.mio-danger-round {
+  background: #ff1010 !important;
+  border-color: #ff1010 !important;
+  color: #0b0d12 !important;
+  box-shadow: none !important;
+}
+
+.mio-danger-round svg {
+  color: #0b0d12;
+}
+
+.mio-inspector-summary-row {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1fr);
+  gap: 34px;
+  align-items: stretch;
+  max-width: 1040px;
+}
+
+.mio-inspector-metrics-grid,
+.mio-saved-progress-compact {
+  min-height: 164px;
+  border-radius: 40px !important;
+  background: #e1e4e8 !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  padding: 28px !important;
+}
+
+.mio-inspector-metrics-grid .mio-metric-card {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 8px 12px !important;
+  border-radius: 0 !important;
+}
+
+.mio-inspector-metrics-grid .mio-metric-card:nth-child(1),
+.mio-inspector-metrics-grid .mio-metric-card:nth-child(3) {
+  border-right: 1px solid rgba(96, 111, 132, 0.26) !important;
+}
+
+.mio-inspector-metrics-grid .mio-metric-card:nth-child(1),
+.mio-inspector-metrics-grid .mio-metric-card:nth-child(2) {
+  border-bottom: 1px solid rgba(96, 111, 132, 0.26) !important;
+}
+
+.mio-inspector-metrics-grid .mio-metric-card .text-3xl {
+  color: #101828;
+  font-size: 32px;
+}
+
+.mio-inspector-metrics-grid .mio-metric-card .text-ink-500 {
+  color: #5b6677;
+}
+
+.mio-saved-progress-compact {
+  color: #101828;
+}
+
+.mio-saved-progress-compact .text-white {
+  color: #202838;
+}
+
+.mio-saved-progress-compact .text-ink-500,
+.mio-saved-progress-compact .text-ink-400 {
+  color: #5d6878;
+}
+
+.mio-project-workspace {
+  min-height: 560px;
+  border-radius: 42px;
+  background: #e1e4e8;
+  padding: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.mio-light .mio-project-workspace .mio-inspector-nav {
+  border: 0;
+  border-right: 1px solid rgba(96, 111, 132, 0.24);
+  background: transparent;
+  box-shadow: none;
+  border-radius: 30px 0 0 30px;
+}
+
+.mio-light .mio-project-workspace .mio-report-section,
+.mio-light .mio-project-workspace .mio-report-section details,
+.mio-light .mio-project-workspace .rounded-md {
+  border-color: rgba(96, 111, 132, 0.2);
+}
+
+.mio-light .mio-project-workspace .mio-report-section {
+  background: rgba(255, 255, 255, 0.54);
+  border-radius: 18px;
+}
+
+.mio-light .mio-project-workspace details[open] {
+  background-color: rgba(255, 255, 255, 0.34);
+}
+
+.mio-dark .mio-project-workspace {
+  background: #1f242d;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.mio-dark .mio-inspector-metrics-grid,
+.mio-dark .mio-saved-progress-compact {
+  background: #272d36 !important;
+  color: #e8eef8;
+}
+
+.mio-dark .mio-inspector-metrics-grid .mio-metric-card:nth-child(1),
+.mio-dark .mio-inspector-metrics-grid .mio-metric-card:nth-child(3),
+.mio-dark .mio-inspector-metrics-grid .mio-metric-card:nth-child(1),
+.mio-dark .mio-inspector-metrics-grid .mio-metric-card:nth-child(2) {
+  border-color: rgba(154, 170, 195, 0.18) !important;
+}
+
+.mio-dark .mio-inspector-metrics-grid .mio-metric-card .text-3xl,
+.mio-dark .mio-saved-progress-compact .text-white {
+  color: #f6f9ff;
+}
+
+.mio-dark .mio-saved-progress-compact .text-ink-500,
+.mio-dark .mio-saved-progress-compact .text-ink-400 {
+  color: #aab8cc;
+}
+
+.mio-dark .mio-project-workspace .mio-inspector-nav {
+  background: transparent;
+  border-color: rgba(154, 170, 195, 0.16);
+}
+
+.mio-dark .mio-project-workspace .mio-report-section,
+.mio-dark .mio-project-workspace .mio-report-section details,
+.mio-dark .mio-project-workspace .rounded-md,
+.mio-dark .mio-metric-card,
+.mio-dark .mio-panel,
+.mio-dark .mio-glass {
+  border-color: rgba(154, 170, 195, 0.16) !important;
+}
+
+@media (max-width: 1180px) {
+  .mio-inspector-summary-row {
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+
+  .mio-project-workspace {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .mio-project-workspace .mio-inspector-nav {
+    position: relative;
+    max-height: none;
+    border-right: 0;
+  }
+}

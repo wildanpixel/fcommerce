@@ -87,6 +87,8 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-13 | Shopee first-page product extraction stopped at the visible viewport | Fixed | Relevance, Top Sales, Key Store Popular Products, and Best Sellers now scroll and collect rows throughout the first-page grid before returning the browser to the original position. |
 | 2026-07-13 | PDP Store Type could misclassify compact Star badges as Mall ORI | Fixed | PDP badge detection now checks the product title/header area first and classifies compact red/orange badges as `Star` before broader Mall ORI fallbacks. |
 | 2026-07-13 | PDF report images rendered as broken placeholders and report pages felt squeezed | Fixed | PDF export now prints from a file-backed temporary HTML document, waits for local evidence images, uses a longer print timeout for media-heavy reports, and applies tighter margins with smaller report typography. |
+| 2026-07-13 | Inspect Project and Key Store grids still showed only partial product sets | Fixed | Evidence persistence now keeps up to 120 extracted products per capture, Project Inspector loads up to 500 products, and Shopee grid hydration targets were increased for Relevance, Top Sales, Popular Products, and Best Sellers. |
+| 2026-07-13 | Project Inspector UI did not match the requested soft reference layout | Improved | The inspector now uses a large keyword hero, pill actions, clustered metric/progress cards, and a rounded report workspace matching the supplied white/grey design direction. |
 
 ## Sprint Overview
 

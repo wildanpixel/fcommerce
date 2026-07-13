@@ -93,7 +93,7 @@ export class PrismaProjectRepository implements ProjectRepository {
       this.db.product.findMany({
         where: { projectId: id },
         orderBy: [{ rank: "asc" }, { createdAt: "asc" }],
-        take: 50
+        take: 500
       }),
       this.db.store.findMany({
         where: { projectId: id },
@@ -103,12 +103,12 @@ export class PrismaProjectRepository implements ProjectRepository {
       this.db.asset.findMany({
         where: { projectId: id },
         orderBy: { createdAt: "desc" },
-        take: 120
+        take: 500
       }),
       this.db.review.findMany({
         where: { product: { projectId: id } },
         orderBy: { createdAt: "desc" },
-        take: 120
+        take: 300
       }),
       this.db.analysis.findMany({
         where: { projectId: id },

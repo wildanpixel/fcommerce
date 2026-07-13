@@ -1043,7 +1043,7 @@ async function localizeManualEvidenceImages(
   let localizedImageCount = 0;
 
   for (const [index, product] of (input.extractedProducts ?? []).entries()) {
-    if (product.imageUrl && index < 80 && shouldLocalizeImageUrl(product.imageUrl)) {
+    if (product.imageUrl && index < 120 && shouldLocalizeImageUrl(product.imageUrl)) {
       const localImageUrl = await downloadImageAsJpeg(product.imageUrl, imageFolder, `${String(index + 1).padStart(2, "0")}-${slug(product.title).slice(0, 48)}`);
       if (localImageUrl) {
         localizedImageCount += 1;
@@ -1386,7 +1386,7 @@ async function persistExtractedProducts(
     return 0;
   }
 
-  const uniqueProducts = uniqueExtractedProducts(input.extractedProducts).slice(0, 80);
+  const uniqueProducts = uniqueExtractedProducts(input.extractedProducts).slice(0, 120);
   const medianPrice = median(uniqueProducts.map((product) => product.priceAverage ?? parsePrice(product.priceText)).filter(isFiniteNumber));
 
   await prisma.product.deleteMany({

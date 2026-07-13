@@ -4,6 +4,8 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-13
 
+- Removed the remaining first-page product bottlenecks by raising captured product persistence to 120 rows per evidence event, loading up to 500 project products in Project Inspector, and increasing Shopee grid hydration targets for Relevance, Top Sales, Popular Products, and Best Sellers.
+- Reworked the Project Inspector UI toward the provided soft white/grey reference: large keyword title, pill actions, clustered metric/progress cards, rounded inspector workspace, and calmer dark-mode borders.
 - Fixed PDF report image rendering by printing from a temporary file-backed HTML document, allowing local evidence images to resolve reliably before export.
 - Reduced PDF report margins and typography scale, and constrained standalone HTML reports to a comfortable centered reading width on large screens.
 - Changed Product Detail Shop Home Page and Key Store Store Home Page report evidence to export as 9:16 portrait cards in DOCX, HTML, and PDF so long screenshots no longer render as blurred skinny strips.

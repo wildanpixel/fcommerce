@@ -2683,7 +2683,6 @@ function ProjectsView() {
   const [collectionBrowserUrl, setCollectionBrowserUrl] = useState(SHOPEE_HOME_URL);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [projectViewMode, setProjectViewMode] = useState<"cards" | "list">("cards");
-  const inspectingProject = projects.find((project) => project.id === inspectingProjectId);
   const categories = useMemo(
     () => Array.from(new Set(projects.map((project) => project.productCategory).filter((value): value is string => Boolean(value?.trim())))).sort(),
     [projects]
@@ -2766,23 +2765,12 @@ function ProjectsView() {
 
   if (inspectingProjectId) {
     return (
-      <section className="space-y-5">
-        <div className="flex items-center justify-between gap-4">
-          <button className="secondary-button w-auto px-4" type="button" onClick={() => setInspectingProjectId("")}>
-            <ChevronLeft size={16} />
-            Back to Projects
-          </button>
-          {inspectingProject && (
-            <div className="min-w-0 text-right">
-              <div className="truncate text-lg font-semibold text-white">{inspectingProject.name}</div>
-              <div className="text-xs text-ink-500">{inspectingProject.marketplace} · {formatDateTime(inspectingProject.createdAt)}</div>
-            </div>
-          )}
-        </div>
+      <section className="mio-inspect-page">
         {detail.data ? (
           <ProjectInspectionPanel
             detail={detail.data}
             deleting={deleteProject.isPending}
+            onBack={() => setInspectingProjectId("")}
             onDelete={() => confirmDeleteProject(detail.data.project)}
             onContinueCollection={() => startProjectCollection(detail.data.project)}
           />
@@ -2886,11 +2874,13 @@ function ProjectsView() {
 function ProjectInspectionPanel({
   detail,
   deleting,
+  onBack,
   onDelete,
   onContinueCollection
 }: {
   detail: ProjectDetailPayload;
   deleting: boolean;
+  onBack: () => void;
   onDelete: () => void;
   onContinueCollection: () => void;
 }) {
@@ -2907,56 +2897,61 @@ function ProjectInspectionPanel({
     }
   });
   return (
-    <Panel
-      title="Project Inspector"
-      icon={Search}
-      action={
-        <div className="flex items-center gap-2">
-          <button className="primary-button h-9 w-auto px-3" type="button" onClick={onContinueCollection}>
+    <section className="mio-project-inspector-page space-y-6">
+      <div className="mio-project-hero">
+        <div className="min-w-0">
+          <h1 className="mio-project-title">{detail.project.name}</h1>
+          <div className="mio-project-subtitle">{marketplaceLabel(detail.project.marketplace)} | {formatDateTime(detail.project.createdAt)}</div>
+          <button className="secondary-button mt-5 h-10 w-auto rounded-full px-5" type="button" onClick={onBack}>
+            <ChevronLeft size={16} />
+            Back to Projects
+          </button>
+        </div>
+        <div className="mio-project-hero-actions">
+          <button className="primary-button h-10 w-auto rounded-full px-6" type="button" onClick={onContinueCollection}>
             <ClipboardCheck size={15} />
             {completed ? "Collect Again" : "Continue Collection"}
           </button>
-          <button className="secondary-button h-9 w-auto px-3 text-signal-rose" type="button" onClick={onDelete} disabled={deleting}>
-            <Trash2 size={15} />
-            Delete
+          <button className="secondary-button mio-danger-round h-10 w-10 rounded-full px-0 text-signal-rose" type="button" onClick={onDelete} disabled={deleting} aria-label="Delete project" title="Delete project">
+            <Trash2 size={16} />
           </button>
         </div>
-      }
-    >
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Metric icon={ImagePlus} label="Media" value={mediaCount} />
-        <Metric icon={ShoppingBag} label="Products" value={detail.products.length} />
-        <Metric icon={Store} label="Stores" value={detail.stores.length} />
-        <Metric icon={ListChecks} label="Reviews" value={detail.reviews.length} />
-        <Metric icon={FileDown} label="Reports" value={detail.reports.length} />
       </div>
 
-      <div className="mio-saved-progress-compact mt-4 rounded-md border border-white/8 bg-white/5 p-3">
-        <div className="grid items-center gap-3 md:grid-cols-[auto_minmax(0,1.1fr)_minmax(0,1.4fr)_auto]">
+      <div className="mio-inspector-summary-row">
+        <div className="mio-inspector-metrics-grid grid grid-cols-2 gap-3">
+          <Metric icon={ImagePlus} label="Media" value={mediaCount} />
+          <Metric icon={ShoppingBag} label="Products" value={detail.products.length} />
+          <Metric icon={Store} label="Stores" value={detail.stores.length} />
+          <Metric icon={ListChecks} label="Reviews" value={detail.reviews.length} />
+        </div>
+
+        <div className="mio-saved-progress-compact rounded-md border border-white/8 bg-white/5 p-3">
+          <div className="grid items-center gap-4 md:grid-cols-[auto_minmax(0,1fr)_minmax(0,1.2fr)]">
           <CircularProgress value={collectionState.progressPercent} />
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-white">Saved Collection Progress</div>
-            <div className="mt-1 truncate text-xs text-ink-500">{collectionState.stageLabel}</div>
+            <div className="text-base font-semibold text-white">Saved Collection Progress</div>
+            <div className="mt-1 truncate text-sm text-ink-500">{collectionState.stageLabel}</div>
           </div>
-          <div className="min-w-0">
-            <div className="mb-1 text-[11px] uppercase tracking-[0.12em] text-ink-500">Saved URL</div>
+          <div className="min-w-0 space-y-3">
             {collectionState.browserUrl ? (
-              <button className="secondary-button h-8 w-auto max-w-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(collectionState.browserUrl ?? "")}>
+              <button className="secondary-button h-8 w-auto max-w-full rounded-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(collectionState.browserUrl ?? "")}>
+                <span className="truncate">Saved URL</span>
                 <ExternalLink size={13} />
-                <span className="truncate">{collectionState.browserUrl}</span>
               </button>
             ) : (
               <div className="text-xs text-ink-400">No browser URL saved</div>
             )}
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-xs text-ink-400 md:grid-cols-1">
-            <InfoLine label="Current Step" value={collectionState.currentStepId ?? "Not selected"} />
-            <InfoLine label="View Mode" value={collectionState.viewMode ?? "Default"} />
+            <div className="grid grid-cols-2 gap-3 text-xs text-ink-400">
+              <InfoLine label="Current Step" value={collectionState.currentStepId ?? "Not selected"} />
+              <InfoLine label="View Mode" value={collectionState.viewMode ?? "Default"} />
+            </div>
           </div>
         </div>
       </div>
+      </div>
 
-      <div className={["mt-5 grid gap-5", outlineCollapsed ? "grid-cols-[48px_minmax(0,1fr)]" : "grid-cols-[240px_minmax(0,1fr)]"].join(" ")}>
+      <div className={["mio-project-workspace grid gap-5", outlineCollapsed ? "grid-cols-[48px_minmax(0,1fr)]" : "grid-cols-[260px_minmax(0,1fr)]"].join(" ")}>
         <ProjectOutlineNav
           title={detail.project.name}
           items={outlineItems}
@@ -2971,7 +2966,7 @@ function ProjectInspectionPanel({
           scoringProvider={runAnalysis.data?.provider}
         />
       </div>
-    </Panel>
+    </section>
   );
 }
 
@@ -5548,6 +5543,17 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
+function marketplaceLabel(value: ProjectSummary["marketplace"]): string {
+  switch (value) {
+    case "SHOPEE_ID":
+      return "Shopee";
+    case "TIKTOK_SHOP":
+      return "TikTok Shop";
+    default:
+      return value;
+  }
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) {
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -5696,7 +5702,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         await wait(250);
         let previousCount = 0;
         let stablePasses = 0;
-        const passes = isStoreProductScope ? 56 : 32;
+        const passes = isStoreProductScope ? 84 : 96;
         for (let index = 0; index < passes; index += 1) {
           const currentCount = productScopeRoot.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
           const elementCanScroll = productScopeRoot.scrollHeight > productScopeRoot.clientHeight + 24;
@@ -5710,7 +5716,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           await wait(isStoreProductScope ? 520 : 260);
           if (isStoreProductScope || isSearchProductScope) {
             stablePasses = currentCount === previousCount ? stablePasses + 1 : 0;
-            const targetCount = isStoreProductScope ? 30 : 60;
+            const targetCount = isStoreProductScope ? 60 : 72;
             if (currentCount >= targetCount && stablePasses >= 3) {
               break;
             }
@@ -5998,8 +6004,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         const rect = productScopeRoot.getBoundingClientRect();
         const startY = Math.max(0, rect.top + (window.scrollY || root.scrollTop || 0) - 80);
         const step = Math.max(320, window.innerHeight * (isStoreProductScope ? 0.58 : 0.72));
-        const targetCount = isStoreProductScope ? 30 : 60;
-        const passLimit = isStoreProductScope ? 72 : 84;
+        const targetCount = isStoreProductScope ? 60 : 72;
+        const passLimit = isStoreProductScope ? 96 : 108;
         let stablePasses = 0;
         let lastCount = -1;
         window.scrollTo({ top: startY, behavior: "auto" });
