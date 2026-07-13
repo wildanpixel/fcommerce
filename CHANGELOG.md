@@ -4,6 +4,9 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-13
 
+- Applied the supplied soft grey UI direction across the main product surfaces with rounder cards, pill controls, page spring transitions, liquid click feedback, and red delete controls with white trash icons.
+- Tightened Part 1 Key Product selection so the max-10 table prioritizes `Priority`, `High`, and `Platform recommended` products before lower-confidence products.
+- Filtered Product Detail voucher and Bundle Deals parsing so generic page headings and unrelated text are no longer saved as promotion signals.
 - Removed the remaining first-page product bottlenecks by raising captured product persistence to 120 rows per evidence event, loading up to 500 project products in Project Inspector, and increasing Shopee grid hydration targets for Relevance, Top Sales, Popular Products, and Best Sellers.
 - Reworked the Project Inspector UI toward the provided soft white/grey reference: large keyword title, pill actions, clustered metric/progress cards, rounded inspector workspace, and calmer dark-mode borders.
 - Fixed PDF report image rendering by printing from a temporary file-backed HTML document, allowing local evidence images to resolve reliably before export.

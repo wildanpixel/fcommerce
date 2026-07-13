@@ -258,10 +258,11 @@ export default function App() {
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeView}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.18 }}
+                className="mio-page-transition"
+                initial={{ opacity: 0, y: 18, scale: 0.982, filter: "blur(10px)" }}
+                animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -12, scale: 0.992, filter: "blur(8px)" }}
+                transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.72 }}
               >
                 {activeView === "research" && <ManualResearchExperience />}
                 {activeView === "projects" && <ProjectsView />}
@@ -2817,7 +2818,7 @@ function ProjectsView() {
               <div
                 key={project.id}
                 className={[
-                  "w-full rounded-md border border-white/8 bg-white/5 p-4 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10",
+                  "mio-project-card w-full rounded-md border border-white/8 bg-white/5 p-4 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10",
                   projectViewMode === "list" ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4" : ""
                 ].join(" ")}
               >
@@ -2856,9 +2857,8 @@ function ProjectsView() {
                       Continue Collection
                     </button>
                   )}
-                  <button className="secondary-button h-9 w-auto px-3 text-signal-rose" type="button" onClick={() => confirmDeleteProject(project)}>
+                  <button className="secondary-button mio-danger-round h-9 w-9 rounded-full px-0" type="button" onClick={() => confirmDeleteProject(project)} aria-label={`Delete ${project.name}`} title={`Delete ${project.name}`}>
                     <Trash2 size={14} />
-                    Delete
                   </button>
                 </div>
               </div>
@@ -3975,7 +3975,7 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
                     <FileDown size={14} />
                     DOCX
                   </button>
-                  <button className="secondary-button h-9 px-3 text-xs text-signal-rose" type="button" disabled={deleteReport.isPending} onClick={() => confirmDeleteReport(report)}>
+                  <button className="secondary-button mio-danger-round h-9 px-3 text-xs" type="button" disabled={deleteReport.isPending} onClick={() => confirmDeleteReport(report)}>
                     <Trash2 size={14} />
                     Delete
                   </button>
@@ -5022,7 +5022,13 @@ function selectKeyProductCandidates(products: ProjectProductEvidence[]): Project
   }
   const candidates = Array.from(merged.values()).filter((product) => product.title && product.productUrl);
   return candidates
-    .sort((left, right) => businessSelectionScore(right, candidates) - businessSelectionScore(left, candidates))
+    .sort((left, right) => {
+      const tierDelta = businessSelectionTier(right, candidates) - businessSelectionTier(left, candidates);
+      if (tierDelta !== 0) {
+        return tierDelta;
+      }
+      return businessSelectionScore(right, candidates) - businessSelectionScore(left, candidates);
+    })
     .slice(0, 10);
 }
 
@@ -5083,6 +5089,23 @@ function businessSelectionScore(product: ProjectProductEvidence, pool: ProjectPr
   return productQualityScore(product) + selectionPriorityBoost(selectionPriority(product, pool));
 }
 
+function businessSelectionTier(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): number {
+  const priority = selectionPriority(product, pool);
+  if (priority === "Priority") {
+    return 4;
+  }
+  if (priority === "High") {
+    return 3;
+  }
+  if (isPlatformRecommendedProduct(product)) {
+    return 2;
+  }
+  if (priority === "Average") {
+    return 1;
+  }
+  return 0;
+}
+
 function selectionPriorityBoost(priority: string): number {
   switch (priority) {
     case "Priority":
@@ -5113,7 +5136,14 @@ function selectionReasonForDisplay(product: ProjectProductEvidence, pool: Projec
   if (priority === "Not recommended") {
     return `Not recommended - low sold/month and low total sold${existing ? ` / ${existing}` : ""}`;
   }
+  if (isPlatformRecommendedProduct(product)) {
+    return `Platform recommended${existing ? ` / ${existing}` : ""}`;
+  }
   return existing || "platform recommended";
+}
+
+function isPlatformRecommendedProduct(product: ProjectProductEvidence): boolean {
+  return product.source === "Relevance" || /platform recommended/iu.test(product.selectionReason ?? "");
 }
 
 function selectionPriority(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): "Priority" | "High" | "Average" | "Not recommended" | "Review" {
@@ -6155,11 +6185,15 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       const voucherRoot = document.querySelector("section.mini-vouchers .mini-vouchers-with-popover") || document.querySelector("section.mini-vouchers");
       const shopVouchers = unique(textFrom(voucherRoot).split(/\\n|\\s{2,}|(?=Rp\\s)|(?=Diskon)|(?=Voucher)|(?=Cashback)/iu))
         .filter((value) => value.length >= 3)
+        .filter((value) => /voucher|diskon|cashback|off|rp\\s*\\d|%/iu.test(value))
         .slice(0, 12);
       const bundleSection = Array.from(document.querySelectorAll("section"))
-        .find((section) => /bundle deals|paket hemat|bundling/iu.test(section.querySelector("h2")?.textContent || section.textContent || ""));
+        .find((section) => /^(bundle deals|paket hemat|bundling)$/iu.test(compact(section.querySelector("h2")?.textContent || "")) ||
+          /bundle deals|paket hemat|bundling/iu.test(compact(section.querySelector("h2")?.textContent || "")));
       const bundleDeals = unique(textFrom(bundleSection).split(/\\n|\\s{2,}/u))
         .filter((value) => value.length >= 3)
+        .filter((value) => !/^(bundle deals|paket hemat|bundling)$/iu.test(value))
+        .filter((value) => /rp\\s*\\d|\\d+\\s*%|off|discount|diskon|bundle|paket|hemat|beli|buy|gratis|free/iu.test(value))
         .slice(0, 12);
       const reviewRoot = document.querySelector(".product-ratings");
       const commentRoot = document.querySelector(".product-comment-list") || reviewRoot;

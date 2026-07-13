@@ -121,6 +121,8 @@ Release blocker fixes:
 - 2026-07-13: Fixed PDF report image rendering by printing from a file-backed temporary HTML document, waiting for local evidence images before export, and reducing PDF/HTML report margins and typography for denser readable output.
 - 2026-07-13: Tightened PDP Store Type detection so compact `Star` badges are no longer overwritten by broader Mall ORI badges found elsewhere on the page.
 - 2026-07-13: Removed the remaining first-page row bottlenecks by raising evidence product persistence to 120 rows, loading up to 500 project products in Project Inspector, increasing Shopee grid hydration targets for search/store pages, and refreshing the inspector UI toward the provided soft white/grey reference layout.
+- 2026-07-13: Extended the soft grey UI reference style across the app shell, Keyword Projects, New Research, Reports, Settings, and collection surfaces with spring page transitions, liquid click feedback, and white-on-red delete controls.
+- 2026-07-13: Tightened Part 1 Key Product ranking to prioritize `Priority`, `High`, and `Platform recommended` rows in the max-10 table, and filtered Product Detail Bundle Deals/voucher promotion signals to avoid generic page-heading noise.
 
 ## M1 Product Experience
 

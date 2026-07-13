@@ -89,6 +89,8 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-13 | PDF report images rendered as broken placeholders and report pages felt squeezed | Fixed | PDF export now prints from a file-backed temporary HTML document, waits for local evidence images, uses a longer print timeout for media-heavy reports, and applies tighter margins with smaller report typography. |
 | 2026-07-13 | Inspect Project and Key Store grids still showed only partial product sets | Fixed | Evidence persistence now keeps up to 120 extracted products per capture, Project Inspector loads up to 500 products, and Shopee grid hydration targets were increased for Relevance, Top Sales, Popular Products, and Best Sellers. |
 | 2026-07-13 | Project Inspector UI did not match the requested soft reference layout | Improved | The inspector now uses a large keyword hero, pill actions, clustered metric/progress cards, and a rounded report workspace matching the supplied white/grey design direction. |
+| 2026-07-13 | UI style was inconsistent across pages | Improved | The supplied soft grey reference styling is now applied across shared panels, project cards, page transitions, navigation, reports, settings, and collection surfaces, with spring transitions and red delete controls. |
+| 2026-07-13 | Key Product ranking and promotion signals were too noisy | Fixed | Part 1 selection now buckets `Priority`, `High`, and `Platform recommended` rows before lower-confidence products, and Product Detail voucher/Bundle Deals parsing filters generic headings or unrelated page text. |
 
 ## Sprint Overview
 

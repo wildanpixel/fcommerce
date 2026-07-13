@@ -1684,10 +1684,10 @@ function extractProductEnrichment(
     ? structured.reviews.map(toReviewEvidence)
     : [];
   const shopVouchers = collectDescriptionPromotions
-    ? mergeUnique(structured?.shopVouchers ?? extractSectionKeywords(text, ["voucher", "diskon", "cashback"], 8))
+    ? filterPromotionSignals(mergeUnique(structured?.shopVouchers ?? extractSectionKeywords(text, ["voucher", "diskon", "cashback"], 8)), "voucher")
     : [];
   const bundleDeals = collectDescriptionPromotions
-    ? mergeUnique(structured?.bundleDeals ?? extractSectionKeywords(text, ["bundle deals", "paket hemat", "bundling"], 8))
+    ? filterPromotionSignals(mergeUnique(structured?.bundleDeals ?? extractSectionKeywords(text, ["bundle deals", "paket hemat", "bundling"], 8)), "bundle")
     : [];
   return {
     title: safeProductTitle(extractHtmlTitle(html) ?? inferTitleFromText(text, product.title), product.title),
@@ -2343,6 +2343,22 @@ function extractSectionKeywords(text: string, labels: string[], limit: number): 
     .filter((line) => line.length >= 3 && line.length <= 80)
     .filter((line) => labels.some((label) => line.toLowerCase().includes(label.toLowerCase())));
   return mergeUnique(lines).slice(0, limit);
+}
+
+function filterPromotionSignals(values: string[], kind: "voucher" | "bundle"): string[] {
+  return mergeUnique(values)
+    .map((value) => cleanText(value))
+    .filter((value) => value.length >= 3 && value.length <= 120)
+    .filter((value) => {
+      if (kind === "voucher") {
+        return /voucher|diskon|cashback|off|rp\s*\d|%/iu.test(value);
+      }
+      if (/^(bundle deals|paket hemat|bundling)$/iu.test(value)) {
+        return false;
+      }
+      return /rp\s*\d|\d+\s*%|off|discount|diskon|bundle|paket|hemat|beli|buy|gratis|free/iu.test(value);
+    })
+    .slice(0, 8);
 }
 
 function extractVisualTheme(text: string, kind: ManualEvidencePayload["kind"]): StoreProfile["visualTheme"] {
