@@ -123,6 +123,9 @@ Release blocker fixes:
 - 2026-07-13: Removed the remaining first-page row bottlenecks by raising evidence product persistence to 120 rows, loading up to 500 project products in Project Inspector, increasing Shopee grid hydration targets for search/store pages, and refreshing the inspector UI toward the provided soft white/grey reference layout.
 - 2026-07-13: Extended the soft grey UI reference style across the app shell, Keyword Projects, New Research, Reports, Settings, and collection surfaces with spring page transitions, liquid click feedback, and white-on-red delete controls.
 - 2026-07-13: Tightened Part 1 Key Product ranking to prioritize `Priority`, `High`, and `Platform recommended` rows in the max-10 table, and filtered Product Detail Bundle Deals/voucher promotion signals to avoid generic page-heading noise.
+- 2026-07-13: Added the animated startup pre-screen with Wildan Ega Pradana attribution, moved Activity access beside the light/dark control, fixed expanded-browser rendering, and added collapse/uncollapse motion plus circular icon-only controls.
+- 2026-07-13: Reworked Key Product Top 10 selection to score the captured candidate pool by relevance, monthly sales from Top Sales, total sales from Relevance/PDP-enriched evidence, commercial value, thumbnail quality, duplicate handling, and data confidence.
+- 2026-07-13: Hardened project deletion through exact-title confirmation and explicit local database cleanup, improved screenshot review with 400% zoom limits and explicit area selection, and added minimum-purchase/gift promotions to Product Detail background sync.
 
 ## M1 Product Experience
 

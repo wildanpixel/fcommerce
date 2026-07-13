@@ -218,7 +218,22 @@ export class PrismaProjectRepository implements ProjectRepository {
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.project.delete({ where: { id } });
+    const products = await this.db.product.findMany({
+      where: { projectId: id },
+      select: { id: true }
+    });
+    const productIds = products.map((product) => product.id);
+    await this.db.$transaction([
+      ...(productIds.length > 0 ? [this.db.review.deleteMany({ where: { productId: { in: productIds } } })] : []),
+      this.db.logEntry.deleteMany({ where: { projectId: id } }),
+      this.db.researchJob.deleteMany({ where: { projectId: id } }),
+      this.db.asset.deleteMany({ where: { projectId: id } }),
+      this.db.analysis.deleteMany({ where: { projectId: id } }),
+      this.db.report.deleteMany({ where: { projectId: id } }),
+      this.db.product.deleteMany({ where: { projectId: id } }),
+      this.db.store.deleteMany({ where: { projectId: id } }),
+      this.db.project.delete({ where: { id } })
+    ]);
   }
 }
 

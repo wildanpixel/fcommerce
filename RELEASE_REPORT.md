@@ -3,35 +3,36 @@
 Release date: 2026-07-13
 Version: 1.0.0
 Local platform: Windows
-Release task: app-wide UI reference pass, Key Product priority ranking, and promotion-signal cleanup
+Release task: startup polish, collection UX fixes, weighted Key Product ranking, and packaged validation
 
 ## Summary
 
-This release applies the supplied soft grey UI direction across the main application surfaces, adds spring page transitions and liquid click feedback, and standardizes destructive actions as red controls with white trash icons. It also tightens Part 1 Key Product selection so the max-10 table is led by `Priority`, `High`, and `Platform recommended` products, and filters Product Detail voucher/Bundle Deals parsing so generic headings or unrelated Shopee page text are not saved as promotion signals.
+This release adds the animated startup pre-screen, improves light/dark collection UI consistency, fixes expanded-browser rendering, hardens project deletion, and reworks Key Product Top 10 selection with weighted commercial scoring across relevance, monthly sales, total sales, commercial value, thumbnail quality, duplicates, and data confidence.
 
 ## Completed
 
-- Applied the reference UI language to shared panels, project cards, sidebar states, report sections, settings, collection surfaces, and browser/workspace containers.
-- Added spring-based page transitions through the existing Framer Motion page wrapper.
-- Added global click/tap compression for buttons, project cards, and collapsible report summaries.
-- Changed delete controls to red danger buttons with white trash icons.
-- Changed Key Product selection to bucket candidates by business priority before score sorting.
-- Preserved the max-10 Key Product table rule while demoting `Average` and `Not recommended` rows behind stronger product tags.
-- Filtered Product Detail voucher and Bundle Deals capture to keep real promotion-like signals and reject standalone labels such as `Bundle Deals`.
-- Updated `CHANGELOG.md`, `IMPLEMENTATION_STATUS.md`, `ROADMAP.md`, and this release report.
+- Added startup animation with product identity and Wildan Ega Pradana attribution.
+- Moved the collection Activity control beside the light/dark control.
+- Added collapse/uncollapse transitions and circular icon-only controls.
+- Fixed the expanded browser state so the embedded browser remains visible full screen.
+- Hardened Keyword Project deletion with exact title confirmation and explicit dependent-data cleanup.
+- Added screenshot review zoom limits up to 400%, explicit select-area mode, and grab/pan cursor behavior.
+- Made capture status notifications readable with glass backgrounds.
+- Added minimum-purchase/gift promotion capture to Product Detail background sync.
+- Reworked Key Product Top 10 selection so Monthly Sold comes from Top Sales, Total Sold comes from Relevance/PDP-enriched evidence, and final ranking follows weighted commercial scoring rather than simple sales sorting.
 
 ## Release Checklist
 
 | Step | Result |
 | --- | --- |
-| Delete `dist` | Pending validation |
-| Delete `dist-node` | Pending validation |
-| Delete `release` | Pending validation |
-| Generate Prisma | Pending validation |
-| Clean build | Pending validation |
+| Delete `dist` | Completed |
+| Delete `dist-node` | Completed |
+| Delete `release` | Completed after stopping stale packaged app processes |
+| Generate Prisma | Passed |
 | TypeScript | Passed |
 | ESLint | Passed |
 | Unit tests | Passed |
+| Clean build | Passed |
 | Playwright tests | Passed |
 | Package Electron | Passed through `electron-builder --win --x64` |
 | Generate Windows Installer | Completed |
@@ -39,31 +40,34 @@ This release applies the supplied soft grey UI direction across the main applica
 | Generate macOS App | Not available locally on Windows; configured for GitHub Actions macOS runner |
 | Generate macOS DMG | Not available locally on Windows; configured for GitHub Actions macOS runner |
 | Launch packaged application automatically | Passed with `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` |
-| Verify packaged application version | Passed: health endpoint returned version `1.0.0` |
+| Verify packaged application version | Passed: `/api/health` returned version `1.0.0` |
+| Verify database initialization | Passed: packaged `/api/settings` and `/api/dashboard` returned data through Prisma |
 | Update changelog | Completed |
-| Commit | Pending validation |
-| Push | Pending validation |
-| Verify GitHub Actions | Pending after push |
+| Commit | Completed |
+| Push | Completed |
+| Verify GitHub Actions | Passed for CI and Build Desktop Artifacts |
 
 ## Local Validation
 
+- `pnpm --filter desktop prisma:generate`: passed.
 - `pnpm --filter desktop typecheck`: passed.
 - `pnpm --filter desktop lint`: passed.
 - `pnpm --filter desktop test`: passed, 6 test files and 14 tests.
-- `pnpm --filter desktop test:e2e`: passed, 2 Playwright smoke tests.
-- `pnpm --filter desktop prisma:generate`: passed.
 - `pnpm --filter desktop build`: passed.
-- `pnpm --dir apps/desktop exec electron-builder --win --x64`: passed.
-- Packaged app startup smoke: passed; `/api/health` returned `{"ok":true,"product":"MarketPlace Keyword Competitor Analysis","version":"1.0.0"}`.
+- `pnpm --filter desktop exec playwright test`: passed, 2 Playwright smoke tests.
+- `pnpm --filter desktop exec electron-builder --win --x64`: passed.
+- Packaged startup smoke: passed; `/api/health` returned `{"ok":true,"product":"MarketPlace Keyword Competitor Analysis","version":"1.0.0"}`.
+- Packaged database smoke: passed; `/api/settings` returned `SHOPEE_ID` and `/api/dashboard` returned 11 projects and 2 completed reports.
+- GitHub Actions: passed for `CI` and `Build Desktop Artifacts`.
 
 ## Generated Artifacts
 
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,616,668 bytes.
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,386,275 bytes.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,619,295 bytes.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,389,008 bytes.
 - `apps/desktop/release/win-unpacked/MarketPlace Keyword Competitor Analysis.exe` - 201,233,920 bytes.
 
 ## Remaining Notes
 
-- Existing saved projects with older 12-row evidence must be recollected for Relevance, Top Sales, Popular Products, or Best Sellers to display larger product sets.
+- Existing saved projects with older evidence must be recollected if the user wants the newest weighted Top 10 logic and expanded first-page product pools applied to that data.
 - macOS artifacts must be produced and verified on the GitHub Actions macOS runner.
 - Shopee login, captcha, verification, and protected pages remain user-controlled by design.

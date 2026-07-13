@@ -35,6 +35,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingBag,
+  Sparkles,
   Smartphone,
   Store,
   Sun,
@@ -208,6 +209,30 @@ type RenderedProductDetailSnapshot = {
   reviewMediaVideos: string[];
 };
 
+type ProductSelectionClassification =
+  | "Priority"
+  | "High"
+  | "Average - Emerging Product"
+  | "Average - Established but Slowing"
+  | "Platform recommended"
+  | "Not Recommended"
+  | "Review";
+
+type ProductSelectionDiagnostics = {
+  classification: ProductSelectionClassification;
+  finalScore: number;
+  relevanceScore: number;
+  monthlySalesScore: number;
+  totalSalesScore: number;
+  commercialValueScore: number;
+  thumbnailScore: number;
+  confidence: "High" | "Medium" | "Low";
+  priceLevel: "low" | "medium" | "high" | "unknown";
+  monthlySalesLevel: "low" | "medium" | "high" | "unknown";
+  totalSalesLevel: "low" | "medium" | "high" | "unknown";
+  clickPotential: "Very High" | "High" | "Medium" | "Low" | "Very Low";
+};
+
 type CropRect = {
   x: number;
   y: number;
@@ -237,9 +262,20 @@ export default function App() {
   const activeView = useUiStore((state) => state.activeView);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowSplash(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  function requestActivityToggle() {
+    window.dispatchEvent(new CustomEvent("mio:toggle-activity"));
+  }
 
   return (
     <div className={`mio-app ${themeMode === "light" ? "mio-light" : "mio-dark"} min-h-screen bg-ink-950 text-ink-100`}>
+      <AnimatePresence>{showSplash && <SplashScreen />}</AnimatePresence>
       <div className={["grid min-h-screen transition-[grid-template-columns] duration-300 ease-out", sidebarVisible ? "grid-cols-[264px_minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)]"].join(" ")}>
         <AnimatePresence>{sidebarVisible && <Sidebar onHide={() => setSidebarVisible(false)} />}</AnimatePresence>
         <main className="mio-main min-w-0 border-l border-white/8 bg-[linear-gradient(180deg,#10141d,#090b10_48%)]">
@@ -253,7 +289,12 @@ export default function App() {
               <PanelLeftOpen size={17} />
             </button>
           )}
-          <TopBar themeMode={themeMode} onThemeToggle={() => setThemeMode((value) => (value === "dark" ? "light" : "dark"))} />
+          <TopBar
+            themeMode={themeMode}
+            onThemeToggle={() => setThemeMode((value) => (value === "dark" ? "light" : "dark"))}
+            showActivityButton={activeView === "research" || activeView === "projects"}
+            onActivityToggle={requestActivityToggle}
+          />
           <div className="relative px-8 pb-10">
             <AnimatePresence mode="wait">
               <motion.div
@@ -274,6 +315,45 @@ export default function App() {
         </main>
       </div>
     </div>
+  );
+}
+
+function SplashScreen() {
+  return (
+    <motion.div
+      className="mio-splash fixed inset-0 z-[120] flex items-center justify-center bg-[#f6f8fb]"
+      initial={{ opacity: 1 }}
+      exit={{ opacity: 0, filter: "blur(12px)" }}
+      transition={{ duration: 0.34, ease: "easeOut" }}
+    >
+      <motion.div
+        className="mio-splash-card flex flex-col items-center text-center"
+        initial={{ y: 18, scale: 0.96, opacity: 0 }}
+        animate={{ y: 0, scale: 1, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 240, damping: 20, mass: 0.8 }}
+      >
+        <motion.div
+          className="mio-splash-logo mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-signal-blue text-white"
+          animate={{ y: [0, -8, 0], rotate: [0, -2, 2, 0] }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <Brain size={36} />
+        </motion.div>
+        <motion.div
+          className="text-4xl font-black tracking-[-0.04em] text-ink-950"
+          initial={{ letterSpacing: "-0.12em", opacity: 0 }}
+          animate={{ letterSpacing: "-0.04em", opacity: 1 }}
+          transition={{ delay: 0.14, duration: 0.5 }}
+        >
+          MarketPlace Keyword
+        </motion.div>
+        <div className="mt-2 text-sm font-medium text-ink-500">Competitor Analysis</div>
+        <div className="mt-8 flex items-center gap-2 rounded-full bg-black/5 px-4 py-2 text-xs font-semibold text-ink-500">
+          <Sparkles size={14} className="text-signal-blue" />
+          Made by {APP_AUTHOR_NAME}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -355,17 +435,34 @@ function Sidebar({ onHide }: { onHide: () => void }) {
   );
 }
 
-function TopBar({ themeMode, onThemeToggle }: { themeMode: ThemeMode; onThemeToggle: () => void }) {
+function TopBar({
+  themeMode,
+  onThemeToggle,
+  showActivityButton,
+  onActivityToggle
+}: {
+  themeMode: ThemeMode;
+  onThemeToggle: () => void;
+  showActivityButton?: boolean;
+  onActivityToggle?: () => void;
+}) {
   return (
     <header className="flex h-16 items-center justify-between px-8">
       <div>
         <div className="text-xs uppercase tracking-[0.16em] text-ink-500">{APP_DISPLAY_NAME}</div>
         <h1 className="text-lg font-semibold text-white">Manual Evidence Collection</h1>
       </div>
-      <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onThemeToggle}>
-        {themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-        {themeMode === "dark" ? "Light" : "Dark"}
-      </button>
+      <div className="flex items-center gap-2">
+        <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onThemeToggle}>
+          {themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          {themeMode === "dark" ? "Light" : "Dark"}
+        </button>
+        {showActivityButton && (
+          <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onActivityToggle} aria-label="Toggle activity" title="Activity">
+            <Gauge size={15} />
+          </button>
+        )}
+      </div>
     </header>
   );
 }
@@ -995,8 +1092,8 @@ function GuidedBrowserCollector({
       }
     : activeStep;
   const selectedKeyProducts = useMemo(
-    () => selectKeyProductCandidates(projectDetail.data?.products ?? []),
-    [projectDetail.data?.products]
+    () => selectKeyProductCandidates(projectDetail.data?.products ?? [], project.keyword),
+    [project.keyword, projectDetail.data?.products]
   );
   const collectedCount = allSteps.filter((step) => isCollectionStepComplete(step, collectedSteps)).length;
   const stageCollectedCount = steps.filter((step) => isCollectionStepComplete(step, collectedSteps)).length;
@@ -1024,6 +1121,12 @@ function GuidedBrowserCollector({
     }, 5000);
     return () => window.clearTimeout(timer);
   }, [captureStatus.message, captureStatus.state]);
+
+  useEffect(() => {
+    const toggleActivity = () => setActivitySidebarOpen((value) => !value);
+    window.addEventListener("mio:toggle-activity", toggleActivity);
+    return () => window.removeEventListener("mio:toggle-activity", toggleActivity);
+  }, []);
 
   useEffect(() => {
     setActiveSubActionId(undefined);
@@ -1265,7 +1368,7 @@ function GuidedBrowserCollector({
   }
 
   function applyZoom(nextZoom: number) {
-    const clamped = Math.max(0.5, Math.min(2, Number(nextZoom.toFixed(2))));
+    const clamped = Math.max(0.4, Math.min(4, Number(nextZoom.toFixed(2))));
     setZoomFactor(clamped);
     webviewRef.current?.setZoomFactor?.(clamped);
   }
@@ -1749,7 +1852,7 @@ function GuidedBrowserCollector({
   );
 
   return (
-    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : `grid gap-5 ${activitySidebarOpen ? "grid-cols-[360px_minmax(0,1fr)_300px]" : "grid-cols-[360px_minmax(0,1fr)_48px]"}`}>
+    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : `grid gap-5 ${activitySidebarOpen ? "grid-cols-[360px_minmax(0,1fr)_300px]" : "grid-cols-[360px_minmax(0,1fr)]"}`}>
       {!expanded && (
         <aside className="space-y-5">
           <button className="secondary-button" type="button" onClick={onNewAnalysis}>
@@ -1872,35 +1975,29 @@ function GuidedBrowserCollector({
             ? evaluationPanel
             : browserPanel}
       </div>
-      {!expanded && (
+      {!expanded && activitySidebarOpen && (
         <aside className={[
           "sticky top-4 self-start overflow-hidden border border-white/8 bg-white/5",
-          activitySidebarOpen ? "h-[calc(100vh-96px)] rounded-[18px]" : "h-12 rounded-full"
+          "h-[calc(100vh-96px)] rounded-[18px]"
         ].join(" ")}>
-          {activitySidebarOpen ? (
-            <div className="flex h-full flex-col p-3">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <Gauge size={16} className="text-signal-blue" />
-                  Activity
-                </div>
-                <button className="secondary-button h-8 w-8 px-0" type="button" onClick={() => setActivitySidebarOpen(false)} aria-label="Collapse activity">
-                  <ChevronRight size={14} />
-                </button>
+          <div className="flex h-full flex-col p-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Gauge size={16} className="text-signal-blue" />
+                Activity
               </div>
-              <div className="min-h-0 flex-1 space-y-2 overflow-auto pr-1">
-                {activityLog.map((entry) => (
-                  <div key={entry} className="rounded-md border border-white/8 bg-white/5 px-3 py-2 text-xs leading-5 text-ink-300">
-                    {entry}
-                  </div>
-                ))}
-              </div>
+              <button className="secondary-button mio-round-icon-button h-8 w-8 px-0" type="button" onClick={() => setActivitySidebarOpen(false)} aria-label="Collapse activity">
+                <ChevronRight size={14} />
+              </button>
             </div>
-          ) : (
-            <button className="flex h-full w-full items-center justify-center text-ink-400 hover:text-white" type="button" onClick={() => setActivitySidebarOpen(true)} aria-label="Open activity" title="Activity">
-              <Gauge size={17} />
-            </button>
-          )}
+            <div className="min-h-0 flex-1 space-y-2 overflow-auto pr-1">
+              {activityLog.map((entry) => (
+                <div key={entry} className="rounded-md border border-white/8 bg-white/5 px-3 py-2 text-xs leading-5 text-ink-300">
+                  {entry}
+                </div>
+              ))}
+            </div>
+          </div>
         </aside>
       )}
     </section>
@@ -2141,10 +2238,10 @@ function BrowserCaptureStatusPill({
     <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2">
       <div
         className={[
-          "pointer-events-auto flex items-center gap-2 rounded-full border px-3 py-2 text-xs shadow-glow backdrop-blur-2xl",
-          status.state === "failed" ? "border-signal-rose/35 bg-signal-rose/15 text-signal-rose" : "",
-          status.state === "done" ? "border-signal-green/35 bg-signal-green/15 text-signal-green" : "",
-          status.state === "working" ? "border-signal-blue/35 bg-signal-blue/15 text-signal-blue" : ""
+          "mio-capture-status-pill pointer-events-auto flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold shadow-glow backdrop-blur-2xl",
+          status.state === "failed" ? "mio-capture-status-failed" : "",
+          status.state === "done" ? "mio-capture-status-done" : "",
+          status.state === "working" ? "mio-capture-status-working" : ""
         ].join(" ")}
       >
         <span>{status.message}</span>
@@ -2539,6 +2636,7 @@ function ScreenshotReviewModal({
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [selection, setSelection] = useState<CropRect | null>(null);
   const [previewZoom, setPreviewZoom] = useState(1);
+  const [selectionMode, setSelectionMode] = useState(false);
 
   useEffect(() => {
     setPreviewZoom(1);
@@ -2546,7 +2644,7 @@ function ScreenshotReviewModal({
   }, [capture.payload.imageDataUrl]);
 
   function applyPreviewZoom(nextZoom: number) {
-    setPreviewZoom(Math.max(0.35, Math.min(4, Number(nextZoom.toFixed(2)))));
+    setPreviewZoom(Math.max(0.5, Math.min(4, Number(nextZoom.toFixed(2)))));
   }
 
   function handlePreviewWheel(event: WheelEvent<HTMLDivElement>) {
@@ -2564,6 +2662,9 @@ function ScreenshotReviewModal({
   }
 
   function startSelection(event: PointerEvent<HTMLDivElement>) {
+    if (!selectionMode) {
+      return;
+    }
     const point = pointerPosition(event);
     setDragStart(point);
     setSelection({ x: point.x, y: point.y, width: 0, height: 0 });
@@ -2571,7 +2672,7 @@ function ScreenshotReviewModal({
   }
 
   function updateSelection(event: PointerEvent<HTMLDivElement>) {
-    if (!dragStart) {
+    if (!selectionMode || !dragStart) {
       return;
     }
     const point = pointerPosition(event);
@@ -2624,13 +2725,20 @@ function ScreenshotReviewModal({
             <button className="secondary-button h-9 w-9 px-0" type="button" onClick={() => applyPreviewZoom(previewZoom + 0.2)} aria-label="Zoom screenshot in" title="Zoom in">
               <ZoomIn size={15} />
             </button>
+            <button
+              className={["secondary-button h-9 w-auto px-3 text-xs", selectionMode ? "border-signal-blue/55 bg-signal-blue/12 text-signal-blue" : ""].join(" ")}
+              type="button"
+              onClick={() => setSelectionMode((value) => !value)}
+            >
+              {selectionMode ? "Selecting" : "Select Area"}
+            </button>
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onCancel} disabled={saving}>
               Redo
             </button>
           </div>
         </div>
         <div
-          className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/12 bg-black/85"
+          className={["relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/12 bg-black/85", selectionMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"].join(" ")}
           onWheel={handlePreviewWheel}
           onPointerDown={startSelection}
           onPointerMove={updateSelection}
@@ -2659,7 +2767,7 @@ function ScreenshotReviewModal({
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-ink-400">
-            Scroll or pinch to zoom. Drag over the focused area to crop; use Redo if the capture is wrong.
+            Scroll or pinch to zoom. Use Select Area before dragging a crop box; the default pointer is for grabbing the zoomed preview.
           </div>
           <div className="flex items-center gap-2">
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => onSave(capture.payload)} disabled={saving}>
@@ -2703,13 +2811,18 @@ function ProjectsView() {
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["reports"] })
       ]);
+    },
+    onError: (error) => {
+      window.alert(error instanceof Error ? error.message : "Could not delete this project.");
     }
   });
 
   function confirmDeleteProject(project: ProjectSummary) {
     const confirmation = window.prompt(`Delete keyword project "${project.name}"? Type the exact project title to confirm.`);
-    if (confirmation === project.name) {
+    if (confirmation?.trim() === project.name.trim()) {
       deleteProject.mutate(project.id);
+    } else if (confirmation !== null) {
+      window.alert("Project title did not match. Delete was cancelled.");
     }
   }
 
@@ -2985,7 +3098,7 @@ function ProjectReportOutline({
 }) {
   const relevanceProducts = detail.products.filter((product) => product.source === "Relevance");
   const topSalesProducts = detail.products.filter((product) => product.source === "Top Sales");
-  const keyProducts = selectKeyProductCandidates(detail.products);
+  const keyProducts = selectKeyProductCandidates(detail.products, detail.project.keyword);
   return (
     <div className="space-y-3">
       <ReportOutlineSection id="keyword-general" title="Keyword General" defaultOpen>
@@ -3044,7 +3157,7 @@ function ProjectReportOutline({
 }
 
 function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; label: string; depth: number }> {
-  const keyProducts = selectKeyProductCandidates(detail.products);
+  const keyProducts = selectKeyProductCandidates(detail.products, detail.project.keyword);
   return [
     { id: "keyword-general", label: "Keyword General", depth: 0 },
     { id: "keyword-general", label: "Relevance", depth: 1 },
@@ -3196,7 +3309,7 @@ function KeyStorePanel({
   if (!candidate) {
     return <EmptyState label="No Key Store selected yet. Complete Product Detail Qualified and run Evaluation Phase scoring first." />;
   }
-  const matchingProducts = selectKeyProductCandidates(detail.products)
+  const matchingProducts = selectKeyProductCandidates(detail.products, detail.project.keyword)
     .filter((product) => normalizeStoreKey(product) === candidate.key);
   const latestAnalysis = [...detail.analyses].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
   const conclusionSentences = keyStoreOverallConclusions(candidate, latestAnalysis?.resultJson);
@@ -4621,7 +4734,7 @@ function buildShopeeSteps(
   const storeReady = isShopeeStorePage(currentUrl);
   const hasRelevanceProducts = products.some((product) => product.source === "Relevance");
   const hasTopSalesProducts = products.some((product) => product.source === "Top Sales");
-  const keyProducts = selectKeyProductCandidates(products);
+  const keyProducts = selectKeyProductCandidates(products, project.keyword);
   const keyStoreSeed = selectKeyStoreSeedProduct(keyProducts);
   const keyStoreUrl = keyStoreSeed?.storeUrl ?? undefined;
   const keyStoreBrandName = keyStoreSeed?.storeName ?? storeNameFromUrl(keyStoreUrl) ?? project.keyword;
@@ -5009,9 +5122,13 @@ function storeNameFromUrl(value?: string): string | undefined {
   }
 }
 
-function selectKeyProductCandidates(products: ProjectProductEvidence[]): ProjectProductEvidence[] {
+function selectKeyProductCandidates(products: ProjectProductEvidence[], keyword = ""): ProjectProductEvidence[] {
   const merged = new Map<string, ProjectProductEvidence>();
-  for (const product of products.filter(isQualifiedProductSource)) {
+  for (const rawProduct of products.filter(isQualifiedProductSource)) {
+    const product = normalizeProductSelectionSignals(rawProduct);
+    if (!isRelevantProductCandidate(product, keyword)) {
+      continue;
+    }
     const key = normalizeProductKey(product);
     const current = merged.get(key);
     if (!current || productQualityScore(product) > productQualityScore(current)) {
@@ -5022,18 +5139,50 @@ function selectKeyProductCandidates(products: ProjectProductEvidence[]): Project
   }
   const candidates = Array.from(merged.values()).filter((product) => product.title && product.productUrl);
   return candidates
+    .filter((product) => selectionDiagnostics(product, candidates, keyword).classification !== "Not Recommended")
     .sort((left, right) => {
-      const tierDelta = businessSelectionTier(right, candidates) - businessSelectionTier(left, candidates);
+      const rightDiagnostics = selectionDiagnostics(right, candidates, keyword);
+      const leftDiagnostics = selectionDiagnostics(left, candidates, keyword);
+      const tierDelta = selectionTier(rightDiagnostics.classification) - selectionTier(leftDiagnostics.classification);
       if (tierDelta !== 0) {
         return tierDelta;
       }
-      return businessSelectionScore(right, candidates) - businessSelectionScore(left, candidates);
+      return rightDiagnostics.finalScore - leftDiagnostics.finalScore ||
+        rightDiagnostics.relevanceScore - leftDiagnostics.relevanceScore ||
+        (right.monthlySold ?? 0) - (left.monthlySold ?? 0) ||
+        (right.totalSold ?? 0) - (left.totalSold ?? 0) ||
+        rightDiagnostics.commercialValueScore - leftDiagnostics.commercialValueScore ||
+        rightDiagnostics.thumbnailScore - leftDiagnostics.thumbnailScore ||
+        (right.rating ?? 0) - (left.rating ?? 0) ||
+        (right.reviewCount ?? 0) - (left.reviewCount ?? 0);
     })
-    .slice(0, 10);
+    .slice(0, 10)
+    .map((product) => ({
+      ...product,
+      selectionReason: selectionReasonForDisplay(product, candidates, keyword)
+    }));
 }
 
 function isQualifiedProductSource(product: ProjectProductEvidence): boolean {
   return product.source !== "Store Products" && product.source !== "Store Best Sellers";
+}
+
+function normalizeProductSelectionSignals(product: ProjectProductEvidence): ProjectProductEvidence {
+  if (product.source === "Top Sales" && !hasPdpDetailSignal(product)) {
+    return {
+      ...product,
+      totalSold: undefined,
+      totalSoldText: undefined
+    };
+  }
+  if (product.source === "Relevance") {
+    return {
+      ...product,
+      monthlySold: undefined,
+      monthlySoldText: undefined
+    };
+  }
+  return product;
 }
 
 function normalizeProductKey(product: ProjectProductEvidence): string {
@@ -5049,6 +5198,9 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
   if (!base) {
     return preferred;
   }
+  const topSalesSignals = [preferred, base].find((product) => product.source === "Top Sales");
+  const relevanceSignals = [preferred, base].find((product) => product.source === "Relevance");
+  const pdpTotalSignals = [preferred, base].find(hasPdpDetailSignal);
   return {
     ...preferred,
     sourcePlacement: mergePlacementLabels([productSourcePlacement(preferred), productSourcePlacement(base)]),
@@ -5057,10 +5209,10 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
     storeType: preferred.storeType ?? base.storeType,
     ratingText: preferred.ratingText ?? base.ratingText,
     reviewText: preferred.reviewText ?? base.reviewText,
-    monthlySoldText: preferred.monthlySoldText ?? base.monthlySoldText,
-    totalSoldText: preferred.totalSoldText ?? base.totalSoldText,
-    monthlySold: preferred.monthlySold ?? base.monthlySold,
-    totalSold: preferred.totalSold ?? base.totalSold,
+    monthlySoldText: topSalesSignals?.monthlySoldText ?? preferred.monthlySoldText ?? base.monthlySoldText,
+    totalSoldText: relevanceSignals?.totalSoldText ?? pdpTotalSignals?.totalSoldText,
+    monthlySold: topSalesSignals?.monthlySold ?? preferred.monthlySold ?? base.monthlySold,
+    totalSold: relevanceSignals?.totalSold ?? pdpTotalSignals?.totalSold,
     reviewCount: preferred.reviewCount ?? base.reviewCount,
     rating: preferred.rating ?? base.rating,
     storeName: preferred.storeName ?? base.storeName,
@@ -5074,6 +5226,10 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
   };
 }
 
+function hasPdpDetailSignal(product: ProjectProductEvidence): boolean {
+  return Boolean(product.storeName || product.reviewText || product.description || product.images.length || product.videos.length);
+}
+
 function productQualityScore(product: ProjectProductEvidence): number {
   const topSalesBoost = product.source === "Top Sales" ? 120 - Math.min(product.rank ?? 99, 99) : 35 - Math.min(product.rank ?? 35, 35);
   const monthlySoldScore = product.monthlySold ? Math.log10(product.monthlySold + 1) * 18 : 0;
@@ -5085,59 +5241,49 @@ function productQualityScore(product: ProjectProductEvidence): number {
   return topSalesBoost + monthlySoldScore + totalSoldScore + reviewScore + ratingScore + priceScore + imageScore;
 }
 
-function businessSelectionScore(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): number {
-  return productQualityScore(product) + selectionPriorityBoost(selectionPriority(product, pool));
-}
-
-function businessSelectionTier(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): number {
-  const priority = selectionPriority(product, pool);
-  if (priority === "Priority") {
-    return 4;
-  }
-  if (priority === "High") {
-    return 3;
-  }
-  if (isPlatformRecommendedProduct(product)) {
-    return 2;
-  }
-  if (priority === "Average") {
-    return 1;
-  }
-  return 0;
-}
-
-function selectionPriorityBoost(priority: string): number {
-  switch (priority) {
+function selectionTier(classification: ProductSelectionClassification): number {
+  switch (classification) {
     case "Priority":
-      return 95;
+      return 5;
     case "High":
-      return 70;
-    case "Average":
-      return 30;
-    case "Not recommended":
-      return -60;
+      return 4;
+    case "Platform recommended":
+      return 3;
+    case "Average - Emerging Product":
+      return 2;
+    case "Average - Established but Slowing":
+      return 1;
+    case "Not Recommended":
+      return -1;
     default:
       return 0;
   }
 }
 
-function selectionReasonForDisplay(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): string {
-  const priority = selectionPriority(product, pool);
+function selectionReasonForDisplay(product: ProjectProductEvidence, pool: ProjectProductEvidence[], keyword = ""): string {
+  if (product.selectionReason && /final score\s+\d+\/100/iu.test(product.selectionReason)) {
+    return product.selectionReason;
+  }
+  const diagnostics = selectionDiagnostics(product, pool, keyword);
+  const priority = diagnostics.classification;
   const existing = mergeReasonLabels(product.selectionReason);
   if (priority === "Priority") {
-    return `Priority - high price, high sold/month, and high total sold${existing ? ` / ${existing}` : ""}`;
+    return `Priority - high price, high sold/month, high total sold, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
   }
   if (priority === "High") {
-    return `High - low price, high sold/month, and high total sold${existing ? ` / ${existing}` : ""}`;
+    return `High - low price with high sold/month and high total sold, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
   }
-  if (priority === "Average") {
-    return `Average - mixed price, sold/month, and total sold signals${existing ? ` / ${existing}` : ""}`;
+  if (priority === "Average - Emerging Product") {
+    return `Average - Emerging Product, high sold/month with growing historical sales, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
   }
-  if (priority === "Not recommended") {
+  if (priority === "Average - Established but Slowing") {
+    return `Average - Established but Slowing, historical sales are stronger than current demand, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+  }
+  if (priority === "Not Recommended") {
     return `Not recommended - low sold/month and low total sold${existing ? ` / ${existing}` : ""}`;
   }
-  if (isPlatformRecommendedProduct(product)) {
-    return `Platform recommended${existing ? ` / ${existing}` : ""}`;
+  if (priority === "Platform recommended") {
+    return `Platform recommended - relevant search placement with supporting sales signal, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
   }
   return existing || "platform recommended";
 }
@@ -5146,55 +5292,232 @@ function isPlatformRecommendedProduct(product: ProjectProductEvidence): boolean 
   return product.source === "Relevance" || /platform recommended/iu.test(product.selectionReason ?? "");
 }
 
-function selectionPriority(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): "Priority" | "High" | "Average" | "Not recommended" | "Review" {
-  const priceBand = priceBandForProduct(product, pool);
-  const soldMonth = product.monthlySold ?? 0;
-  const totalSold = product.totalSold ?? 0;
-  const highMonthly = isHighSignal(soldMonth, pool.map((item) => item.monthlySold ?? 0));
-  const lowMonthly = !highMonthly;
-  const highTotal = isHighSignal(totalSold, pool.map((item) => item.totalSold ?? 0));
-  const lowTotal = !highTotal;
-  if (priceBand === "high" && highMonthly && highTotal) {
+function selectionDiagnostics(product: ProjectProductEvidence, pool: ProjectProductEvidence[], keyword = ""): ProductSelectionDiagnostics {
+  const priceLevel = percentileLevel(product.priceAverage, pool.map((item) => item.priceAverage));
+  const monthlySalesLevel = percentileLevel(product.monthlySold, pool.map((item) => item.monthlySold));
+  const totalSalesLevel = percentileLevel(product.totalSold, pool.map((item) => item.totalSold));
+  const relevanceScore = relevanceScoreForProduct(product, keyword);
+  const monthlySalesScore = normalizedSignalScore(product.monthlySold, pool.map((item) => item.monthlySold));
+  const totalSalesScore = normalizedSignalScore(product.totalSold, pool.map((item) => item.totalSold));
+  const thumbnailScore = thumbnailHeuristicScore(product, keyword);
+  const commercialValueScore = commercialScore(priceLevel, monthlySalesLevel, totalSalesLevel, product);
+  const classification = productClassification(priceLevel, monthlySalesLevel, totalSalesLevel, product, keyword);
+  const adjustment = classificationAdjustment(classification);
+  const confidence = dataConfidence(product);
+  const confidencePenalty = confidence === "High" ? 0 : confidence === "Medium" ? 4 : 10;
+  const finalScore = Math.max(0, Math.min(100, Math.round(
+    relevanceScore * 0.3 +
+    monthlySalesScore * 0.25 +
+    totalSalesScore * 0.2 +
+    commercialValueScore * 0.15 +
+    thumbnailScore * 0.1 +
+    adjustment -
+    confidencePenalty
+  )));
+  return {
+    classification,
+    finalScore,
+    relevanceScore,
+    monthlySalesScore,
+    totalSalesScore,
+    commercialValueScore,
+    thumbnailScore,
+    confidence,
+    priceLevel,
+    monthlySalesLevel,
+    totalSalesLevel,
+    clickPotential: clickPotentialFromThumbnail(thumbnailScore)
+  };
+}
+
+function productClassification(
+  priceLevel: ProductSelectionDiagnostics["priceLevel"],
+  monthlySalesLevel: ProductSelectionDiagnostics["monthlySalesLevel"],
+  totalSalesLevel: ProductSelectionDiagnostics["totalSalesLevel"],
+  product: ProjectProductEvidence,
+  keyword = ""
+): ProductSelectionClassification {
+  if (monthlySalesLevel === "low" && totalSalesLevel === "low") {
+    return "Not Recommended";
+  }
+  if (priceLevel === "high" && monthlySalesLevel === "high" && totalSalesLevel === "high") {
     return "Priority";
   }
-  if (priceBand === "low" && highMonthly && highTotal) {
+  if (priceLevel === "low" && monthlySalesLevel === "high" && totalSalesLevel === "high") {
     return "High";
   }
-  if (priceBand === "mid" && highMonthly && lowTotal) {
-    return "Average";
+  if (priceLevel === "medium" && monthlySalesLevel === "high" && (totalSalesLevel === "low" || totalSalesLevel === "medium")) {
+    return "Average - Emerging Product";
   }
-  if (priceBand === "high" && lowMonthly && highTotal) {
-    return "Average";
+  if (priceLevel === "high" && monthlySalesLevel === "low" && totalSalesLevel === "high") {
+    return "Average - Established but Slowing";
   }
-  if (product.priceAverage && lowMonthly && lowTotal) {
-    return "Not recommended";
+  if (isPlatformRecommendedProduct(product) && relevanceScoreForProduct(product, keyword) >= 58) {
+    return "Platform recommended";
   }
   return "Review";
 }
 
-function priceBandForProduct(product: ProjectProductEvidence, pool: ProjectProductEvidence[]): "low" | "mid" | "high" | "unknown" {
-  const prices = pool.map((item) => item.priceAverage).filter((value): value is number => typeof value === "number" && value > 0).sort((left, right) => left - right);
-  if (!product.priceAverage || prices.length === 0) {
-    return "unknown";
+function classificationAdjustment(classification: ProductSelectionClassification): number {
+  switch (classification) {
+    case "Priority":
+      return 10;
+    case "High":
+      return 7;
+    case "Average - Emerging Product":
+      return 4;
+    case "Average - Established but Slowing":
+      return 2;
+    case "Not Recommended":
+      return -15;
+    default:
+      return 0;
   }
-  const medianPrice = prices[Math.floor(prices.length / 2)] ?? product.priceAverage;
-  if (product.priceAverage >= medianPrice * 1.25) {
-    return "high";
-  }
-  if (product.priceAverage <= medianPrice * 0.78) {
-    return "low";
-  }
-  return "mid";
 }
 
-function isHighSignal(value: number, values: number[]): boolean {
-  const usable = values.filter((item) => item > 0).sort((left, right) => left - right);
-  if (value <= 0 || usable.length === 0) {
+function commercialScore(
+  priceLevel: ProductSelectionDiagnostics["priceLevel"],
+  monthlySalesLevel: ProductSelectionDiagnostics["monthlySalesLevel"],
+  totalSalesLevel: ProductSelectionDiagnostics["totalSalesLevel"],
+  product: ProjectProductEvidence
+): number {
+  const levelScore = {
+    unknown: 38,
+    low: 42,
+    medium: 66,
+    high: 88
+  } satisfies Record<ProductSelectionDiagnostics["priceLevel"], number>;
+  let score = Math.round(levelScore[monthlySalesLevel] * 0.5 + levelScore[totalSalesLevel] * 0.32 + levelScore[priceLevel] * 0.18);
+  if (priceLevel === "high" && monthlySalesLevel === "high" && totalSalesLevel === "high") {
+    score = 100;
+  } else if (priceLevel === "low" && monthlySalesLevel === "high" && totalSalesLevel === "high") {
+    score = 86;
+  } else if (monthlySalesLevel === "low" && totalSalesLevel === "low") {
+    score = 18;
+  }
+  if (!product.priceAverage || !product.monthlySold || !product.totalSold) {
+    score -= 8;
+  }
+  return Math.max(0, Math.min(100, score));
+}
+
+function percentileLevel(value: number | null | undefined, values: Array<number | null | undefined>): "low" | "medium" | "high" | "unknown" {
+  if (typeof value !== "number" || value <= 0) {
+    return "unknown";
+  }
+  const usable = values.filter((item): item is number => typeof item === "number" && item > 0).sort((left, right) => left - right);
+  if (usable.length < 3) {
+    return "medium";
+  }
+  const lowerIndex = Math.max(0, Math.floor((usable.length - 1) * 0.33));
+  const upperIndex = Math.max(lowerIndex, Math.floor((usable.length - 1) * 0.67));
+  const lower = usable[lowerIndex] ?? value;
+  const upper = usable[upperIndex] ?? value;
+  if (value <= lower) {
+    return "low";
+  }
+  if (value >= upper) {
+    return "high";
+  }
+  return "medium";
+}
+
+function normalizedSignalScore(value: number | null | undefined, values: Array<number | null | undefined>): number {
+  if (typeof value !== "number" || value <= 0) {
+    return 30;
+  }
+  const usable = values.filter((item): item is number => typeof item === "number" && item > 0);
+  if (usable.length === 0) {
+    return 50;
+  }
+  const max = Math.max(...usable, 1);
+  return Math.round(Math.max(0, Math.min(100, (Math.log10(value + 1) / Math.log10(max + 1)) * 100)));
+}
+
+function relevanceScoreForProduct(product: ProjectProductEvidence, keyword = ""): number {
+  const terms = normalizeSearchTerms(keyword);
+  if (terms.length === 0) {
+    return product.source === "Relevance" ? 78 : 62;
+  }
+  const title = [product.title, product.productType, product.selectionReason].filter(Boolean).join(" ").toLowerCase();
+  const matched = terms.filter((term) => title.includes(term)).length;
+  const ratio = matched / terms.length;
+  const placementBoost = product.source === "Relevance" ? 16 : 6;
+  const rankBoost = product.rank ? Math.max(0, 12 - Math.min(product.rank, 12)) : 0;
+  return Math.max(0, Math.min(100, Math.round(42 + ratio * 42 + placementBoost + rankBoost)));
+}
+
+function normalizeSearchTerms(keyword: string): string[] {
+  return keyword
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .split(/\s+/u)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2);
+}
+
+function isRelevantProductCandidate(product: ProjectProductEvidence, keyword = ""): boolean {
+  if (!product.title || !product.productUrl) {
     return false;
   }
-  const index = Math.max(0, Math.floor(usable.length * 0.62));
-  const threshold = usable[index] ?? usable[usable.length - 1] ?? 0;
-  return value >= Math.max(threshold, 1);
+  const terms = normalizeSearchTerms(keyword);
+  if (terms.length === 0) {
+    return true;
+  }
+  const title = [product.title, product.productType].filter(Boolean).join(" ").toLowerCase();
+  const matched = terms.filter((term) => title.includes(term)).length;
+  if (matched > 0) {
+    return true;
+  }
+  return product.source === "Top Sales" && Boolean(product.monthlySold || product.totalSold) && relevanceScoreForProduct(product, keyword) >= 52;
+}
+
+function thumbnailHeuristicScore(product: ProjectProductEvidence, keyword = ""): number {
+  let score = 48;
+  if (product.imageUrl) {
+    score += 20;
+  }
+  if (product.storeType) {
+    score += 8;
+  }
+  if (product.rating && product.rating >= 4.7) {
+    score += 5;
+  }
+  if (product.title && normalizeSearchTerms(keyword).some((term) => product.title.toLowerCase().includes(term))) {
+    score += 8;
+  }
+  if (/(promo|bundle|gratis|free|official|mall|ori|star)/iu.test([product.title, product.selectionReason, product.storeType].filter(Boolean).join(" "))) {
+    score += 5;
+  }
+  if (/(unknown|shopping cart|icon|placeholder)/iu.test(product.title)) {
+    score -= 28;
+  }
+  return Math.max(0, Math.min(100, score));
+}
+
+function clickPotentialFromThumbnail(score: number): ProductSelectionDiagnostics["clickPotential"] {
+  if (score >= 86) return "Very High";
+  if (score >= 72) return "High";
+  if (score >= 56) return "Medium";
+  if (score >= 38) return "Low";
+  return "Very Low";
+}
+
+function dataConfidence(product: ProjectProductEvidence): ProductSelectionDiagnostics["confidence"] {
+  const present = [
+    product.priceAverage,
+    product.monthlySold,
+    product.totalSold,
+    product.imageUrl,
+    product.productUrl
+  ].filter(Boolean).length;
+  if (present >= 5) {
+    return "High";
+  }
+  if (present >= 3) {
+    return "Medium";
+  }
+  return "Low";
 }
 
 function productSourcePlacement(product: ProjectProductEvidence): string {
@@ -5405,7 +5728,7 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluatio
   ];
   const hasStoreEvidence = hasAnyAsset(detail, storeEvidenceKinds);
   const grouped = new Map<string, StoreEvaluationCandidate & { qualityTotal: number }>();
-  for (const product of selectKeyProductCandidates(detail.products).filter((item) => item.storeName || item.storeUrl)) {
+  for (const product of selectKeyProductCandidates(detail.products, detail.project.keyword).filter((item) => item.storeName || item.storeUrl)) {
     const key = normalizeStoreKey(product);
     const existing = grouped.get(key);
     const monthlySold = product.monthlySold ?? 0;
@@ -5842,7 +6165,10 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           }
           const denominator = Math.max(bright, 1);
           const ratio = width / Math.max(height, 1);
-          if (red / denominator > 0.12) return ratio > 2.55 ? "Mall ORI" : "Star";
+          if (red / denominator > 0.12) {
+            if (orange / denominator > 0.04 || width <= 46) return "Star";
+            return ratio > 3.05 ? "Mall ORI" : "Star";
+          }
           if (orange / denominator > 0.10) {
             return width / height > 2.15 ? "Star+" : "Star";
           }
@@ -6193,8 +6519,16 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       const bundleDeals = unique(textFrom(bundleSection).split(/\\n|\\s{2,}/u))
         .filter((value) => value.length >= 3)
         .filter((value) => !/^(bundle deals|paket hemat|bundling)$/iu.test(value))
-        .filter((value) => /rp\\s*\\d|\\d+\\s*%|off|discount|diskon|bundle|paket|hemat|beli|buy|gratis|free/iu.test(value))
+        .filter((value) => /rp\\s*\\d|\\d+\\s*%|off|discount|diskon|bundle|paket|hemat|beli|buy|gratis|free|spend|min(?:imum)?|purchase|gift|hadiah/iu.test(value))
         .slice(0, 12);
+      const minimumPurchaseDeals = unique(Array.from(document.querySelectorAll("section, div"))
+        .map((element) => textFrom(element))
+        .filter((value) => /spend\\s*rp\\s*\\d|minimum\\s+(?:purchase|spend)|min(?:imum)?\\.?\\s*(?:belanja|pembelian)|gift\\(s\\)|hadiah|free\\s+gift/iu.test(value))
+        .flatMap((value) => value.split(/\\n|\\s{2,}/u))
+        .map(compact)
+        .filter((value) => value.length >= 6 && value.length <= 160)
+        .filter((value) => /rp\\s*\\d|gift|hadiah|free|gratis|spend|min(?:imum)?|purchase|belanja|pembelian/iu.test(value)))
+        .slice(0, 8);
       const reviewRoot = document.querySelector(".product-ratings");
       const commentRoot = document.querySelector(".product-comment-list") || reviewRoot;
       const activeReviewFilter = textFrom(reviewRoot?.querySelector?.(".product-rating-overview__filter--active") || document.querySelector(".product-rating-overview__filter--active"));
@@ -6367,8 +6701,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         description: blockTextFromHtml(descriptionRoot).slice(0, 8000) || undefined,
         descriptionImages: descriptionImages.slice(0, 24),
         shopVouchers,
-        bundleDeals,
-        promotionCount: shopVouchers.length + bundleDeals.length,
+        bundleDeals: unique([...bundleDeals, ...minimumPurchaseDeals]).slice(0, 12),
+        promotionCount: shopVouchers.length + bundleDeals.length + minimumPurchaseDeals.length,
         reviews: [...positiveReviews.slice(0, 3), ...negativeReviews.slice(0, 2)],
         reviewMediaImages: reviewMediaImages.slice(0, 30),
         reviewMediaVideos: reviewMediaVideos.slice(0, 12)

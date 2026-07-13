@@ -1687,7 +1687,7 @@ function extractProductEnrichment(
     ? filterPromotionSignals(mergeUnique(structured?.shopVouchers ?? extractSectionKeywords(text, ["voucher", "diskon", "cashback"], 8)), "voucher")
     : [];
   const bundleDeals = collectDescriptionPromotions
-    ? filterPromotionSignals(mergeUnique(structured?.bundleDeals ?? extractSectionKeywords(text, ["bundle deals", "paket hemat", "bundling"], 8)), "bundle")
+    ? filterPromotionSignals(mergeUnique(structured?.bundleDeals ?? extractSectionKeywords(text, ["bundle deals", "paket hemat", "bundling", "spend", "minimum", "gift", "hadiah", "min. belanja", "min pembelian"], 12)), "bundle")
     : [];
   return {
     title: safeProductTitle(extractHtmlTitle(html) ?? inferTitleFromText(text, product.title), product.title),
@@ -2356,7 +2356,7 @@ function filterPromotionSignals(values: string[], kind: "voucher" | "bundle"): s
       if (/^(bundle deals|paket hemat|bundling)$/iu.test(value)) {
         return false;
       }
-      return /rp\s*\d|\d+\s*%|off|discount|diskon|bundle|paket|hemat|beli|buy|gratis|free/iu.test(value);
+      return /rp\s*\d|\d+\s*%|off|discount|diskon|bundle|paket|hemat|beli|buy|gratis|free|spend|min(?:imum)?|purchase|gift|hadiah|belanja|pembelian/iu.test(value);
     })
     .slice(0, 8);
 }

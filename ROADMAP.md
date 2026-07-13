@@ -91,6 +91,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-13 | Project Inspector UI did not match the requested soft reference layout | Improved | The inspector now uses a large keyword hero, pill actions, clustered metric/progress cards, and a rounded report workspace matching the supplied white/grey design direction. |
 | 2026-07-13 | UI style was inconsistent across pages | Improved | The supplied soft grey reference styling is now applied across shared panels, project cards, page transitions, navigation, reports, settings, and collection surfaces, with spring transitions and red delete controls. |
 | 2026-07-13 | Key Product ranking and promotion signals were too noisy | Fixed | Part 1 selection now buckets `Priority`, `High`, and `Platform recommended` rows before lower-confidence products, and Product Detail voucher/Bundle Deals parsing filters generic headings or unrelated page text. |
+| 2026-07-13 | Key Product Top 10 did not follow the full weighted selection requirements | Fixed | The selector now scores candidates by relevance, Top Sales monthly sales, Relevance/PDP total sales, commercial value, thumbnail quality, duplicate handling, and data confidence before returning the max-10 table. |
+| 2026-07-13 | Collection shell polish and startup identity were incomplete | Fixed | Added the animated startup pre-screen with Wildan Ega Pradana attribution, moved Activity beside the light/dark switch, fixed expanded-browser rendering, and made collapse/icon controls animate consistently. |
+| 2026-07-13 | Screenshot review and Product Detail promotion sync were missing recent UX/data requirements | Fixed | Screenshot review now caps zoom at 400% with explicit area selection, and Product Detail background sync captures minimum-purchase/gift promotion signals alongside description, vouchers, and bundle deals. |
 
 ## Sprint Overview
 

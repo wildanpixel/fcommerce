@@ -43,7 +43,7 @@ button,
 webview {
   position: relative;
   z-index: 1;
-  display: inline-flex;
+  display: block;
   height: 100%;
   width: 100%;
   background: #ffffff;
@@ -1162,4 +1162,188 @@ button:active,
 .mio-dark .mio-report-section {
   border-color: rgba(154, 170, 195, 0.14) !important;
   border-radius: 28px;
+}
+
+.mio-splash {
+  background:
+    radial-gradient(circle at 46% 35%, rgba(47, 99, 234, 0.12), transparent 34%),
+    linear-gradient(135deg, #f8fafc 0%, #eef1f5 100%);
+}
+
+.mio-dark .mio-splash {
+  background:
+    radial-gradient(circle at 46% 35%, rgba(98, 168, 255, 0.18), transparent 34%),
+    linear-gradient(135deg, #171b22 0%, #090b10 100%);
+}
+
+.mio-dark .mio-splash-card .text-ink-950 {
+  color: #f8fafc !important;
+}
+
+.mio-splash-logo {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    0 28px 56px rgba(47, 99, 234, 0.28);
+}
+
+.mio-dark .mio-main {
+  background:
+    radial-gradient(circle at top left, rgba(98, 168, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, #151a22 0%, #0b0e14 100%) !important;
+}
+
+.mio-dark .mio-panel,
+.mio-dark .mio-glass,
+.mio-dark .mio-project-card,
+.mio-dark .mio-browser-panel,
+.mio-dark .mio-report-section,
+.mio-dark .mio-project-workspace,
+.mio-dark .mio-inspector-metrics-grid,
+.mio-dark .mio-saved-progress-compact {
+  background: #20252d !important;
+  border-color: rgba(154, 170, 195, 0.16) !important;
+  color: #e8eef7;
+  box-shadow: none !important;
+}
+
+.mio-dark .mio-panel .text-white,
+.mio-dark .mio-project-card .text-white,
+.mio-dark .mio-report-section .text-white {
+  color: #f8fafc !important;
+}
+
+.mio-dark .mio-panel .text-ink-500,
+.mio-dark .mio-panel .text-ink-400,
+.mio-dark .mio-report-section .text-ink-500,
+.mio-dark .mio-report-section .text-ink-400 {
+  color: #b7c1d0 !important;
+}
+
+.mio-browser-fullscreen {
+  padding: 0 !important;
+}
+
+.mio-browser-fullscreen .mio-browser-panel-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex !important;
+  flex-direction: column;
+  height: 100vh !important;
+  width: 100vw !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.mio-browser-panel-expanded .mio-browser-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block !important;
+  height: 100vh !important;
+  width: 100vw !important;
+  min-height: 100vh !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+.mio-browser-panel-expanded webview {
+  display: block !important;
+  height: 100vh !important;
+  min-height: 100vh !important;
+  width: 100vw !important;
+}
+
+.mio-browser-panel-expanded .mio-browser-toolbar,
+.mio-browser-panel-expanded > div:first-child {
+  z-index: 60;
+}
+
+.mio-capture-status-pill {
+  background: rgba(255, 255, 255, 0.94);
+  color: #1f2937;
+  border-color: rgba(105, 122, 153, 0.34);
+}
+
+.mio-capture-status-working {
+  background: rgba(232, 242, 255, 0.96);
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.mio-capture-status-done {
+  background: rgba(226, 252, 239, 0.96);
+  color: #079455;
+  border-color: rgba(7, 148, 85, 0.35);
+}
+
+.mio-capture-status-failed {
+  background: rgba(255, 232, 232, 0.96);
+  color: #d92d20;
+  border-color: rgba(217, 45, 32, 0.35);
+}
+
+.mio-dark .mio-capture-status-pill {
+  background: rgba(24, 29, 38, 0.96);
+}
+
+.mio-dark .mio-capture-status-working {
+  background: rgba(23, 45, 82, 0.96);
+  color: #9cc9ff;
+}
+
+.mio-dark .mio-capture-status-done {
+  background: rgba(18, 58, 42, 0.96);
+  color: #8ff0bd;
+}
+
+.mio-dark .mio-capture-status-failed {
+  background: rgba(78, 28, 28, 0.96);
+  color: #ffb4ad;
+}
+
+.mio-round-icon-button,
+.mio-browser-toolbar .secondary-button.w-10,
+.mio-browser-toolbar .primary-button.w-10,
+.mio-sidebar-show,
+.secondary-button.h-9.w-9,
+.primary-button.h-9.w-9,
+.secondary-button.h-10.w-10,
+.primary-button.h-10.w-10 {
+  aspect-ratio: 1 / 1;
+  border-radius: 999px !important;
+}
+
+.mio-danger-round,
+.mio-danger-round *,
+.mio-danger-round svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+details > summary {
+  transition:
+    background 220ms ease,
+    color 220ms ease,
+    border-color 220ms ease,
+    transform 240ms cubic-bezier(0.2, 0.95, 0.2, 1.12);
+}
+
+details[open] > summary {
+  transform: translateY(-1px);
+}
+
+details[open] > :not(summary) {
+  animation: mio-collapse-pop 240ms cubic-bezier(0.2, 0.95, 0.2, 1.08);
+}
+
+@keyframes mio-collapse-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }

@@ -4,6 +4,13 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-13
 
+- Added an animated startup pre-screen with the product logo, MarketPlace Keyword Competitor Analysis name, and Wildan Ega Pradana attribution.
+- Hardened Keyword Project deletion by using exact title confirmation and explicit local database cleanup for dependent products, stores, reports, analyses, jobs, logs, and evidence assets.
+- Reworked Key Product selection from the full captured candidate pool with weighted relevance, monthly-sales, total-sales, commercial-value, thumbnail-quality, duplicate, and confidence scoring instead of simply promoting the highest visible or highest-total-sales products.
+- Enforced source-specific ranking signals so Monthly Sold is taken from Top Sales evidence, Total Sold is taken from Relevance or PDP-enriched evidence, and missing data lowers confidence instead of being treated as zero.
+- Improved collection UX with an animated startup shell, collapse/expand motion, circular icon-only controls, readable glass capture notifications, Activity access beside the light/dark switch, and expanded-browser rendering fixes.
+- Added screenshot review guardrails: zoom is capped at 400%, area selection is explicit, and the default review cursor supports panning/dragging zoomed evidence.
+- Added minimum-purchase/gift promotion capture to the Product Detail background sync alongside description, description images, shop vouchers, and bundle deals.
 - Applied the supplied soft grey UI direction across the main product surfaces with rounder cards, pill controls, page spring transitions, liquid click feedback, and red delete controls with white trash icons.
 - Tightened Part 1 Key Product selection so the max-10 table prioritizes `Priority`, `High`, and `Platform recommended` products before lower-confidence products.
 - Filtered Product Detail voucher and Bundle Deals parsing so generic page headings and unrelated text are no longer saved as promotion signals.
