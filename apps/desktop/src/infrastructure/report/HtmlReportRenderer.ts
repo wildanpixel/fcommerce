@@ -56,7 +56,7 @@ function documentStart(title: string, theme: "light" | "dark"): string {
   <meta charset="utf-8" />
   <title>${escapeHtml(title)}</title>
   <style>
-    @page { size: A4; margin: 14mm 12mm; }
+    @page { size: A4; margin: 8mm 7mm; }
     * { box-sizing: border-box; }
     :root { color-scheme: light dark; }
     body.report-light {
@@ -81,66 +81,95 @@ function documentStart(title: string, theme: "light" | "dark"): string {
       --report-row: #343a45;
       --report-image-bg: #ffffff;
     }
-    body { margin: 0; padding: 18px; font-family: Inter, Arial, sans-serif; color: var(--report-text); background: var(--report-bg); font-size: 12px; }
-    h1 { margin: 0 0 10px; font-size: 28px; line-height: 1.15; }
-    h2 { margin: 0 0 14px; font-size: 22px; break-after: avoid; }
-    h3 { margin: 0 0 10px; font-size: 16px; break-after: avoid; }
-    p { margin: 0 0 10px; line-height: 1.45; }
+    body { margin: 0; padding: 24px; font-family: Inter, Arial, sans-serif; color: var(--report-text); background: var(--report-bg); font-size: 11px; }
+    .report-shell { width: min(100%, 1180px); margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.16; letter-spacing: 0; }
+    h2 { margin: 0 0 10px; font-size: 18px; break-after: avoid; letter-spacing: 0; }
+    h3 { margin: 0 0 8px; font-size: 13px; break-after: avoid; letter-spacing: 0; }
+    p { margin: 0 0 8px; line-height: 1.4; }
     .page { page-break-after: auto; break-after: auto; }
-    .inspector-header { border: 1px solid var(--report-border); border-radius: 14px; padding: 18px 20px; margin: 0 0 16px; background: var(--report-panel); box-shadow: 0 12px 28px rgba(15, 23, 42, .07); }
+    .inspector-header { border: 1px solid var(--report-border); border-radius: 14px; padding: 16px 18px; margin: 0 0 14px; background: var(--report-panel); box-shadow: 0 12px 28px rgba(15, 23, 42, .07); }
     .muted { color: var(--report-muted); }
-    .kicker { color: var(--report-accent); font-weight: 700; letter-spacing: .02em; text-transform: uppercase; font-size: 11px; }
-    .grid { display: grid; gap: 14px; }
+    .kicker { color: var(--report-accent); font-weight: 700; letter-spacing: .02em; text-transform: uppercase; font-size: 10px; }
+    .grid { display: grid; gap: 12px; }
     .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .metric { border: 1px solid var(--report-border); border-radius: 8px; padding: 12px; background: var(--report-panel-soft); }
-    .metric b { display: block; font-size: 20px; margin-top: 4px; }
-    table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 10px 0 18px; }
-    th { background: var(--report-accent); color: white; text-align: left; padding: 8px; font-size: 11px; }
-    td { border: 1px solid var(--report-border); vertical-align: top; padding: 8px; font-size: 11px; line-height: 1.35; word-break: break-word; }
-    .asset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 18px; }
-    .asset-grid.portrait-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 240px)); align-items: start; }
+    .metric { border: 1px solid var(--report-border); border-radius: 8px; padding: 10px; background: var(--report-panel-soft); }
+    .metric b { display: block; font-size: 18px; margin-top: 3px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 8px 0 14px; }
+    th { background: var(--report-accent); color: white; text-align: left; padding: 7px; font-size: 10px; }
+    td { border: 1px solid var(--report-border); vertical-align: top; padding: 7px; font-size: 10px; line-height: 1.32; word-break: break-word; }
+    .asset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 8px 0 14px; }
+    .asset-grid.portrait-grid { grid-template-columns: repeat(auto-fit, minmax(170px, 220px)); align-items: start; }
     .asset { border: 1px solid var(--report-border); border-radius: 8px; overflow: hidden; background: var(--report-panel-soft); break-inside: avoid; }
-    .asset img { display: block; width: 100%; height: 170px; object-fit: contain; background: var(--report-image-bg); }
-    .asset.asset-portrait img { aspect-ratio: 9 / 16; height: auto; max-height: 520px; object-fit: cover; object-position: top center; }
-    .asset video { display: block; width: 100%; aspect-ratio: 9 / 16; max-height: 300px; object-fit: contain; background: #111827; }
-    .asset span { display: block; padding: 6px 8px; font-size: 10px; color: var(--report-muted); }
-    .product-thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid var(--report-border); background: var(--report-image-bg); }
-    .product-list { display: grid; gap: 8px; margin: 10px 0 18px; }
-    .product-row { display: grid; grid-template-columns: 68px minmax(0, 1fr) 104px 64px 88px; gap: 10px; align-items: center; border: 1px solid var(--report-border); border-radius: 8px; padding: 8px; background: var(--report-row); break-inside: avoid; }
+    .asset img { display: block; width: 100%; height: 150px; object-fit: contain; background: var(--report-image-bg); }
+    .asset.asset-portrait img { aspect-ratio: 9 / 16; height: auto; max-height: 500px; object-fit: cover; object-position: top center; }
+    .asset video { display: block; width: 100%; aspect-ratio: 9 / 16; max-height: 280px; object-fit: contain; background: #111827; }
+    .asset span { display: block; padding: 5px 7px; font-size: 9px; color: var(--report-muted); }
+    .product-thumb { width: 50px; height: 50px; object-fit: cover; border-radius: 6px; border: 1px solid var(--report-border); background: var(--report-image-bg); }
+    .product-list { display: grid; gap: 7px; margin: 8px 0 14px; }
+    .product-row { display: grid; grid-template-columns: 58px minmax(0, 1fr) 90px 54px 78px; gap: 8px; align-items: center; border: 1px solid var(--report-border); border-radius: 8px; padding: 7px; background: var(--report-row); break-inside: avoid; }
     .product-row b { display: block; margin-bottom: 3px; line-height: 1.3; }
-    .product-row span { color: var(--report-muted); font-size: 10px; line-height: 1.3; }
-    .link-button { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid var(--report-border); border-radius: 999px; padding: 6px 10px; background: var(--report-panel-soft); color: var(--report-accent); font-size: 10px; text-decoration: none; overflow-wrap: anywhere; }
-    .badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: var(--report-panel-soft); color: var(--report-accent); font-size: 10px; font-weight: 700; }
-    .analysis { border: 1px solid var(--report-border); border-radius: 8px; padding: 14px; margin-bottom: 12px; break-inside: avoid; }
-    .score-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 12px 0; }
-    .score { background: var(--report-panel-soft); border-radius: 8px; padding: 8px; font-size: 10px; }
-    .score b { display: block; font-size: 18px; color: var(--report-accent); }
+    .product-row span { color: var(--report-muted); font-size: 9px; line-height: 1.28; }
+    .link-button { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid var(--report-border); border-radius: 999px; padding: 5px 9px; background: var(--report-panel-soft); color: var(--report-accent); font-size: 9px; text-decoration: none; overflow-wrap: anywhere; }
+    .badge { display: inline-block; border-radius: 999px; padding: 3px 7px; background: var(--report-panel-soft); color: var(--report-accent); font-size: 9px; font-weight: 700; }
+    .analysis { border: 1px solid var(--report-border); border-radius: 8px; padding: 12px; margin-bottom: 10px; break-inside: avoid; }
+    .score-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; margin: 10px 0; }
+    .score { background: var(--report-panel-soft); border-radius: 8px; padding: 7px; font-size: 9px; }
+    .score b { display: block; font-size: 16px; color: var(--report-accent); }
     .section-note { border-left: 3px solid var(--report-accent); padding-left: 10px; color: var(--report-muted); margin-bottom: 12px; }
-    .small { font-size: 10px; }
-    .review-list { display: grid; gap: 10px; margin: 10px 0 18px; }
-    .review-card { border: 1px solid var(--report-border); border-radius: 8px; padding: 10px; background: var(--report-row); break-inside: avoid; }
-    .review-card b { display: block; margin-bottom: 6px; color: var(--report-text); }
+    .small { font-size: 9px; }
+    .review-list { display: grid; gap: 8px; margin: 8px 0 14px; }
+    .review-card { border: 1px solid var(--report-border); border-radius: 8px; padding: 9px; background: var(--report-row); break-inside: avoid; }
+    .review-card b { display: block; margin-bottom: 5px; color: var(--report-text); }
     .review-card p { white-space: pre-line; margin: 0; }
-    details.report-section { border: 1px solid var(--report-border); border-radius: 10px; padding: 14px; margin: 0 0 18px; break-after: auto; page-break-after: auto; break-inside: auto; background: var(--report-panel); box-shadow: 0 10px 24px rgba(15, 23, 42, .06); }
+    details.report-section { border: 1px solid var(--report-border); border-radius: 10px; padding: 12px; margin: 0 0 14px; break-after: auto; page-break-after: auto; break-inside: auto; background: var(--report-panel); box-shadow: 0 10px 24px rgba(15, 23, 42, .06); }
     details.report-section > summary { cursor: pointer; font-weight: 800; color: var(--report-text); list-style: none; }
     details.report-section > summary::-webkit-details-marker { display: none; }
     details.report-section > summary::before { content: "▾"; display: inline-block; margin-right: 8px; color: var(--report-accent); }
     details.report-section:not([open]) > summary::before { content: "▸"; }
-    .report-body { margin-top: 14px; }
+    .report-body { margin-top: 10px; }
+    @media screen and (min-width: 1500px) {
+      .report-shell { width: min(100%, 1220px); }
+    }
     @media print {
-      details.report-section { border: 0; padding: 0; page-break-after: auto; break-after: auto; }
+      body { padding: 0; font-size: 9px; background: #ffffff; }
+      .report-shell { width: 100%; max-width: none; margin: 0; }
+      h1 { font-size: 18px; margin-bottom: 5px; }
+      h2 { font-size: 14px; margin-bottom: 7px; }
+      h3 { font-size: 11px; margin-bottom: 5px; }
+      p { margin-bottom: 5px; line-height: 1.32; }
+      .inspector-header { padding: 10px 12px; margin-bottom: 8px; box-shadow: none; }
+      .kicker, .small, .asset span, .product-row span, .link-button, .badge, .score { font-size: 7.5px; }
+      table { margin: 6px 0 10px; }
+      th, td { padding: 5px; font-size: 8px; line-height: 1.25; }
+      .metric { padding: 7px; }
+      .metric b { font-size: 14px; }
+      .asset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 6px 0 10px; }
+      .asset-grid.portrait-grid { grid-template-columns: repeat(auto-fit, minmax(128px, 165px)); }
+      .asset img { height: 112px; }
+      .asset.asset-portrait img { max-height: 420px; }
+      .asset video { max-height: 220px; }
+      .product-thumb { width: 42px; height: 42px; }
+      .product-list { gap: 5px; margin: 6px 0 10px; }
+      .product-row { grid-template-columns: 44px minmax(0, 1fr) 68px 42px 56px; gap: 6px; padding: 6px; }
+      .analysis { padding: 8px; margin-bottom: 8px; }
+      .review-card { padding: 7px; }
+      .report-body { margin-top: 7px; }
+      details.report-section { border: 0; padding: 0; margin-bottom: 10px; box-shadow: none; page-break-after: auto; break-after: auto; }
       .asset, .metric, .analysis, .review-card { break-inside: avoid; page-break-inside: avoid; }
       details.report-section > summary { cursor: default; }
       details.report-section > summary::before { content: ""; margin: 0; }
     }
   </style>
 </head>
-<body class="${bodyClass}">`;
+<body class="${bodyClass}">
+<main class="report-shell">`;
 }
 
 function documentEnd(): string {
-  return `<script>
+  return `</main>
+  <script>
     document.querySelectorAll("details.report-section").forEach((section) => {
       section.addEventListener("toggle", () => {
         document.body.dataset.lastToggled = section.open ? "open" : "closed";

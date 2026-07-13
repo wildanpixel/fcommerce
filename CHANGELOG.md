@@ -4,6 +4,8 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-13
 
+- Fixed PDF report image rendering by printing from a temporary file-backed HTML document, allowing local evidence images to resolve reliably before export.
+- Reduced PDF report margins and typography scale, and constrained standalone HTML reports to a comfortable centered reading width on large screens.
 - Changed Product Detail Shop Home Page and Key Store Store Home Page report evidence to export as 9:16 portrait cards in DOCX, HTML, and PDF so long screenshots no longer render as blurred skinny strips.
 - Changed the default report section selection so Summary Metrics is off by default, matching the requested Project Inspector content view while keeping the section available as an opt-in report toggle.
 - Restyled HTML/PDF report output toward the Project Inspector content layout with a compact report header instead of a cover-style page.

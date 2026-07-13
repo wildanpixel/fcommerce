@@ -86,6 +86,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-13 | Reports still included dashboard metrics by default | Fixed | Summary Metrics is now off by default so generated HTML/PDF exports resemble the Project Inspector content area without the vault metric strip, while remaining selectable from report customization. |
 | 2026-07-13 | Shopee first-page product extraction stopped at the visible viewport | Fixed | Relevance, Top Sales, Key Store Popular Products, and Best Sellers now scroll and collect rows throughout the first-page grid before returning the browser to the original position. |
 | 2026-07-13 | PDP Store Type could misclassify compact Star badges as Mall ORI | Fixed | PDP badge detection now checks the product title/header area first and classifies compact red/orange badges as `Star` before broader Mall ORI fallbacks. |
+| 2026-07-13 | PDF report images rendered as broken placeholders and report pages felt squeezed | Fixed | PDF export now prints from a file-backed temporary HTML document, waits for local evidence images, uses a longer print timeout for media-heavy reports, and applies tighter margins with smaller report typography. |
 
 ## Sprint Overview
 

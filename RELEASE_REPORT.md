@@ -3,21 +3,20 @@
 Release date: 2026-07-13
 Version: 1.0.0  
 Local platform: Windows  
-Release task: report portrait evidence layout and full first-page Shopee extraction
+Release task: PDF image rendering and compact report layout
 
 ## Summary
 
-This release targets the latest report and collection regressions. Product Detail Shop Home Page and Key Store Store Home Page evidence now export as 9:16 portrait cards in DOCX, HTML, and PDF so long page captures do not become unreadable strips. HTML/PDF output now defaults to the Project Inspector content view without the vault metrics strip, while Summary Metrics remains available as an optional report section. Shopee Relevance, Top Sales, Key Store Popular Products, and Best Sellers extraction now scrolls through the first-page grid and collects products during the scroll pass instead of stopping at the first visible viewport. PDP Store Type detection now prioritizes compact `Star` badges from the product title/header area before broader Mall ORI fallback detection.
+This release fixes report export regressions reported in the latest generated PDF. PDF generation now prints from a file-backed temporary HTML document instead of an in-memory `setContent()` page, which lets local evidence images resolve correctly and waits for image loading before printing. HTML/PDF report layout now uses tighter A4 margins, smaller typography, denser product rows, and a centered maximum width for standalone HTML so reports remain comfortable on wide displays.
 
 ## Completed
 
-- Added 9:16 portrait evidence rendering for Product Detail Shop Home Page and Key Store Store Home Page in DOCX.
-- Added 9:16 portrait evidence cards for the same long home-page captures in HTML/PDF reports.
-- Changed generated HTML/PDF reports to start with a compact Project Inspector-like header instead of a cover page.
-- Disabled Summary Metrics by default so generated reports omit vault metrics unless the user explicitly enables that section.
-- Expanded Relevance and Top Sales collection to scroll and collect the first-page search grid beyond the initially visible viewport.
-- Expanded Key Store Popular Products and Best Sellers collection to scroll and collect the first-page store grid beyond the initially visible viewport.
-- Tightened PDP Store Type extraction so compact `Star` badges are not overwritten by broader Mall ORI badges elsewhere on the page.
+- Fixed broken PDF report images by writing report HTML to a temporary file and navigating Puppeteer to that file URL before export.
+- Allowed local file evidence images during PDF printing and waited for image load/error completion before writing the final PDF.
+- Increased the Puppeteer PDF timeout for media-heavy reports so large evidence sets can finish rendering.
+- Reduced PDF page margins and print typography to avoid squeezed content and oversized text.
+- Added a centered `.report-shell` for generated HTML reports so wide-screen viewing stays readable.
+- Visually rendered a fresh `eyecream` PDF sample with Poppler and confirmed page images are no longer broken.
 - Updated `CHANGELOG.md`, `IMPLEMENTATION_STATUS.md`, `ROADMAP.md`, and this release report.
 
 ## Release Checklist
@@ -54,11 +53,12 @@ This release targets the latest report and collection regressions. Product Detai
 - `pnpm --filter @marketplace-intelligence-os/desktop build`: passed and regenerated Prisma.
 - `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64`: passed.
 - Packaged app startup smoke: passed; the Windows unpacked executable stayed running for 15 seconds and was closed cleanly.
+- Visual PDF QA: generated `tmp/pdfs/current-renderer-report.pdf` from the local `eyecream` project, rendered pages 1-2 with Poppler, and confirmed evidence images render instead of broken placeholders.
 
 ## Generated Artifacts
 
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,614,294 bytes.
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,384,014 bytes.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,614,890 bytes.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,384,612 bytes.
 - `apps/desktop/release/win-unpacked/MarketPlace Keyword Competitor Analysis.exe` - 201,233,920 bytes.
 
 ## Remaining Notes
@@ -66,4 +66,4 @@ This release targets the latest report and collection regressions. Product Detai
 - macOS artifacts must be produced and verified on the GitHub Actions macOS runner.
 - Shopee login, captcha, verification, and protected pages remain user-controlled by design.
 - TikTok Shop is intentionally disabled from New Research until M5 implements a real marketplace adapter and normalized collection flow.
-- Full visual QA against a populated real-world report remains required before marking report generation complete.
+- DOCX styling is outside this fix; this task addressed PDF image rendering, PDF density, and standalone HTML reading width.

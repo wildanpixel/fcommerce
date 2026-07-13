@@ -118,6 +118,7 @@ Release blocker fixes:
 - 2026-07-12: Added business-priority scoring for Part 1 Key Product selection and made generated HTML/PDF reports use the user's last light/dark theme while preserving the Project Inspector-style expanded layout.
 - 2026-07-13: Improved report exports so long Product Detail Shop Home Page and Key Store Store Home Page evidence render as 9:16 portrait cards in DOCX/HTML/PDF, with Summary Metrics disabled by default for inspector-style reports.
 - 2026-07-13: Improved Shopee product extraction to scroll and collect the full first-page Relevance, Top Sales, Popular Products, and Best Sellers grids instead of only the initially visible 12 items.
+- 2026-07-13: Fixed PDF report image rendering by printing from a file-backed temporary HTML document, waiting for local evidence images before export, and reducing PDF/HTML report margins and typography for denser readable output.
 - 2026-07-13: Tightened PDP Store Type detection so compact `Star` badges are no longer overwritten by broader Mall ORI badges found elsewhere on the page.
 
 ## M1 Product Experience
