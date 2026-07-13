@@ -7,7 +7,7 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 - Fixed the collection browser expand control so fullscreen is portaled to the app root and covers the full Electron viewport edge to edge instead of remaining constrained by the collection layout.
 - Added Playwright smoke coverage for the expanded browser overlay and circular fullscreen control regression.
 - Hardened icon-only browser and collector controls with shared circular sizing rules so light-mode min-height styles can no longer make them oval.
-- Added explicit `height: 100%` iframe sizing alongside the embedded browser webview sizing and extended the fullscreen regression test to verify the rendered browser surface height.
+- Added explicit `height: 100%` sizing to the Electron `webview` shadow-root iframe and extended the fullscreen regression test to verify the rendered browser surface height and internal iframe style.
 - Added an animated startup pre-screen with the product logo, MarketPlace Keyword Competitor Analysis name, and Wildan Ega Pradana attribution.
 - Hardened Keyword Project deletion with a simpler confirmation flow, disabled duplicate clicks while deletion is pending, and explicit local database cleanup for dependent products, stores, reports, analyses, jobs, logs, and evidence assets.
 - Restricted the collection Activity toggle to active guided collection screens only, so normal Keyword Projects, Reports, and Settings views no longer show the Activity control.

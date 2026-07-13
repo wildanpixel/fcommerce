@@ -12,9 +12,9 @@ This release fixes the collection browser display issue: expanding the embedded 
 ## Completed
 
 - Portaled expanded browser content to the app root and changed the expanded frame to fill the full available viewport.
-- Added explicit `height: 100%` sizing for iframe surfaces alongside the existing webview sizing so embedded frames inherit their container height.
+- Added explicit `height: 100%` sizing to the Electron `webview` shadow-root iframe so the internal browser frame inherits its container height.
 - Made browser toolbar icon buttons, collector expand/collapse buttons, target/process controls, and previous/next controls consistently circular.
-- Added Playwright smoke coverage that verifies the expanded browser starts at `0,0`, matches viewport width/height, keeps the rendered browser surface at full viewport height, and keeps the fullscreen control circular.
+- Added Playwright smoke coverage that verifies the expanded browser starts at `0,0`, matches viewport width/height, keeps the rendered browser surface at full viewport height, confirms the internal shadow-root iframe has `height: 100%`, and keeps the fullscreen control circular.
 - Preserved the existing report, collection, marketplace data, and project-management behavior.
 
 ## Release Checklist
@@ -42,15 +42,16 @@ This release fixes the collection browser display issue: expanding the embedded 
 - `npm test`: passed, 6 test files and 14 tests.
 - `npm run build`: passed.
 - `npm run test:e2e`: passed, 2 Playwright smoke tests.
-- `npm run clean; npm run package:win`: passed and generated fresh Windows installer, unpacked app, and portable executable in one run.
+- `npm run clean; npm run package:win`: generated fresh Windows installer and unpacked app; the portable target failed once because the previous portable executable was locked by Windows/AV.
+- `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win portable --x64 --publish never`: passed after clearing the stale locked portable executable.
 - Packaged startup smoke: passed; `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` launched and stayed alive for the startup window.
 - Portable startup smoke: passed; `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` launched and spawned the app process with the expected window title.
 
 ## Generated Artifacts
 
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,620,077 bytes, generated and launch path verified.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,620,332 bytes, generated and launch path verified.
 - `apps/desktop/release/win-unpacked/MarketPlace Keyword Competitor Analysis.exe` - generated and launch-verified.
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,389,689 bytes, generated and launch-verified.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 120,889,996 bytes, generated and launch-verified.
 - `apps/desktop/release/builder-debug.yml` - regenerated with the portable target.
 
 ## Remaining Issues

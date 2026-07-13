@@ -39,6 +39,13 @@ test("renders the guided manual analysis flow", async ({ page }) => {
   const webviewBox = await page.locator("webview").boundingBox();
   expect(webviewBox).not.toBeNull();
   expect(Math.round(webviewBox?.height ?? -1)).toBe(viewport?.height);
+  const internalFrameHeight = await page.locator("webview").evaluate((node) => {
+    const frame = node.shadowRoot?.querySelector("iframe") as HTMLIFrameElement | null;
+    return frame?.style.height ?? "";
+  });
+  if (internalFrameHeight) {
+    expect(internalFrameHeight).toBe("100%");
+  }
 
   const exitButtonBox = await page.getByRole("button", { name: "Exit fullscreen" }).boundingBox();
   expect(exitButtonBox).not.toBeNull();

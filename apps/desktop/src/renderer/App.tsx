@@ -259,6 +259,20 @@ type WebviewNavigationEvent = Event & {
   errorCode?: number;
 };
 
+function applyWebviewShadowFrameLayout(webview: WebviewElement | null | undefined): void {
+  const shadowFrame = webview?.shadowRoot?.querySelector("iframe") as HTMLIFrameElement | null | undefined;
+  if (!shadowFrame) {
+    return;
+  }
+
+  shadowFrame.style.display = "block";
+  shadowFrame.style.flex = "1 1 auto";
+  shadowFrame.style.width = "100%";
+  shadowFrame.style.height = "100%";
+  shadowFrame.style.minHeight = "100%";
+  shadowFrame.style.border = "0px";
+}
+
 export default function App() {
   const activeView = useUiStore((state) => state.activeView);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -1338,7 +1352,9 @@ function GuidedBrowserCollector({
     if (!webview) {
       return;
     }
+    applyWebviewShadowFrameLayout(webview);
     const updateUrl = (event?: WebviewNavigationEvent) => {
+      applyWebviewShadowFrameLayout(webview);
       const nextUrl = event?.url ?? event?.validatedURL ?? webview.getURL?.() ?? currentUrl;
       if (nextUrl) {
         setCurrentUrl(nextUrl);
@@ -1347,7 +1363,10 @@ function GuidedBrowserCollector({
       }
       setLoadState("ready");
     };
-    const loading = () => setLoadState("loading");
+    const loading = () => {
+      applyWebviewShadowFrameLayout(webview);
+      setLoadState("loading");
+    };
     const failed = (event: Event) => {
       const failure = event as WebviewNavigationEvent;
       if (failure.errorCode === -3) {
@@ -1371,6 +1390,44 @@ function GuidedBrowserCollector({
       webview.removeEventListener("did-fail-load", failed);
     };
   }, [currentUrl, onBrowserUrlChange]);
+
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (!webview) {
+      return;
+    }
+
+    let disposed = false;
+    const sync = () => {
+      if (!disposed) {
+        applyWebviewShadowFrameLayout(webview);
+      }
+    };
+    const animationFrame = window.requestAnimationFrame(sync);
+    const timers = [0, 50, 250, 1000].map((delay) => window.setTimeout(sync, delay));
+    const interval = window.setInterval(sync, 250);
+    const observer = new MutationObserver(sync);
+
+    const attachObserver = () => {
+      if (!disposed && webview.shadowRoot) {
+        observer.observe(webview.shadowRoot, {
+          childList: true,
+          subtree: true
+        });
+        sync();
+      }
+    };
+    attachObserver();
+    timers.push(window.setTimeout(attachObserver, 100));
+
+    return () => {
+      disposed = true;
+      window.cancelAnimationFrame(animationFrame);
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.clearInterval(interval);
+      observer.disconnect();
+    };
+  }, [expanded, project.id, viewMode]);
 
   function navigateTo(url: string) {
     const nextUrl = normalizeUrl(url);
@@ -1751,6 +1808,7 @@ function GuidedBrowserCollector({
           key={`${project.id}-${viewMode}`}
           ref={(node) => {
             webviewRef.current = node as WebviewElement | null;
+            applyWebviewShadowFrameLayout(webviewRef.current);
           }}
           src={initialUrl}
           partition={`persist:mio-${platform.toLowerCase()}`}
