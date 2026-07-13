@@ -682,11 +682,29 @@ webview {
 }
 
 .mio-round-icon-button {
-  min-width: 2rem !important;
-  width: 2rem !important;
-  height: 2rem !important;
+  --mio-icon-button-size: 2rem;
+  min-width: var(--mio-icon-button-size) !important;
+  width: var(--mio-icon-button-size) !important;
+  height: var(--mio-icon-button-size) !important;
   border-radius: 999px !important;
   padding: 0 !important;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+}
+
+.mio-round-icon-button.h-8 {
+  --mio-icon-button-size: 2rem;
+}
+
+.mio-round-icon-button.h-9 {
+  --mio-icon-button-size: 2.25rem;
+}
+
+.mio-round-icon-button.h-10 {
+  --mio-icon-button-size: 2.5rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1346,4 +1364,172 @@ details[open] > :not(summary) {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* Shared control polish: keep dark mode on the same soft system as light mode. */
+.mio-round-icon-button,
+.mio-sidebar-show,
+.secondary-button.h-8.w-8,
+.primary-button.h-8.w-8,
+.secondary-button.h-9.w-9,
+.primary-button.h-9.w-9,
+.secondary-button.h-10.w-10,
+.primary-button.h-10.w-10 {
+  aspect-ratio: 1 / 1;
+  border-radius: 999px !important;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mio-sidebar-show,
+.secondary-button.h-10.w-10,
+.primary-button.h-10.w-10 {
+  min-width: 2.5rem !important;
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+}
+
+.secondary-button.h-9.w-9,
+.primary-button.h-9.w-9 {
+  min-width: 2.25rem !important;
+  width: 2.25rem !important;
+  height: 2.25rem !important;
+}
+
+.secondary-button.h-8.w-8,
+.primary-button.h-8.w-8 {
+  min-width: 2rem !important;
+  width: 2rem !important;
+  height: 2rem !important;
+}
+
+.mio-light .mio-vault-metrics-panel,
+.mio-dark .mio-vault-metrics-panel {
+  border-radius: 34px !important;
+  background: #dde2e8 !important;
+  border-color: rgba(100, 116, 139, 0.08) !important;
+  box-shadow: none !important;
+}
+
+.mio-vault-metrics-grid {
+  overflow: hidden;
+  border-radius: 26px;
+}
+
+.mio-vault-metrics-grid .mio-metric-card {
+  min-height: 104px;
+  border-radius: 16px !important;
+  background: rgba(255, 255, 255, 0.76) !important;
+  border-color: rgba(100, 116, 139, 0.1) !important;
+  box-shadow: none !important;
+}
+
+.mio-vault-metrics-grid .mio-metric-card .text-3xl {
+  color: #05070b;
+}
+
+.mio-vault-metrics-grid .mio-metric-card .text-ink-500 {
+  color: #5d6572;
+}
+
+.mio-report-history-card {
+  border-radius: 22px !important;
+  background: rgba(255, 255, 255, 0.56) !important;
+  border-color: rgba(100, 116, 139, 0.12) !important;
+  box-shadow: none !important;
+}
+
+.mio-report-history-actions .secondary-button {
+  border-radius: 999px !important;
+}
+
+.mio-dark .mio-main {
+  background:
+    radial-gradient(circle at 48% -10%, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 34%),
+    linear-gradient(180deg, #171d26 0%, #10151d 100%) !important;
+}
+
+.mio-dark .mio-sidebar {
+  background:
+    radial-gradient(circle at 0% 18%, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 38%),
+    linear-gradient(180deg, #151b24, #10151d) !important;
+  border-right-color: rgba(154, 170, 195, 0.14) !important;
+}
+
+.mio-dark .mio-panel,
+.mio-dark .mio-glass,
+.mio-dark .mio-create-button,
+.mio-dark .mio-project-card,
+.mio-dark .mio-browser-panel,
+.mio-dark .mio-report-section,
+.mio-dark .mio-vault-metrics-panel,
+.mio-dark .mio-project-workspace,
+.mio-dark .mio-inspector-metrics-grid,
+.mio-dark .mio-saved-progress-compact {
+  background: #252b34 !important;
+  border-color: rgba(154, 170, 195, 0.12) !important;
+  border-radius: 34px;
+  box-shadow: none !important;
+}
+
+.mio-dark .mio-vault-metrics-grid .mio-metric-card,
+.mio-dark .mio-report-history-card {
+  background: rgba(255, 255, 255, 0.055) !important;
+  border-color: rgba(154, 170, 195, 0.1) !important;
+}
+
+.mio-dark .mio-vault-metrics-grid .mio-metric-card .text-3xl,
+.mio-dark .mio-project-card .text-white,
+.mio-dark .mio-panel .text-white,
+.mio-dark .mio-report-section .text-white {
+  color: #f8fbff !important;
+}
+
+.mio-dark .mio-vault-metrics-grid .mio-metric-card .text-ink-500,
+.mio-dark .mio-panel .text-ink-500,
+.mio-dark .mio-panel .text-ink-400,
+.mio-dark .mio-project-card .text-ink-500,
+.mio-dark .mio-project-card .text-ink-400,
+.mio-dark .mio-report-section .text-ink-500,
+.mio-dark .mio-report-section .text-ink-400 {
+  color: #b8c3d4 !important;
+}
+
+.mio-dark .primary-button,
+.mio-dark .secondary-button,
+.mio-dark .input,
+.mio-dark select.input {
+  border-radius: 999px;
+}
+
+.mio-dark .secondary-button {
+  background: rgba(255, 255, 255, 0.075);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f8fbff;
+  box-shadow: none;
+}
+
+.mio-dark .secondary-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(154, 170, 195, 0.18);
+}
+
+.mio-danger-round,
+.mio-danger-round:hover,
+.mio-dark .mio-danger-round,
+.mio-light .mio-danger-round {
+  background: #ff1010 !important;
+  border-color: #ff1010 !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.mio-danger-round svg,
+.mio-danger-round *,
+.mio-dark .mio-danger-round svg,
+.mio-light .mio-danger-round svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
 }

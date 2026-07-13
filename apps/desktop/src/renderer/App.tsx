@@ -263,10 +263,19 @@ export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [showSplash, setShowSplash] = useState(true);
+  const [collectionPageActive, setCollectionPageActive] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setShowSplash(false), 1800);
     return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleCollectionPageState = (event: Event) => {
+      setCollectionPageActive(Boolean((event as CustomEvent<boolean>).detail));
+    };
+    window.addEventListener("mio:collection-page-state", handleCollectionPageState);
+    return () => window.removeEventListener("mio:collection-page-state", handleCollectionPageState);
   }, []);
 
   function requestActivityToggle() {
@@ -292,7 +301,7 @@ export default function App() {
           <TopBar
             themeMode={themeMode}
             onThemeToggle={() => setThemeMode((value) => (value === "dark" ? "light" : "dark"))}
-            showActivityButton={activeView === "research" || activeView === "projects"}
+            showActivityButton={collectionPageActive}
             onActivityToggle={requestActivityToggle}
           />
           <div className="relative px-8 pb-10">
@@ -379,7 +388,7 @@ function Sidebar({ onHide }: { onHide: () => void }) {
         </div>
         <button
           type="button"
-          className="secondary-button h-9 w-9 shrink-0 px-0"
+          className="secondary-button mio-round-icon-button h-10 w-10 shrink-0 px-0"
           aria-label="Hide sidebar"
           title="Hide sidebar"
           onClick={onHide}
@@ -458,7 +467,7 @@ function TopBar({
           {themeMode === "dark" ? "Light" : "Dark"}
         </button>
         {showActivityButton && (
-          <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onActivityToggle} aria-label="Toggle activity" title="Activity">
+          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={onActivityToggle} aria-label="Toggle activity" title="Activity">
             <Gauge size={15} />
           </button>
         )}
@@ -1126,6 +1135,13 @@ function GuidedBrowserCollector({
     const toggleActivity = () => setActivitySidebarOpen((value) => !value);
     window.addEventListener("mio:toggle-activity", toggleActivity);
     return () => window.removeEventListener("mio:toggle-activity", toggleActivity);
+  }, []);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("mio:collection-page-state", { detail: true }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("mio:collection-page-state", { detail: false }));
+    };
   }, []);
 
   useEffect(() => {
@@ -2806,6 +2822,7 @@ function ProjectsView() {
     mutationFn: apiClient.deleteProject,
     onSuccess: async () => {
       setInspectingProjectId("");
+      setCollectingProject(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
@@ -2818,11 +2835,9 @@ function ProjectsView() {
   });
 
   function confirmDeleteProject(project: ProjectSummary) {
-    const confirmation = window.prompt(`Delete keyword project "${project.name}"? Type the exact project title to confirm.`);
-    if (confirmation?.trim() === project.name.trim()) {
+    const confirmed = window.confirm(`Delete keyword project "${project.name}"? This removes the project, evidence, reports, and local files.`);
+    if (confirmed) {
       deleteProject.mutate(project.id);
-    } else if (confirmation !== null) {
-      window.alert("Project title did not match. Delete was cancelled.");
     }
   }
 
@@ -2899,8 +2914,8 @@ function ProjectsView() {
 
   return (
     <section className="space-y-5">
-      <Panel title="Vault Metrics" icon={Gauge}>
-        <div className="grid grid-cols-4 gap-3">
+      <Panel title="Vault Metrics" icon={Gauge} className="mio-vault-metrics-panel">
+        <div className="mio-vault-metrics-grid grid grid-cols-4 gap-3">
           <Metric icon={Archive} label="Keyword Projects" value={projects.length} />
           <Metric icon={FileDown} label="Reports" value={dashboard.data?.metrics.completedReports ?? 0} />
           <Metric icon={ShoppingBag} label="Products" value={dashboard.data?.metrics.collectedProducts ?? 0} />
@@ -2970,7 +2985,14 @@ function ProjectsView() {
                       Continue Collection
                     </button>
                   )}
-                  <button className="secondary-button mio-danger-round h-9 w-9 rounded-full px-0" type="button" onClick={() => confirmDeleteProject(project)} aria-label={`Delete ${project.name}`} title={`Delete ${project.name}`}>
+                  <button
+                    className="secondary-button mio-danger-round mio-round-icon-button h-10 w-10 rounded-full px-0"
+                    type="button"
+                    onClick={() => confirmDeleteProject(project)}
+                    disabled={deleteProject.isPending}
+                    aria-label={`Delete ${project.name}`}
+                    title={`Delete ${project.name}`}
+                  >
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -3025,7 +3047,7 @@ function ProjectInspectionPanel({
             <ClipboardCheck size={15} />
             {completed ? "Collect Again" : "Continue Collection"}
           </button>
-          <button className="secondary-button mio-danger-round h-10 w-10 rounded-full px-0 text-signal-rose" type="button" onClick={onDelete} disabled={deleting} aria-label="Delete project" title="Delete project">
+          <button className="secondary-button mio-danger-round mio-round-icon-button h-10 w-10 rounded-full px-0 text-signal-rose" type="button" onClick={onDelete} disabled={deleting} aria-label="Delete project" title="Delete project">
             <Trash2 size={16} />
           </button>
         </div>
@@ -3561,10 +3583,10 @@ function ProductCardGrid({ products, limit = 80 }: { products: ProjectProductEvi
 function ProductViewToggle({ value, onChange }: { value: "cards" | "list"; onChange: (value: "cards" | "list") => void }) {
   return (
     <div className="flex justify-end gap-1">
-      <button className={["secondary-button h-8 w-8 px-0", value === "cards" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("cards")} aria-label="Card view" title="Card view">
+      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "cards" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("cards")} aria-label="Card view" title="Card view">
         <LayoutGrid size={14} />
       </button>
-      <button className={["secondary-button h-8 w-8 px-0", value === "list" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("list")} aria-label="List view" title="List view">
+      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "list" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("list")} aria-label="List view" title="List view">
         <Rows3 size={14} />
       </button>
     </div>
@@ -4061,9 +4083,9 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
           </form>
         </Panel>
         <Panel title="Report History" icon={Archive}>
-          <div className="max-h-[520px] space-y-2 overflow-auto pr-1">
+          <div className="mio-report-history-list max-h-[520px] space-y-3 overflow-auto pr-1">
             {(reports.data ?? []).map((report) => (
-              <div key={report.id} className="rounded-md border border-white/8 bg-white/5 p-3">
+              <div key={report.id} className="mio-report-history-card rounded-md border border-white/8 bg-white/5 p-4">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-white">{report.projectName}</div>
@@ -4071,7 +4093,7 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
                   </div>
                   <StatusPill status={report.status} />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="mio-report-history-actions grid grid-cols-2 gap-2">
                   <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.htmlPath || loadReportPreview.isPending} onClick={() => loadReportPreview.mutate(report.id)}>
                     <Eye size={14} />
                     Preview

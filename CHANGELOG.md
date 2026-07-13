@@ -5,7 +5,10 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 ## Unreleased - 2026-07-13
 
 - Added an animated startup pre-screen with the product logo, MarketPlace Keyword Competitor Analysis name, and Wildan Ega Pradana attribution.
-- Hardened Keyword Project deletion by using exact title confirmation and explicit local database cleanup for dependent products, stores, reports, analyses, jobs, logs, and evidence assets.
+- Hardened Keyword Project deletion with a simpler confirmation flow, disabled duplicate clicks while deletion is pending, and explicit local database cleanup for dependent products, stores, reports, analyses, jobs, logs, and evidence assets.
+- Restricted the collection Activity toggle to active guided collection screens only, so normal Keyword Projects, Reports, and Settings views no longer show the Activity control.
+- Restyled Vault Metrics and Report History with the shared soft card system and made marked icon-only controls render as true circles in both light and dark mode.
+- Aligned dark-mode buttons, project cards, metrics, and report-history surfaces with the light-mode styling system to reduce duplicate visual rules and avoid heavy white borders.
 - Reworked Key Product selection from the full captured candidate pool with weighted relevance, monthly-sales, total-sales, commercial-value, thumbnail-quality, duplicate, and confidence scoring instead of simply promoting the highest visible or highest-total-sales products.
 - Enforced source-specific ranking signals so Monthly Sold is taken from Top Sales evidence, Total Sold is taken from Relevance or PDP-enriched evidence, and missing data lowers confidence instead of being treated as zero.
 - Improved collection UX with an animated startup shell, collapse/expand motion, circular icon-only controls, readable glass capture notifications, Activity access beside the light/dark switch, and expanded-browser rendering fixes.

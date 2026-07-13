@@ -94,6 +94,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-13 | Key Product Top 10 did not follow the full weighted selection requirements | Fixed | The selector now scores candidates by relevance, Top Sales monthly sales, Relevance/PDP total sales, commercial value, thumbnail quality, duplicate handling, and data confidence before returning the max-10 table. |
 | 2026-07-13 | Collection shell polish and startup identity were incomplete | Fixed | Added the animated startup pre-screen with Wildan Ega Pradana attribution, moved Activity beside the light/dark switch, fixed expanded-browser rendering, and made collapse/icon controls animate consistently. |
 | 2026-07-13 | Screenshot review and Product Detail promotion sync were missing recent UX/data requirements | Fixed | Screenshot review now caps zoom at 400% with explicit area selection, and Product Detail background sync captures minimum-purchase/gift promotion signals alongside description, vouchers, and bundle deals. |
+| 2026-07-13 | Keyword Projects UI controls and delete actions were inconsistent | Fixed | Icon-only controls now render as true circles in light and dark mode, Vault Metrics and Report History use the shared soft card styling, Activity appears only on guided collection screens, and project deletion uses a simpler confirmation flow with pending-state protection. |
 
 ## Sprint Overview
 
