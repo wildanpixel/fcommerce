@@ -44,6 +44,7 @@ import {
   TerminalSquare,
   Trash2,
   Rows3,
+  X,
   ZoomIn,
   ZoomOut
 } from "lucide-react";
@@ -4220,6 +4221,17 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
 function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   async function copyReport() {
     if ("ClipboardItem" in window && navigator.clipboard.write) {
       const htmlClipboard = new ClipboardItem({
@@ -4236,32 +4248,44 @@ function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; on
     window.setTimeout(() => setCopied(false), 1800);
   }
 
-  return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="mio-panel flex h-[calc(100vh-48px)] w-[min(1180px,calc(100vw-48px))] flex-col rounded-[18px] border border-white/12 bg-ink-900/95 p-4 shadow-glow">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-white">Report Preview</div>
-            <div className="mt-1 truncate text-xs text-ink-500">{report.htmlPath}</div>
+  const modal = (
+    <div
+      className="mio-report-preview-overlay fixed inset-0 z-[150] overflow-y-auto bg-black/55 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Report preview"
+    >
+      <div className="flex min-h-full items-start justify-center">
+        <div className="mio-panel mio-report-preview-modal flex h-[calc(100dvh-32px)] w-[min(1180px,calc(100vw-32px))] min-w-0 flex-col overflow-hidden rounded-[18px] border border-white/12 bg-ink-900/95 shadow-glow">
+          <div className="mio-report-preview-header sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-white/12 bg-ink-900/95 p-4 backdrop-blur-xl">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-white">Report Preview</div>
+              <div className="mt-1 truncate text-xs text-ink-500">{report.htmlPath}</div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void copyReport()}>
+                <Copy size={14} />
+                {copied ? "Copied" : "Copy Report"}
+              </button>
+              <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(report.htmlPath)}>
+                <FileText size={14} />
+                Open HTML
+              </button>
+              <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onClose} aria-label="Close report preview">
+                <X size={16} />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void copyReport()}>
-              <Copy size={14} />
-              {copied ? "Copied" : "Copy Report"}
-            </button>
-            <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(report.htmlPath)}>
-              <FileText size={14} />
-              Open HTML
-            </button>
-            <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={onClose}>
-              Close
-            </button>
+          <div className="min-h-0 flex-1 p-4 pt-3">
+            <iframe title="Report preview" srcDoc={report.html} className="mio-report-preview-frame h-full min-h-0 w-full rounded-xl border border-white/12 bg-white" />
           </div>
         </div>
-        <iframe title="Report preview" srcDoc={report.html} className="min-h-0 flex-1 rounded-xl border border-white/12 bg-white" />
       </div>
     </div>
   );
+
+  const portalRoot = document.querySelector<HTMLElement>(".mio-app") ?? document.body;
+  return createPortal(modal, portalRoot);
 }
 
 function SettingsView() {

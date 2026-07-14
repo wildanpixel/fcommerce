@@ -1,20 +1,20 @@
 # MarketPlace Keyword Competitor Analysis - Release Report
 
-Release date: 2026-07-13  
-Version: 1.0.0  
-Local platform: Windows  
-Release task: Browser fullscreen overlay, circular icon controls, and packaged validation
+Release date: 2026-07-14
+Version: 1.0.0
+Local platform: Windows
+Release task: Report Preview viewport positioning fix and packaged validation
 
 ## Summary
 
-This release fixes the collection browser display issue: expanding the embedded browser now creates a true edge-to-edge overlay across the full Electron viewport instead of staying constrained inside the collection layout. It also hardens icon-only browser and collector controls so they render as perfect circles in light and dark mode.
+This release fixes the Report Preview modal that could render off-screen when opened from the animated Reports page. The preview now renders through an app-root portal, stays constrained to the Electron viewport, keeps the header and close action visible, and supports Escape-to-close.
 
 ## Completed
 
-- Portaled expanded browser content to the app root and changed the expanded frame to fill the full available viewport.
-- Added explicit `height: 100%` sizing to the Electron `webview` shadow-root iframe so the internal browser frame inherits its container height.
-- Made browser toolbar icon buttons, collector expand/collapse buttons, target/process controls, and previous/next controls consistently circular.
-- Added Playwright smoke coverage that verifies the expanded browser starts at `0,0`, matches viewport width/height, keeps the rendered browser surface at full viewport height, confirms the internal shadow-root iframe has `height: 100%`, and keeps the fullscreen control circular.
+- Portaled Report Preview outside the animated page wrapper into the app root so fixed positioning uses the full viewport.
+- Changed the preview modal to a viewport-safe scroll container with an internal iframe area and sticky header.
+- Replaced the text-only Close action with a circular icon close button and added Escape-to-close keyboard behavior.
+- Added light/dark preview header styles and iframe height rules so the preview remains readable in either theme.
 - Preserved the existing report, collection, marketplace data, and project-management behavior.
 
 ## Release Checklist
@@ -42,16 +42,15 @@ This release fixes the collection browser display issue: expanding the embedded 
 - `npm test`: passed, 6 test files and 14 tests.
 - `npm run build`: passed.
 - `npm run test:e2e`: passed, 2 Playwright smoke tests.
-- `npm run clean; npm run package:win`: generated fresh Windows installer and unpacked app; the portable target failed once because the previous portable executable was locked by Windows/AV.
-- `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win portable --x64 --publish never`: passed after clearing the stale locked portable executable.
+- `npm run clean; npm run package:win`: passed and generated fresh Windows installer, unpacked app, and portable executable.
 - Packaged startup smoke: passed; `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` launched and stayed alive for the startup window.
 - Portable startup smoke: passed; `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` launched and spawned the app process with the expected window title.
 
 ## Generated Artifacts
 
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,620,332 bytes, generated and launch path verified.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,620,609 bytes, generated.
 - `apps/desktop/release/win-unpacked/MarketPlace Keyword Competitor Analysis.exe` - generated and launch-verified.
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 120,889,996 bytes, generated and launch-verified.
+- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,390,323 bytes, generated and launch-verified.
 - `apps/desktop/release/builder-debug.yml` - regenerated with the portable target.
 
 ## Remaining Issues

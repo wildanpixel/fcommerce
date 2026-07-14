@@ -2,6 +2,10 @@
 
 All notable changes to MarketPlace Keyword Competitor Analysis will be documented in this file.
 
+## Unreleased - 2026-07-14
+
+- Fixed Report Preview so the modal portals outside the animated report page wrapper, stays inside the Electron viewport, keeps the header and close control reachable, and supports Escape-to-close.
+
 ## Unreleased - 2026-07-13
 
 - Fixed the collection browser expand control so fullscreen is portaled to the app root and covers the full Electron viewport edge to edge instead of remaining constrained by the collection layout.

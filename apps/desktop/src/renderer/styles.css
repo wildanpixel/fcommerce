@@ -1600,3 +1600,37 @@ button[aria-label="Next step"] {
   color: #ffffff !important;
   stroke: #ffffff !important;
 }
+
+.mio-report-preview-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  isolation: isolate;
+}
+
+.mio-report-preview-modal {
+  max-height: calc(100dvh - 32px);
+}
+
+.mio-report-preview-header {
+  min-height: 72px;
+}
+
+.mio-report-preview-frame {
+  display: block;
+  height: 100%;
+}
+
+.mio-light .mio-report-preview-modal {
+  background: #f8fafc !important;
+  border-color: rgba(100, 116, 139, 0.16) !important;
+}
+
+.mio-light .mio-report-preview-header {
+  background: rgba(248, 250, 252, 0.96) !important;
+  border-color: rgba(100, 116, 139, 0.14) !important;
+}
+
+.mio-dark .mio-report-preview-header {
+  background: rgba(31, 36, 44, 0.96) !important;
+  border-color: rgba(154, 170, 195, 0.12) !important;
+}

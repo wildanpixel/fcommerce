@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -129,6 +129,7 @@ Release blocker fixes:
 - 2026-07-13: Hardened project deletion through exact-title confirmation and explicit local database cleanup, improved screenshot review with 400% zoom limits and explicit area selection, and added minimum-purchase/gift promotions to Product Detail background sync.
 - 2026-07-13: Fixed the guided collection browser expand behavior so fullscreen now portals to the app root and fills the entire Electron viewport, with Playwright regression coverage for edge-to-edge layout and circular icon controls.
 - 2026-07-13: Added explicit height inheritance for the Electron `webview` shadow-root iframe and verified the internal iframe style plus fullscreen browser surface height in Playwright.
+- 2026-07-14: Fixed Report Preview positioning by portaling the modal outside animated page content, constraining it to the viewport, and keeping the sticky header and close action reachable.
 
 ## M1 Product Experience
 
