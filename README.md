@@ -102,6 +102,7 @@ GitHub Actions builds production artifacts from the same repository:
 
 - `.github/workflows/ci.yml` runs source checks.
 - `.github/workflows/build.yml` builds Windows installer/portable artifacts on Windows runners and macOS app/DMG artifacts on macOS runners.
+- macOS download and install instructions are documented in [docs/MACOS_INSTALLATION.md](docs/MACOS_INSTALLATION.md).
 
 ## Packaging
 
@@ -118,6 +119,8 @@ pnpm package:mac
 ```
 
 Build outputs are generated under `apps/desktop/release/` and are intentionally ignored by Git.
+
+macOS users should install the generated `.dmg`; the Windows portable `.exe` cannot run natively on macOS.
 
 ## AI Configuration
 

@@ -98,6 +98,7 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-13 | Collection browser expand still left visible layout margins and some icon controls looked oval | Fixed | The expanded browser now portals to the app root for true edge-to-edge viewport coverage, and icon-only browser/collector controls have enforced circular sizing with Playwright regression coverage. |
 | 2026-07-13 | Embedded browser iframe/webview height could fail to inherit full expanded height | Fixed | The Electron `webview` shadow-root iframe is now assigned `height: 100%`, and the fullscreen smoke test verifies both the internal iframe style and rendered browser surface height. |
 | 2026-07-14 | Report Preview modal rendered off-screen inside animated page wrappers | Fixed | The preview now portals to the app root, uses viewport-safe sizing, keeps a sticky header with a circular close action, and supports Escape-to-close. |
+| 2026-07-14 | macOS users could confuse Windows portable builds with macOS installers | Fixed | Added `docs/MACOS_INSTALLATION.md` with GitHub Actions artifact download steps, DMG selection by CPU, Gatekeeper handling, app data locations, and signing/notarization notes. |
 
 ## Sprint Overview
 

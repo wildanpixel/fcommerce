@@ -3,11 +3,13 @@
 Release date: 2026-07-14
 Version: 1.0.0
 Local platform: Windows
-Release task: Report Preview viewport positioning fix and packaged validation
+Release task: Report Preview viewport fix, macOS install guide, and packaged validation
 
 ## Summary
 
 This release fixes the Report Preview modal that could render off-screen when opened from the animated Reports page. The preview now renders through an app-root portal, stays constrained to the Electron viewport, keeps the header and close action visible, and supports Escape-to-close.
+
+It also documents the macOS distribution path through GitHub Actions artifacts, including Apple Silicon and Intel DMG selection, Gatekeeper handling for the current unsigned build, and macOS application data locations.
 
 ## Completed
 
@@ -15,6 +17,7 @@ This release fixes the Report Preview modal that could render off-screen when op
 - Changed the preview modal to a viewport-safe scroll container with an internal iframe area and sticky header.
 - Replaced the text-only Close action with a circular icon close button and added Escape-to-close keyboard behavior.
 - Added light/dark preview header styles and iframe height rules so the preview remains readable in either theme.
+- Added `docs/MACOS_INSTALLATION.md` and linked it from the README and cross-platform documentation.
 - Preserved the existing report, collection, marketplace data, and project-management behavior.
 
 ## Release Checklist

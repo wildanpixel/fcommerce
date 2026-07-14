@@ -130,6 +130,7 @@ Release blocker fixes:
 - 2026-07-13: Fixed the guided collection browser expand behavior so fullscreen now portals to the app root and fills the entire Electron viewport, with Playwright regression coverage for edge-to-edge layout and circular icon controls.
 - 2026-07-13: Added explicit height inheritance for the Electron `webview` shadow-root iframe and verified the internal iframe style plus fullscreen browser surface height in Playwright.
 - 2026-07-14: Fixed Report Preview positioning by portaling the modal outside animated page content, constraining it to the viewport, and keeping the sticky header and close action reachable.
+- 2026-07-14: Added macOS installation documentation for GitHub Actions artifacts, Apple Silicon/Intel DMG selection, unsigned Gatekeeper opening steps, and local macOS app data folders.
 
 ## M1 Product Experience
 

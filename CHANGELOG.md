@@ -5,6 +5,7 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 ## Unreleased - 2026-07-14
 
 - Fixed Report Preview so the modal portals outside the animated report page wrapper, stays inside the Electron viewport, keeps the header and close control reachable, and supports Escape-to-close.
+- Added a macOS installation guide with GitHub Actions artifact download steps, Apple Silicon vs Intel DMG selection, Gatekeeper handling, local app data paths, and signing/notarization notes.
 
 ## Unreleased - 2026-07-13
 
