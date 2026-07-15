@@ -1461,6 +1461,8 @@ function toProductDetail(
   }
 ): ProductDetail {
   const priceAverage = product.priceAverage ?? parsePrice(product.priceText);
+  const salesLikeSource = isSalesLikeProductSource(context.source);
+  const normalizedStoreType = normalizeStoreType(product.storeType) ?? storeTypeFromOfficialStoreName(product.storeName);
   return {
     marketplace: "SHOPEE_ID",
     rank: product.rank,
@@ -1477,13 +1479,13 @@ function toProductDetail(
     discount: product.discount,
     rating: product.rating,
     reviewCount: product.reviewCount,
-    monthlySold: isSalesLikeProductSource(context.source) ? product.soldCount : undefined,
-    totalSold: product.soldCount,
+    monthlySold: salesLikeSource ? product.soldCount : undefined,
+    totalSold: salesLikeSource ? undefined : product.soldCount,
     storeName: product.storeName,
     storeUrl: product.storeUrl ? normalizeUrl(product.storeUrl) : undefined,
-    mallStatus: Boolean(product.mallStatus),
-    officialStatus: Boolean(product.officialStatus),
-    starSeller: Boolean(product.starSeller),
+    mallStatus: normalizedStoreType === "Mall ORI" || Boolean(product.mallStatus),
+    officialStatus: normalizedStoreType === "Mall ORI" || Boolean(product.officialStatus),
+    starSeller: normalizedStoreType === "Star" || normalizedStoreType === "Star+" || Boolean(product.starSeller),
     variants: [],
     specifications: {},
     images: product.imageUrl ? [product.imageUrl] : [],
@@ -1496,13 +1498,13 @@ function toProductDetail(
       imageUrl: product.imageUrl,
       images: product.imageUrl ? [product.imageUrl] : [],
       productType: product.productType,
-      storeType: normalizeStoreType(product.storeType),
+      storeType: normalizedStoreType,
       storeBadgeImageUrl: product.storeBadgeImageUrl,
       ratingText: product.ratingText,
       reviewText: product.reviewText,
       soldText: product.soldText,
-      monthlySoldText: isSalesLikeProductSource(context.source) ? product.soldText : undefined,
-      totalSoldText: product.soldText,
+      monthlySoldText: salesLikeSource ? product.soldText : undefined,
+      totalSoldText: salesLikeSource ? undefined : product.soldText,
       htmlPath: context.htmlPath,
       textPath: context.textPath,
       pdfPath: context.pdfPath,
@@ -1666,6 +1668,8 @@ function extractProductEnrichment(
   const collectReviewMedia = collectEverything || subAction === "media-in-user";
   const collectDescriptionPromotions = collectEverything || subAction === "description-promotions";
   const htmlStoreInfo = extractPdpStoreInfoFromHtml(html);
+  const resolvedStoreName = safeStoreName(structured?.storeName ?? htmlStoreInfo.storeName);
+  const resolvedStoreType = normalizeStoreType(structured?.storeType ?? htmlStoreInfo.storeType) ?? storeTypeFromOfficialStoreName(resolvedStoreName);
   const price = extractMoneyRange(text);
   const structuredImages = structured?.images ?? [];
   const structuredVideos = structured?.videos ?? [];
@@ -1711,9 +1715,9 @@ function extractProductEnrichment(
     reviewMediaImages: collectReviewMedia ? structured?.reviewMediaImages ?? [] : [],
     reviewMediaVideos: collectReviewMedia ? structured?.reviewMediaVideos ?? [] : [],
     reviews,
-    storeName: safeStoreName(structured?.storeName ?? htmlStoreInfo.storeName),
+    storeName: resolvedStoreName,
     storeUrl: structured?.storeUrl ? normalizeUrl(structured.storeUrl) : htmlStoreInfo.storeUrl,
-    storeType: normalizeStoreType(structured?.storeType ?? htmlStoreInfo.storeType),
+    storeType: resolvedStoreType,
     shopVouchers,
     bundleDeals,
     promotionCount: structured?.promotionCount ?? shopVouchers.length + bundleDeals.length,
@@ -1887,20 +1891,24 @@ function normalizeStoreType(value?: string): "Mall ORI" | "Star+" | "Star" | und
   return undefined;
 }
 
+function storeTypeFromOfficialStoreName(value?: string): "Mall ORI" | undefined {
+  return /\bofficial\s+(?:store|shop)\b|\btoko\s+resmi\b|\bgerai\s+resmi\b/iu.test(String(value ?? "")) ? "Mall ORI" : undefined;
+}
+
 function normalizeStoreTypeFromBadge(value?: string): "Mall ORI" | "Star+" | "Star" | undefined {
   const direct = normalizeStoreType(value);
   if (direct) {
     return direct;
   }
   const normalized = String(value ?? "").toLowerCase();
-  if (/mall/iu.test(normalized)) {
-    return "Mall ORI";
-  }
   if (/star\s*(?:plus|\+)/iu.test(normalized)) {
     return "Star+";
   }
   if (/star/iu.test(normalized)) {
     return "Star";
+  }
+  if (/mall/iu.test(normalized)) {
+    return "Mall ORI";
   }
   return undefined;
 }
@@ -1922,16 +1930,34 @@ function extractRatingTextValue(text: string): string | undefined {
         const numeric = Number(candidateValue.replace(",", "."));
         return numeric >= 1 && numeric <= 5;
       });
-    return candidates[0];
+    return candidates.find((candidateValue) => /[,.]/u.test(candidateValue)) ?? candidates[0];
+  };
+  const ratingTokenFromMetricLine = (value: string): string | undefined => {
+    const line = cleanText(value);
+    const explicit =
+      /(?:rating|ratings?|penilaian|ulasan|bintang|star)\s*:?\s*([1-5](?:[.,]\d)?)/iu.exec(line)?.[1] ??
+      /([1-5](?:[.,]\d)?)\s*(?:\/\s*5|★|⭐|bintang|star)/iu.exec(line)?.[1] ??
+      /(?:★|⭐)\s*([1-5](?:[.,]\d)?)/iu.exec(line)?.[1];
+    if (explicit) {
+      return explicit;
+    }
+    const token = firstRatingToken(line);
+    if (token && /[,.]/u.test(token)) {
+      return token;
+    }
+    return /^([1-5])(?:\s|$)/u.exec(line)?.[1];
   };
   const lines = normalized
     .split("\n")
     .map((line) => cleanText(line))
     .filter(Boolean);
   const metricLine = lines.find((line) => /(★|star|bintang)/iu.test(line)) ??
-    lines.find((line) => /(sold|terjual)/iu.test(line) && firstRatingToken(line)) ??
-    lines.find((line) => /(ratings?|reviews?|penilaian|ulasan)/iu.test(line) && firstRatingToken(line));
-  const contextual = metricLine ? firstRatingToken(metricLine) : undefined;
+    lines.find((line) => /(ratings?|reviews?|penilaian|ulasan)/iu.test(line) && ratingTokenFromMetricLine(line)) ??
+    lines.find((line) => /(sold|terjual)/iu.test(line) && ratingTokenFromMetricLine(line));
+  const contextual = metricLine ? ratingTokenFromMetricLine(metricLine) : undefined;
+  if (!contextual && !/(★|⭐|rating|ratings?|penilaian|ulasan|star|bintang)/iu.test(normalized)) {
+    return undefined;
+  }
   const candidate = contextual ??
     normalized.match(/(?:rating|bintang|star|penilaian)\s*:?\s*(?:^|[^\d.,a-z])([1-5](?:[.,]\d)?)(?![\d.,a-z])/iu)?.[1] ??
     normalized.match(/(?:^|[^\d.,a-z])([1-5](?:[.,]\d)?)(?![\d.,a-z])\s*(?:\/\s*5|★|star|bintang)/iu)?.[1];
@@ -2077,10 +2103,11 @@ export function extractPdpStoreInfoFromHtml(html: string): {
     ...extractHtmlSiblingStoreNameCandidates(block),
     ...extractHtmlTextCandidates(block)
   ];
+  const storeName = mergeUnique(candidates).map(safeStoreName).find((value): value is string => Boolean(value));
   return {
-    storeName: mergeUnique(candidates).map(safeStoreName).find((value): value is string => Boolean(value)),
+    storeName,
     storeUrl: storeUrl ? normalizeUrl(storeUrl) : undefined,
-    storeType
+    storeType: storeType ?? storeTypeFromOfficialStoreName(storeName)
   };
 }
 

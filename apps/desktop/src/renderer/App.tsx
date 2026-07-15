@@ -1224,6 +1224,11 @@ function GuidedBrowserCollector({
       const productDetailSubAction = typeof payload.metadata?.productDetailSubAction === "string" ? payload.metadata.productDetailSubAction : undefined;
       const progressKey = stepProgressKey(step, productDetailSubAction);
       const nextCollectedSteps = { ...collectedSteps, [progressKey]: result.assetPath };
+      if (productDetailSubAction === "shop-homepage" && step.ownerType === "PRODUCT" && step.ownerId) {
+        for (const relatedKey of relatedShopHomepageProgressKeys(step.ownerId, allSteps, projectDetail.data)) {
+          nextCollectedSteps[relatedKey] = result.assetPath;
+        }
+      }
       setCollectedSteps(nextCollectedSteps);
       setPendingCapture(null);
       const productDetailSubActionLabel = typeof payload.metadata?.productDetailSubActionLabel === "string" ? payload.metadata.productDetailSubActionLabel : undefined;
@@ -2716,10 +2721,13 @@ function ScreenshotReviewModal({
   onSave: (payload: ManualEvidencePayload) => void;
 }) {
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const previewScrollRef = useRef<HTMLDivElement | null>(null);
+  const panStartRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [selection, setSelection] = useState<CropRect | null>(null);
   const [previewZoom, setPreviewZoom] = useState(1);
   const [selectionMode, setSelectionMode] = useState(false);
+  const [panning, setPanning] = useState(false);
 
   useEffect(() => {
     setPreviewZoom(1);
@@ -2727,7 +2735,7 @@ function ScreenshotReviewModal({
   }, [capture.payload.imageDataUrl]);
 
   function applyPreviewZoom(nextZoom: number) {
-    setPreviewZoom(Math.max(0.5, Math.min(4, Number(nextZoom.toFixed(2)))));
+    setPreviewZoom(Math.max(1, Math.min(7, Number(nextZoom.toFixed(2)))));
   }
 
   function handlePreviewWheel(event: WheelEvent<HTMLDivElement>) {
@@ -2738,14 +2746,25 @@ function ScreenshotReviewModal({
 
   function pointerPosition(event: PointerEvent<HTMLDivElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
+    const target = event.currentTarget;
     return {
-      x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
-      y: Math.max(0, Math.min(rect.height, event.clientY - rect.top))
+      x: Math.max(0, event.clientX - rect.left + target.scrollLeft),
+      y: Math.max(0, event.clientY - rect.top + target.scrollTop)
     };
   }
 
   function startSelection(event: PointerEvent<HTMLDivElement>) {
     if (!selectionMode) {
+      if (previewZoom > 1 && previewScrollRef.current) {
+        panStartRef.current = {
+          x: event.clientX,
+          y: event.clientY,
+          left: previewScrollRef.current.scrollLeft,
+          top: previewScrollRef.current.scrollTop
+        };
+        setPanning(true);
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
       return;
     }
     const point = pointerPosition(event);
@@ -2755,6 +2774,11 @@ function ScreenshotReviewModal({
   }
 
   function updateSelection(event: PointerEvent<HTMLDivElement>) {
+    if (!selectionMode && panning && panStartRef.current && previewScrollRef.current) {
+      previewScrollRef.current.scrollLeft = panStartRef.current.left - (event.clientX - panStartRef.current.x);
+      previewScrollRef.current.scrollTop = panStartRef.current.top - (event.clientY - panStartRef.current.y);
+      return;
+    }
     if (!selectionMode || !dragStart) {
       return;
     }
@@ -2769,6 +2793,8 @@ function ScreenshotReviewModal({
 
   function endSelection() {
     setDragStart(null);
+    setPanning(false);
+    panStartRef.current = null;
   }
 
   async function saveSelected() {
@@ -2791,8 +2817,8 @@ function ScreenshotReviewModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="mio-panel flex max-h-[calc(100vh-32px)] w-full max-w-[calc(100vw-32px)] flex-col rounded-[18px] border border-white/12 bg-ink-900/95 p-5 shadow-glow">
+    <div className="fixed inset-0 z-[90] grid place-items-center overflow-hidden bg-black/55 p-4 backdrop-blur-sm">
+      <div className="mio-panel flex h-[calc(100vh-32px)] w-full max-w-[calc(100vw-32px)] flex-col rounded-[18px] border border-white/12 bg-ink-900/95 p-5 shadow-glow">
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
             <div className="text-sm font-semibold text-white">Review Screenshot</div>
@@ -2821,32 +2847,34 @@ function ScreenshotReviewModal({
           </div>
         </div>
         <div
-          className={["relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/12 bg-black/85", selectionMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"].join(" ")}
+          ref={previewScrollRef}
+          className={["relative min-h-0 flex-1 overflow-auto rounded-xl border border-white/12 bg-black/85", selectionMode ? "cursor-crosshair" : previewZoom > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-grab"].join(" ")}
           onWheel={handlePreviewWheel}
           onPointerDown={startSelection}
           onPointerMove={updateSelection}
           onPointerUp={endSelection}
           onPointerCancel={endSelection}
         >
-          <img
-            ref={imageRef}
-            src={capture.payload.imageDataUrl}
-            alt="Captured evidence preview"
-            className="block h-full max-h-[72vh] w-full select-none object-contain transition-transform duration-150 ease-out"
-            draggable={false}
-            style={{ transform: `scale(${previewZoom})`, transformOrigin: "center center" }}
-          />
-          {selection && selection.width > 2 && selection.height > 2 && (
-            <div
-              className="pointer-events-none absolute border-2 border-signal-blue bg-signal-blue/15"
-              style={{
-                left: selection.x,
-                top: selection.y,
-                width: selection.width,
-                height: selection.height
-              }}
+          <div className="relative min-h-full min-w-full" style={{ width: `${previewZoom * 100}%` }}>
+            <img
+              ref={imageRef}
+              src={capture.payload.imageDataUrl}
+              alt="Captured evidence preview"
+              className="block h-auto w-full max-w-none select-none transition-[width] duration-150 ease-out"
+              draggable={false}
             />
-          )}
+            {selection && selection.width > 2 && selection.height > 2 && (
+              <div
+                className="pointer-events-none absolute border-2 border-signal-blue bg-signal-blue/15"
+                style={{
+                  left: selection.x,
+                  top: selection.y,
+                  width: selection.width,
+                  height: selection.height
+                }}
+              />
+            )}
+          </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-ink-400">
@@ -3615,7 +3643,7 @@ function ProductCardGrid({ products, limit = 80 }: { products: ProjectProductEvi
               <div className="min-w-0">
                 <div className="line-clamp-1 text-sm font-medium text-white">{displayProductTitle(product)}</div>
                 <div className="mt-1 text-xs text-ink-500">
-                  {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · Sold {productSoldText(product)}
+                  {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · {productSoldMetricLabel(product)} {productSoldMetricText(product)}
                 </div>
               </div>
               <div className="text-xs text-ink-500">{productSourcePlacement(product)}</div>
@@ -3637,7 +3665,7 @@ function ProductCardGrid({ products, limit = 80 }: { products: ProjectProductEvi
             <div className="mt-2 min-w-0">
               <div className="line-clamp-2 text-xs font-medium text-white">{displayProductTitle(product)}</div>
               <div className="mt-1 text-[11px] text-ink-500">
-                {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · Sold {productSoldText(product)}
+                {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · {productSoldMetricLabel(product)} {productSoldMetricText(product)}
               </div>
             </div>
           </button>
@@ -3814,6 +3842,15 @@ function ProductQualifiedSection({
 function productAssetsForStep(detail: ProjectDetailPayload, product: ProjectProductEvidence): ProjectDetailPayload["assets"] {
   const productAssets = detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id);
   const productStoreUrl = product.storeUrl ? normalizeUrl(product.storeUrl) : undefined;
+  const matchingShopProductIds = detail.products
+    .filter((item) => normalizeStoreKey(item) === normalizeStoreKey(product))
+    .map((item) => item.id);
+  const sharedProductShopHomeAssets = detail.assets.filter((asset) =>
+    asset.kind === "STORE_HOME" &&
+    asset.ownerType === "PRODUCT" &&
+    Boolean(asset.ownerId && matchingShopProductIds.includes(asset.ownerId)) &&
+    !productAssets.some((productAsset) => productAsset.id === asset.id)
+  );
   const legacyShopHomeAssets = productStoreUrl
     ? detail.assets.filter((asset) =>
         asset.kind === "STORE_HOME" &&
@@ -3823,7 +3860,7 @@ function productAssetsForStep(detail: ProjectDetailPayload, product: ProjectProd
         !productAssets.some((productAsset) => productAsset.id === asset.id)
       )
     : [];
-  return [...productAssets, ...legacyShopHomeAssets];
+  return [...productAssets, ...sharedProductShopHomeAssets, ...legacyShopHomeAssets];
 }
 
 function uniqueMediaValues(values: string[]): string[] {
@@ -4080,11 +4117,19 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   const [projectId, setProjectId] = useState("");
   const [sections, setSections] = useState<ReportSectionConfig[]>(DEFAULT_REPORT_SECTIONS);
   const [previewReport, setPreviewReport] = useState<ReportHtmlPayload | null>(null);
+  const [reportProgress, setReportProgress] = useState(0);
   const generateReport = useMutation({
     mutationFn: apiClient.generateReport,
+    onMutate: () => {
+      setReportProgress(8);
+    },
     onSuccess: () => {
+      setReportProgress(100);
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["reports"] });
+    },
+    onError: () => {
+      setReportProgress(0);
     }
   });
   const deleteReport = useMutation({
@@ -4102,6 +4147,16 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
     mutationFn: apiClient.exportReportDocx,
     onSuccess: (result) => void apiClient.openPath(result.docxPath)
   });
+
+  useEffect(() => {
+    if (!generateReport.isPending) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setReportProgress((current) => Math.min(94, current + (current < 55 ? 9 : current < 80 ? 5 : 2)));
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, [generateReport.isPending]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -4142,6 +4197,15 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
               <FileDown size={16} />
               {generateReport.isPending ? "Generating Report" : "Generate Report"}
             </button>
+            {(generateReport.isPending || reportProgress > 0) && (
+              <div className="rounded-md border border-white/8 bg-white/5 p-3">
+                <div className="mb-2 flex items-center justify-between text-xs">
+                  <span className="text-ink-400">{generateReport.isPending ? "Rendering HTML, PDF, and export assets" : "Report generation complete"}</span>
+                  <span className="font-semibold text-signal-blue">{reportProgress}%</span>
+                </div>
+                <ProgressBar value={reportProgress} />
+              </div>
+            )}
             {generateReport.data && (
               <div className="rounded-md border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
                 Report generated at {generateReport.data.pdfPath}
@@ -4770,6 +4834,28 @@ function isCollectionStepComplete(step: CollectionStep, stepAssetPaths: Record<s
   return step.subActions.every((action) => Boolean(stepAssetPaths[stepProgressKey(step, action.id)]));
 }
 
+function relatedShopHomepageProgressKeys(
+  ownerProductId: string,
+  steps: CollectionStep[],
+  detail?: ProjectDetailPayload
+): string[] {
+  const sourceProduct = detail?.products.find((product) => product.id === ownerProductId);
+  if (!sourceProduct) {
+    return [];
+  }
+  if (!sourceProduct.storeUrl && !sourceProduct.storeName) {
+    return [];
+  }
+  const sourceKey = normalizeStoreKey(sourceProduct);
+  return steps
+    .filter((step) => step.stage === "PRODUCT_DETAILS" && step.ownerType === "PRODUCT" && step.ownerId)
+    .filter((step) => {
+      const product = detail?.products.find((item) => item.id === step.ownerId);
+      return Boolean(product && normalizeStoreKey(product) === sourceKey);
+    })
+    .map((step) => stepProgressKey(step, "shop-homepage"));
+}
+
 function buildCollectionSteps(
   project: ProjectSummary,
   platform: ResearchPlatform,
@@ -5318,15 +5404,15 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
     sourcePlacement: mergePlacementLabels([productSourcePlacement(preferred), productSourcePlacement(base)]),
     selectionReason: mergeReasonLabels(preferred.selectionReason, base.selectionReason),
     productType: preferred.productType ?? base.productType,
-    storeType: preferred.storeType ?? base.storeType,
-    ratingText: preferred.ratingText ?? base.ratingText,
+    storeType: mergeStoreType(base, preferred),
+    ratingText: mergeRatingText(base, preferred),
     reviewText: preferred.reviewText ?? base.reviewText,
     monthlySoldText: topSalesSignals?.monthlySoldText ?? preferred.monthlySoldText ?? base.monthlySoldText,
     totalSoldText: relevanceSignals?.totalSoldText ?? pdpTotalSignals?.totalSoldText,
     monthlySold: topSalesSignals?.monthlySold ?? preferred.monthlySold ?? base.monthlySold,
     totalSold: relevanceSignals?.totalSold ?? pdpTotalSignals?.totalSold,
     reviewCount: preferred.reviewCount ?? base.reviewCount,
-    rating: preferred.rating ?? base.rating,
+    rating: mergeRatingValue(base, preferred),
     storeName: preferred.storeName ?? base.storeName,
     storeUrl: preferred.storeUrl ?? base.storeUrl,
     imageUrl: preferred.imageUrl ?? base.imageUrl,
@@ -5340,6 +5426,40 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
 
 function hasPdpDetailSignal(product: ProjectProductEvidence): boolean {
   return Boolean(product.storeName || product.reviewText || product.description || product.images.length || product.videos.length);
+}
+
+function officialStoreTypeFromProductName(product?: ProjectProductEvidence): "Mall ORI" | undefined {
+  return /\bofficial\s+(?:store|shop)\b|\btoko\s+resmi\b|\bgerai\s+resmi\b/iu.test(product?.storeName ?? "") ? "Mall ORI" : undefined;
+}
+
+function mergeStoreType(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): string | undefined {
+  const officialType = officialStoreTypeFromProductName(preferred) ?? officialStoreTypeFromProductName(base);
+  if (officialType) {
+    return officialType;
+  }
+  const values = [preferred.storeType, base?.storeType].filter((value): value is string => Boolean(value));
+  return values.find((value) => value === "Star+") ??
+    values.find((value) => value === "Star") ??
+    values.find((value) => value === "Mall ORI") ??
+    values[0];
+}
+
+function mergeRatingText(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): string | undefined {
+  const values = [preferred.ratingText, base?.ratingText].filter((value): value is string => Boolean(value));
+  return values.find((value) => /[,.]/u.test(value)) ?? values.find((value) => Number(value.replace(",", ".")) >= 3.5) ?? values[0];
+}
+
+function mergeRatingValue(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): number | undefined {
+  const values: Array<{ value: number; text?: string | null }> = [];
+  if (typeof preferred.rating === "number") {
+    values.push({ value: preferred.rating, text: preferred.ratingText });
+  }
+  if (typeof base?.rating === "number") {
+    values.push({ value: base.rating, text: base.ratingText });
+  }
+  return values.find((item) => item.text && /[,.]/u.test(item.text))?.value ??
+    values.find((item) => item.value >= 3.5)?.value ??
+    values[0]?.value;
 }
 
 function productQualityScore(product: ProjectProductEvidence): number {
@@ -5801,6 +5921,10 @@ function storeTypeLabel(product: ProjectProductEvidence): string {
   if (product.storeType && /^(Mall ORI|Star\+|Star)$/u.test(product.storeType)) {
     return product.storeType;
   }
+  const officialType = officialStoreTypeFromProductName(product);
+  if (officialType) {
+    return officialType;
+  }
   return "-";
 }
 
@@ -5813,6 +5937,21 @@ function productRatingText(product: ProjectProductEvidence): string {
 
 function productSoldText(product: ProjectProductEvidence): string {
   return product.totalSoldText ?? product.monthlySoldText ?? formatOptionalNumber(product.totalSold ?? product.monthlySold);
+}
+
+function productSoldMetricText(product: ProjectProductEvidence): string {
+  if (isMonthlySoldProductSource(product.source)) {
+    return product.monthlySoldText ?? formatOptionalNumber(product.monthlySold) ?? product.totalSoldText ?? formatOptionalNumber(product.totalSold);
+  }
+  return product.totalSoldText ?? formatOptionalNumber(product.totalSold) ?? product.monthlySoldText ?? formatOptionalNumber(product.monthlySold);
+}
+
+function productSoldMetricLabel(product: ProjectProductEvidence): string {
+  return isMonthlySoldProductSource(product.source) ? "Sold/month" : "Sold";
+}
+
+function isMonthlySoldProductSource(source?: string | null): boolean {
+  return source === "Top Sales" || source === "Store Best Sellers";
 }
 
 type StoreEvaluationCandidate = {
@@ -6167,7 +6306,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         await wait(250);
         let previousCount = 0;
         let stablePasses = 0;
-        const passes = isStoreProductScope ? 84 : 96;
+        const passes = isStoreProductScope ? 120 : 132;
         for (let index = 0; index < passes; index += 1) {
           const currentCount = productScopeRoot.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
           const elementCanScroll = productScopeRoot.scrollHeight > productScopeRoot.clientHeight + 24;
@@ -6181,11 +6320,11 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           await wait(isStoreProductScope ? 520 : 260);
           if (isStoreProductScope || isSearchProductScope) {
             stablePasses = currentCount === previousCount ? stablePasses + 1 : 0;
-            const targetCount = isStoreProductScope ? 60 : 72;
+            const targetCount = isStoreProductScope ? 72 : 120;
             if (currentCount >= targetCount && stablePasses >= 3) {
               break;
             }
-            if (stablePasses >= 10 && index >= 18) {
+            if (stablePasses >= 14 && index >= 28 && currentCount >= 36) {
               break;
             }
           }
@@ -6340,7 +6479,19 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
             const numeric = Number(candidate.replace(",", "."));
             return numeric >= 1 && numeric <= 5;
           });
-        return matches[0];
+        return matches.find((candidate) => /[,.]/u.test(candidate)) || matches[0];
+      };
+      const ratingTokenFromMetricLine = (value) => {
+        const line = compact(value);
+        const explicit =
+          line.match(/(?:rating|ratings?|penilaian|ulasan|bintang|star)\\s*:?\\s*([1-5](?:[.,]\\d)?)/iu)?.[1] ||
+          line.match(/([1-5](?:[.,]\\d)?)\\s*(?:\\/\\s*5|★|⭐|bintang|star)/iu)?.[1] ||
+          line.match(/(?:★|⭐)\\s*([1-5](?:[.,]\\d)?)/iu)?.[1];
+        if (explicit) return explicit;
+        const token = firstRatingToken(line);
+        if (token && /[,.]/u.test(token)) return token;
+        const leading = line.match(/^([1-5])(?:\\s|$)/u)?.[1];
+        return leading;
       };
       const extractReviewText = (text) => {
         const metricText = compact(text);
@@ -6357,14 +6508,17 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           .map(compact)
           .filter(Boolean);
         const metricLine = rawLines.find((line) => /(★|star|bintang)/iu.test(line)) ||
-          rawLines.find((line) => /(sold|terjual)/iu.test(line) && firstRatingToken(line)) ||
-          rawLines.find((line) => /(ratings?|reviews?|penilaian|ulasan)/iu.test(line) && firstRatingToken(line));
+          rawLines.find((line) => /(ratings?|reviews?|penilaian|ulasan)/iu.test(line) && ratingTokenFromMetricLine(line)) ||
+          rawLines.find((line) => /(sold|terjual)/iu.test(line) && ratingTokenFromMetricLine(line));
         if (metricLine) {
-          return firstRatingToken(metricLine);
+          return ratingTokenFromMetricLine(metricLine);
         }
         const metricText = compact(text);
         const searchable = soldText && metricText.includes(soldText) ? metricText.slice(0, metricText.indexOf(soldText)) : metricText;
-        return firstRatingToken(searchable);
+        if (!/(★|⭐|rating|ratings?|penilaian|ulasan|star|bintang)/iu.test(searchable)) {
+          return undefined;
+        }
+        return ratingTokenFromMetricLine(searchable);
       };
       const prettyHtml = (value) => String(value || "")
         .replace(/></g, ">\\n<")
@@ -6407,14 +6561,18 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       const seen = new Set();
       const products = [];
       const collectVisibleProductRows = async () => {
-        const anchorCandidates = [
-          ...Array.from(productScopeRoot.querySelectorAll('a[href]')),
-          ...Array.from(productScopeRoot.querySelectorAll("div.p-2, [data-sqe='item'], [class*='shop-search-result-view'], [class*='product-card'], [class*='item-card']"))
+        const scanRoots = [
+          productScopeRoot,
+          ...(isStoreProductScope || isSearchProductScope ? [document] : [])
+        ].filter(Boolean);
+        const anchorCandidates = scanRoots.flatMap((scanRoot) => [
+          ...Array.from(scanRoot.querySelectorAll('a[href]')),
+          ...Array.from(scanRoot.querySelectorAll("div.p-2, [data-sqe='item'], [class*='shop-search-result-view'], [class*='product-card'], [class*='item-card']"))
             .flatMap((card) => [
               card.closest?.('a[href*="-i."], a[href*="/product/"], a[href*="i."]'),
               card.querySelector?.('a[href*="-i."], a[href*="/product/"], a[href*="i."]')
             ])
-        ].filter(Boolean);
+        ]).filter(Boolean);
         const anchors = Array.from(new Set(anchorCandidates))
           .filter((anchor) => /(?:-i\\.|\\/product\\/|i\\.)/i.test(anchor.getAttribute("href") || ""))
           .filter((anchor) => !/cart|checkout|help|seller/i.test(anchor.getAttribute("href") || ""));
@@ -6472,8 +6630,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         const rect = productScopeRoot.getBoundingClientRect();
         const startY = Math.max(0, rect.top + (window.scrollY || root.scrollTop || 0) - 80);
         const step = Math.max(320, window.innerHeight * (isStoreProductScope ? 0.58 : 0.72));
-        const targetCount = isStoreProductScope ? 60 : 72;
-        const passLimit = isStoreProductScope ? 96 : 108;
+        const targetCount = isStoreProductScope ? 72 : 120;
+        const passLimit = isStoreProductScope ? 132 : 150;
         let stablePasses = 0;
         let lastCount = -1;
         window.scrollTo({ top: startY, behavior: "auto" });
@@ -6489,7 +6647,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           if (products.length >= targetCount && stablePasses >= 3) {
             break;
           }
-          if (stablePasses >= 12 && pass >= 20) {
+          if (stablePasses >= 16 && pass >= 28 && (products.length >= 48 || pass >= passLimit - 8)) {
             break;
           }
           const nextTop = Math.min(
@@ -6549,6 +6707,8 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           !/^(mall\\s*ori|star\\+?|official|resmi)$/iu.test(lowered) &&
           !/^\\d+(?:[.,]\\d+)?\\s*(rb|k|jt|juta|%|months?|bulan)?/iu.test(lowered);
       };
+      const officialStoreTypeFromName = (value) =>
+        /\\bofficial\\s+(?:store|shop)\\b|\\btoko\\s+resmi\\b|\\bgerai\\s+resmi\\b/iu.test(compact(value)) ? "Mall ORI" : undefined;
       const storeNameLinesFrom = (element) => String(element?.innerText || element?.textContent || "")
         .split(/\\n|\\|/u)
         .map(compact)
@@ -6610,13 +6770,13 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         titleElement?.parentElement,
         titleElement?.closest?.("section"),
         titleElement?.closest?.("div"),
-        shopSection,
-        productPageRoot || document.body
+        shopSection
       ].filter(Boolean);
       const pdpBadgeImage = pdpBadgeRoots
         .map((root) => findStoreBadgeImage(root, undefined))
         .find(Boolean);
-      const storeType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
+      const compactBadgeStoreType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
+      const storeType = compactBadgeStoreType || officialStoreTypeFromName(storeName);
       const pdpSoldText = extractSoldText(productPageText);
       const pdpRatingText = extractRatingText(productPageText, pdpSoldText);
       const pdpReviewText = extractReviewText(productPageText);
