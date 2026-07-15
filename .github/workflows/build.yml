@@ -56,10 +56,13 @@ jobs:
             apps/desktop/release/*.exe
             apps/desktop/release/*.blockmap
           if-no-files-found: error
+          retention-days: 30
 
   macos:
     name: macOS Desktop
     runs-on: macos-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
     steps:
       - name: Checkout
@@ -105,3 +108,4 @@ jobs:
             apps/desktop/release/*.dmg
             apps/desktop/release/mac*/
           if-no-files-found: error
+          retention-days: 30
