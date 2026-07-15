@@ -1065,6 +1065,7 @@ function GuidedBrowserCollector({
   const [pageTextPreview, setPageTextPreview] = useState("");
   const [zoomFactor, setZoomFactor] = useState(1);
   const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
+  const [preparingEvidenceKey, setPreparingEvidenceKey] = useState<string | null>(null);
   const [manualNoticeVisible, setManualNoticeVisible] = useState(false);
   const [expandedPortalRoot, setExpandedPortalRoot] = useState<HTMLElement | null>(null);
   const [captureStatus, setCaptureStatus] = useState<BrowserCaptureStatus>({
@@ -1216,6 +1217,7 @@ function GuidedBrowserCollector({
       });
     },
     onSuccess: async (result, payload) => {
+      setPreparingEvidenceKey(null);
       const step = steps.find((item) => item.id === payload.stepId) ?? activeStep;
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
@@ -1259,12 +1261,16 @@ function GuidedBrowserCollector({
       });
     },
     onError: (error) => {
+      setPreparingEvidenceKey(null);
       setCaptureStatus({ message: "Evidence save failed", state: "failed" });
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not capture the current step.");
     }
   });
 
   const attachFileEvidence = useMutation({
+    onMutate: (step) => {
+      setCaptureStatus({ message: `Attaching ${step.label}`, state: "working" });
+    },
     mutationFn: async (step: CollectionStep) => {
       const picked = await window.marketplaceOS?.platform?.pickFile?.();
       if (!picked) {
@@ -1297,6 +1303,7 @@ function GuidedBrowserCollector({
       appendLog(setActivityLog, `Attached screenshot for ${step.label}.`);
       const nextStepIndex = Math.min(activeStepIndex + 1, steps.length - 1);
       setActiveStepIndex(nextStepIndex);
+      setCaptureStatus({ message: "Evidence saved", state: "done" });
       persistCollectionState({
         stepAssetPaths: nextCollectedSteps,
         completedStepIds: Object.keys(nextCollectedSteps),
@@ -1305,6 +1312,7 @@ function GuidedBrowserCollector({
       });
     },
     onError: (error) => {
+      setCaptureStatus({ message: "Evidence save failed", state: "failed" });
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not attach screenshot evidence.");
     }
   });
@@ -1567,8 +1575,16 @@ function GuidedBrowserCollector({
   }
 
   async function captureAndSaveEvidence(step: CollectionStep, subAction?: CollectionSubAction) {
+    const progressKey = stepProgressKey(step, subAction?.id);
+    const actionLabel = subAction?.label ?? step.label;
+    setPreparingEvidenceKey(progressKey);
+    setCaptureStatus({
+      message: subAction
+        ? subAction.mode === "download" ? `Downloading ${actionLabel}` : `Collecting ${actionLabel}`
+        : `Preparing ${actionLabel}`,
+      state: "working"
+    });
     try {
-      setCaptureStatus({ message: "Targeted page received", state: "working" });
       appendLog(setActivityLog, `Capturing rendered page snapshot for ${subAction ? `${step.label} / ${subAction.label}` : step.label}...`);
       const payload = await buildManualEvidencePayload(step, subAction);
       if ((!subAction || subAction.mode === "screenshot") && !isDataOnlyEvidenceStep(step, subAction)) {
@@ -1576,6 +1592,8 @@ function GuidedBrowserCollector({
           payload,
           stepLabel: subAction ? `${step.label} / ${subAction.label}` : step.label
         });
+        setPreparingEvidenceKey(null);
+        setCaptureStatus({ message: "Review screenshot before saving", state: "working" });
         appendLog(setActivityLog, "Review the screenshot, crop if needed, then save the evidence.");
         return;
       }
@@ -1588,6 +1606,7 @@ function GuidedBrowserCollector({
       appendLog(setActivityLog, `Saving ${subAction?.label ?? step.label} data from the current page.`);
       saveEvidence.mutate(payload);
     } catch (error) {
+      setPreparingEvidenceKey(null);
       setCaptureStatus({ message: "Capture failed", state: "failed" });
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not prepare rendered page snapshot.");
     }
@@ -1654,9 +1673,6 @@ function GuidedBrowserCollector({
           storeDecorationImages: []
         };
       });
-    const printPdfDataUrl = dataOnlyEvidence ? undefined : await webview.printToPDF?.({ printBackground: true })
-      .then((data) => `data:application/pdf;base64,${uint8ArrayToBase64(data)}`)
-      .catch(() => undefined);
     const structuredProductDetail = scopeProductDetailSnapshot(snapshot.productDetail, subAction?.id);
     return {
       projectId: project.id,
@@ -1672,7 +1688,7 @@ function GuidedBrowserCollector({
       note: step.instruction,
       pageHtml: snapshot.html,
       visibleText: snapshot.visibleText,
-      pagePdfDataUrl: printPdfDataUrl,
+      pagePdfDataUrl: undefined,
       extractedProducts: snapshot.products,
       metadata: {
         section: step.section,
@@ -1861,7 +1877,7 @@ function GuidedBrowserCollector({
           captured={isCurrentCollectorTargetSaved(activeStep, activeSubAction?.id, collectedSteps)}
           subActionCounts={activeSubActionCounts}
           subActionStates={activeSubActionStates}
-          saving={saveEvidence.isPending}
+          saving={saveEvidence.isPending || Boolean(preparingEvidenceKey)}
           onOpenTarget={(subActionId) => {
             const selectedSubAction = subActionId
               ? activeStep.subActions?.find((action) => action.id === subActionId)
@@ -1902,17 +1918,6 @@ function GuidedBrowserCollector({
         <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
           {pageTextPreview.slice(0, 4000)}
         </pre>
-      )}
-      {pendingCapture && (
-        <ScreenshotReviewModal
-          capture={pendingCapture}
-          saving={saveEvidence.isPending}
-          onCancel={() => setPendingCapture(null)}
-          onSave={(payload) => {
-            setCaptureStatus({ message: "Saving screenshot evidence", state: "working" });
-            saveEvidence.mutate(payload);
-          }}
-        />
       )}
     </Panel>
   );
@@ -2089,7 +2094,30 @@ function GuidedBrowserCollector({
     </section>
   );
 
-  return expanded && expandedPortalRoot ? createPortal(workspaceContent, expandedPortalRoot) : workspaceContent;
+  const screenshotReviewPortalRoot = typeof document !== "undefined"
+    ? document.querySelector<HTMLElement>(".mio-app") ?? document.body
+    : null;
+  const screenshotReviewPortal = pendingCapture && screenshotReviewPortalRoot
+    ? createPortal(
+        <ScreenshotReviewModal
+          capture={pendingCapture}
+          saving={saveEvidence.isPending}
+          onCancel={() => setPendingCapture(null)}
+          onSave={(payload) => {
+            setCaptureStatus({ message: "Saving screenshot evidence", state: "working" });
+            saveEvidence.mutate(payload);
+          }}
+        />,
+        screenshotReviewPortalRoot
+      )
+    : null;
+
+  return (
+    <>
+      {expanded && expandedPortalRoot ? createPortal(workspaceContent, expandedPortalRoot) : workspaceContent}
+      {screenshotReviewPortal}
+    </>
+  );
 }
 
 function CollectionStepPreview({
@@ -2739,8 +2767,11 @@ function ScreenshotReviewModal({
   }
 
   function handlePreviewWheel(event: WheelEvent<HTMLDivElement>) {
+    if (!event.ctrlKey && !event.metaKey) {
+      return;
+    }
     event.preventDefault();
-    const delta = event.deltaY < 0 ? 0.12 : -0.12;
+    const delta = event.deltaY < 0 ? 0.2 : -0.2;
     applyPreviewZoom(previewZoom + delta);
   }
 
@@ -2817,7 +2848,7 @@ function ScreenshotReviewModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[90] grid place-items-center overflow-hidden bg-black/55 p-4 backdrop-blur-sm">
+    <div className="mio-screenshot-modal fixed inset-0 z-[200] grid place-items-center overflow-hidden bg-black/55 p-4 backdrop-blur-sm">
       <div className="mio-panel flex h-[calc(100vh-32px)] w-full max-w-[calc(100vw-32px)] flex-col rounded-[18px] border border-white/12 bg-ink-900/95 p-5 shadow-glow">
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
@@ -2848,19 +2879,19 @@ function ScreenshotReviewModal({
         </div>
         <div
           ref={previewScrollRef}
-          className={["relative min-h-0 flex-1 overflow-auto rounded-xl border border-white/12 bg-black/85", selectionMode ? "cursor-crosshair" : previewZoom > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-grab"].join(" ")}
+          className={["mio-screenshot-preview relative min-h-0 flex-1 overflow-auto rounded-xl border border-white/12 bg-black/85", selectionMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"].join(" ")}
           onWheel={handlePreviewWheel}
           onPointerDown={startSelection}
           onPointerMove={updateSelection}
           onPointerUp={endSelection}
           onPointerCancel={endSelection}
         >
-          <div className="relative min-h-full min-w-full" style={{ width: `${previewZoom * 100}%` }}>
+          <div className="relative flex min-h-full min-w-full items-start justify-center" style={{ height: `${previewZoom * 100}%` }}>
             <img
               ref={imageRef}
               src={capture.payload.imageDataUrl}
               alt="Captured evidence preview"
-              className="block h-auto w-full max-w-none select-none transition-[width] duration-150 ease-out"
+              className="block h-full w-auto max-w-none select-none transition-[height] duration-150 ease-out"
               draggable={false}
             />
             {selection && selection.width > 2 && selection.height > 2 && (
@@ -2878,7 +2909,7 @@ function ScreenshotReviewModal({
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-ink-400">
-            Scroll or pinch to zoom. Use Select Area before dragging a crop box; the default pointer is for grabbing the zoomed preview.
+            Scroll to move through the preview. Use zoom buttons or Ctrl/Command + wheel to zoom, then drag to pan. Use Select Area before dragging a crop box.
           </div>
           <div className="flex items-center gap-2">
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => onSave(capture.payload)} disabled={saving}>
@@ -7346,15 +7377,6 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
     image.onerror = () => reject(new Error("Could not load captured screenshot slice."));
     image.src = src;
   });
-}
-
-function uint8ArrayToBase64(data: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let index = 0; index < data.length; index += chunkSize) {
-    binary += String.fromCharCode(...data.subarray(index, index + chunkSize));
-  }
-  return btoa(binary);
 }
 
 async function cropImageDataUrl(
