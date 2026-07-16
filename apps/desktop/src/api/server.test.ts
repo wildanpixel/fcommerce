@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractPdpStoreInfoFromHtml } from "./server.js";
+import { extractMoneyRange, extractPdpStoreInfoFromHtml, extractRatingTextValue, parsePrice } from "./server.js";
 
 describe("Shopee PDP store extraction", () => {
   it("extracts store name from the current sll2 product shop block", () => {
@@ -52,5 +52,36 @@ describe("Shopee PDP store extraction", () => {
     `;
 
     expect(extractPdpStoreInfoFromHtml(html).storeName).toBe("Pockets Official Store");
+  });
+
+  it("keeps a Star badge for a non-official store", () => {
+    const html = `
+      <section class="page-product__shop">
+        <a href="/beauty.secret?entryPoint=ShopByPDP"><img alt="Star badge" src="star.svg"></a>
+        <div><div>beauty.secret</div></div>
+      </section>
+    `;
+
+    expect(extractPdpStoreInfoFromHtml(html).storeType).toBe("Star");
+  });
+});
+
+describe("Shopee rating extraction", () => {
+  it("does not mistake a Star seller badge or sold count for a rating", () => {
+    expect(extractRatingTextValue("Star 1RB+ Sold")).toBeUndefined();
+  });
+
+  it("extracts the product-star metric beside its ratings count", () => {
+    expect(extractRatingTextValue("4.8 9,9k Ratings 10RB+ Sold")).toBe("4,8");
+  });
+});
+
+describe("Shopee price extraction", () => {
+  it("preserves a complete Indonesian rupiah value", () => {
+    expect(parsePrice("Rp13.200.000")).toBe(13_200_000);
+  });
+
+  it("uses the first price for a PDP variant range", () => {
+    expect(extractMoneyRange("Rp13.299.000 - Rp18.198.000").average).toBe(13_299_000);
   });
 });

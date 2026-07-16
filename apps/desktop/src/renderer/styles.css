@@ -556,17 +556,15 @@ webview {
 }
 
 .mio-browser-panel-expanded > div:first-child {
-  pointer-events: none;
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  right: 10px;
-  z-index: 45;
+  pointer-events: auto;
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
   margin: 0;
-  border-radius: 14px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.86);
-  padding: 8px 10px;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+  padding: 10px 14px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.1);
   backdrop-filter: blur(16px) saturate(1.05);
 }
 
@@ -586,35 +584,41 @@ webview {
 }
 
 .mio-browser-panel-expanded .mio-browser-toolbar {
-  position: absolute;
-  top: 60px;
-  left: 10px;
-  right: 10px;
-  z-index: 44;
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
   margin: 0;
-  border-radius: 14px;
-  border: 1px solid rgba(105, 122, 153, 0.28);
+  border-radius: 0;
+  border: 0;
+  border-top: 1px solid rgba(105, 122, 153, 0.2);
+  border-bottom: 1px solid rgba(105, 122, 153, 0.28);
   background: rgba(255, 255, 255, 0.9);
-  padding: 8px;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  padding: 8px 12px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
   backdrop-filter: blur(16px) saturate(1.05);
 }
 
 .mio-browser-panel-expanded .mio-browser-frame {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: auto !important;
   border: 0;
   border-radius: 0;
 }
 
 .mio-browser-panel-expanded .mio-floating-collector {
-  top: 116px;
+  top: 16px;
 }
 
 .mio-browser-panel-expanded .mio-warning-dot {
-  top: 116px;
+  top: 16px;
 }
 
 .mio-browser-panel-expanded .mio-manual-toast {
-  top: 160px;
+  top: 64px;
 }
 
 .mio-metric-card {
@@ -1258,27 +1262,36 @@ button:active,
 }
 
 .mio-browser-panel-expanded .mio-browser-frame {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  display: block !important;
-  height: 100vh !important;
-  width: 100vw !important;
-  min-height: 100vh !important;
+  position: relative;
+  inset: auto;
+  display: flex !important;
+  flex: 1 1 auto;
+  height: auto !important;
+  width: 100% !important;
+  min-height: 0 !important;
   border: 0 !important;
   border-radius: 0 !important;
 }
 
 .mio-browser-panel-expanded webview {
   display: block !important;
-  height: 100vh !important;
-  min-height: 100vh !important;
-  width: 100vw !important;
+  flex: 1 1 auto;
+  height: 100% !important;
+  min-height: 0 !important;
+  width: 100% !important;
 }
 
 .mio-browser-panel-expanded .mio-browser-toolbar,
 .mio-browser-panel-expanded > div:first-child {
-  z-index: 60;
+  z-index: 3;
+}
+
+.mio-floating-collector,
+.mio-manual-toast,
+.mio-capture-status-pill,
+details > div,
+details > section {
+  transition: opacity 180ms ease, transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
 }
 
 .mio-capture-status-pill {

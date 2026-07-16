@@ -4,7 +4,7 @@ This app is built for macOS through GitHub Actions. Do not use the Windows porta
 
 ## GitHub Download
 
-The macOS artifact is produced by the GitHub Actions workflow:
+The macOS artifacts are produced as separate architecture-specific downloads by the GitHub Actions workflow:
 
 - Repository: `wildanpixel/fcommerce`
 - Workflow: `Build Desktop Artifacts`
@@ -23,8 +23,8 @@ Artifacts are retained for 30 days after each successful workflow run. If the ar
 5. Download `marketplace-intelligence-os-macos`.
 6. Unzip the downloaded artifact.
 7. Choose the correct DMG:
-   - Apple Silicon Mac, such as M1, M2, M3, or M4: `MarketPlace Keyword Competitor Analysis 1.0.0-arm64.dmg`
-   - Intel Mac: `MarketPlace Keyword Competitor Analysis 1.0.0-x64.dmg`
+   - Apple Silicon Mac, such as M1, M2, M3, or M4: download `marketplace-intelligence-os-macos-apple-silicon`, then use `MarketPlace Keyword Competitor Analysis 1.0.0-arm64.dmg`.
+   - Intel Mac: download `marketplace-intelligence-os-macos-intel`, then use `MarketPlace Keyword Competitor Analysis 1.0.0-x64.dmg`.
 
 ## Create A Fresh macOS Download
 
@@ -34,7 +34,7 @@ Use this when you need a new macOS build without changing source code:
 2. Click `Run workflow`.
 3. Select branch `main`.
 4. Click `Run workflow`.
-5. Wait for the `macOS Desktop` job to finish successfully.
+5. Wait for both `macOS Desktop (Intel)` and `macOS Desktop (Apple Silicon)` jobs to finish successfully.
 6. Download the `marketplace-intelligence-os-macos` artifact from the completed run.
 
 ## Install The DMG

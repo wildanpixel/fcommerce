@@ -1,61 +1,67 @@
 # MarketPlace Keyword Competitor Analysis - Release Report
 
-Release date: 2026-07-14
+Release date: 2026-07-16
+
 Version: 1.0.0
-Local platform: Windows
-Release task: Report Preview viewport fix, macOS install guide, and packaged validation
+
+Local platform: Windows x64
+
+Release task: Guided collection reliability, pricing accuracy, project deletion recovery, and dual-architecture macOS delivery
 
 ## Summary
 
-This release fixes the Report Preview modal that could render off-screen when opened from the animated Reports page. The preview now renders through an app-root portal, stays constrained to the Electron viewport, keeps the header and close action visible, and supports Escape-to-close.
+This release fixes the confirmed collection and desktop workflow defects: Indonesian price parsing now preserves full grouped Rupiah values and uses the lower value of product price ranges, Part 1 advances from Relevance to Top Sales with target validation, missing evidence receives an explicit failed state, and Product Detail next actions follow the guided sequence. Project deletion no longer leaves New Research inputs unresponsive, and collection exit returns to the current project inspector.
 
-It also documents the macOS distribution path through GitHub Actions artifacts, including Apple Silicon and Intel DMG selection, Gatekeeper handling for the current unsigned build, and macOS application data locations.
-
-## Completed
-
-- Portaled Report Preview outside the animated page wrapper into the app root so fixed positioning uses the full viewport.
-- Changed the preview modal to a viewport-safe scroll container with an internal iframe area and sticky header.
-- Replaced the text-only Close action with a circular icon close button and added Escape-to-close keyboard behavior.
-- Added light/dark preview header styles and iframe height rules so the preview remains readable in either theme.
-- Added `docs/MACOS_INSTALLATION.md` and linked it from the README and cross-platform documentation.
-- Preserved the existing report, collection, marketplace data, and project-management behavior.
+The browser fullscreen layout no longer overlays Shopee content, unnecessary text/print controls were removed, notifications time out consistently, and Settings now links to official OpenAI and Gemini API-key guidance. GitHub Actions packages macOS independently for Intel (`x64`) and Apple Silicon (`arm64`).
 
 ## Release Checklist
 
 | Step | Result |
 | --- | --- |
-| Delete `dist` / `dist-node` / `release` | Completed through `npm run clean` |
-| Generate Prisma | Passed through build/package scripts |
+| Delete `dist` / `dist-node` / `release` | Passed before the clean build |
+| Generate Prisma Client | Passed |
 | TypeScript | Passed |
 | ESLint | Passed |
-| Unit tests | Passed |
-| Clean build | Passed |
-| Playwright tests | Passed |
-| Package Electron | Completed for Windows installer, unpacked app, and portable |
-| Generate Windows Installer | Completed |
-| Generate Windows Portable | Completed after allowing the 7-Zip payload compression step to finish |
-| Generate macOS App / DMG | Not available locally on Windows; configured for GitHub Actions macOS runner |
-| Launch packaged application automatically | Passed with `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` |
+| Unit tests | Passed: 6 files, 19 tests |
+| Clean renderer/Electron build | Passed |
+| Playwright smoke tests | Passed: 3 tests |
+| Package Electron | Passed |
+| Generate Windows Installer | Passed |
+| Generate Windows Portable | Passed |
+| Launch unpacked Windows application | Passed; process remained alive after 10 seconds |
+| Launch Windows Portable | Passed; launcher remained alive after 15 seconds |
+| Generate macOS Intel App / DMG | Configured as a dedicated GitHub Actions `x64` job |
+| Generate macOS Apple Silicon App / DMG | Configured as a dedicated GitHub Actions `arm64` job |
 | Update changelog/status/roadmap | Completed |
 
-## Local Validation
+## Validation Commands
 
-- `npm run typecheck`: passed.
-- `npm run lint`: passed.
-- `npm test`: passed, 6 test files and 14 tests.
-- `npm run build`: passed.
-- `npm run test:e2e`: passed, 2 Playwright smoke tests.
-- `npm run clean; npm run package:win`: passed and generated fresh Windows installer, unpacked app, and portable executable.
-- Packaged startup smoke: passed; `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` launched and stayed alive for the startup window.
-- Portable startup smoke: passed; `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` launched and spawned the app process with the expected window title.
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm test`
+- `pnpm build`
+- `pnpm --filter @marketplace-intelligence-os/desktop exec playwright test e2e/smoke.spec.ts`
+- `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64`
+- `git diff --check`
 
-## Generated Artifacts
+## Windows Artifacts
 
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` - 154,620,609 bytes, generated.
-- `apps/desktop/release/win-unpacked/MarketPlace Keyword Competitor Analysis.exe` - generated and launch-verified.
-- `apps/desktop/release/MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` - 154,390,323 bytes, generated and launch-verified.
-- `apps/desktop/release/builder-debug.yml` - regenerated with the portable target.
+| Artifact | Size | SHA-256 |
+| --- | ---: | --- |
+| `MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` | 147.46 MB | `AF14E67C6E8CEF908AFB941FC3F1D75C13E77FE8129527ADD68B448F84CE7C99` |
+| `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` | 147.24 MB | `42670EABA879220BC9EBC05EC6886E42F8071181D003404266683181324EF9DF` |
+| `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` | 191.91 MB | `3CD8AC9563033BE3C69C1709F7332C2AC2AECF9D6EB653F247439C6908C2DB85` |
 
-## Remaining Issues
+## macOS Delivery
 
-- macOS artifacts still require the GitHub Actions macOS runner from the shared CI workflow.
+GitHub Actions publishes two separate downloadable artifacts so users do not need to run a Windows portable executable on macOS:
+
+- `marketplace-intelligence-os-macos-intel` for Intel Macs.
+- `marketplace-intelligence-os-macos-apple-silicon` for M1/M2/M3/M4 Macs.
+
+The macOS packages are currently unsigned and unnotarized. Installation and Gatekeeper instructions are documented in `docs/MACOS_INSTALLATION.md`.
+
+## Known Non-Blocking Notes
+
+- Vite reports an existing renderer chunk-size warning at approximately 562 kB; this does not fail compilation or packaging.
+- Electron Builder uses the default Electron icon because a signed production icon has not yet been configured.

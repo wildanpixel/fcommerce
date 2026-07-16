@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 const e2eApiPort = process.env.MIO_E2E_API_PORT ?? "4223";
 const e2eApiOverride = `/?apiBaseUrl=${encodeURIComponent(`http://127.0.0.1:${e2eApiPort}/api`)}`;
 
+test.describe.configure({ mode: "serial" });
+
 test("renders the guided manual analysis flow", async ({ page }) => {
   await page.goto(e2eApiOverride);
   await expect(page.getByRole("button", { name: "Hide sidebar" })).toBeVisible();
@@ -36,9 +38,15 @@ test("renders the guided manual analysis flow", async ({ page }) => {
   expect(Math.round(fullscreenBox?.width ?? -1)).toBe(viewport?.width);
   expect(Math.round(fullscreenBox?.height ?? -1)).toBe(viewport?.height);
 
+  const toolbarBox = await page.locator(".mio-browser-toolbar").boundingBox();
+  const browserFrameBox = await page.locator(".mio-browser-frame").boundingBox();
   const webviewBox = await page.locator("webview").boundingBox();
+  expect(toolbarBox).not.toBeNull();
+  expect(browserFrameBox).not.toBeNull();
   expect(webviewBox).not.toBeNull();
-  expect(Math.round(webviewBox?.height ?? -1)).toBe(viewport?.height);
+  expect(Math.round(browserFrameBox?.y ?? -1)).toBeGreaterThanOrEqual(Math.round((toolbarBox?.y ?? 0) + (toolbarBox?.height ?? 0)));
+  expect(Math.round(webviewBox?.height ?? -1)).toBe(Math.round(browserFrameBox?.height ?? -2));
+  expect(Math.round((browserFrameBox?.y ?? 0) + (browserFrameBox?.height ?? 0))).toBe(viewport?.height);
   const internalFrameHeight = await page.locator("webview").evaluate((node) => {
     const frame = node.shadowRoot?.querySelector("iframe") as HTMLIFrameElement | null;
     return frame?.style.height ?? "";
@@ -60,4 +68,33 @@ test("shows TikTok as a coming-soon platform", async ({ page }) => {
   await expect(tiktokButton).toBeVisible();
   await expect(tiktokButton).toBeDisabled();
   await expect(tiktokButton).toContainText("Coming soon");
+});
+
+test("keeps New Research inputs responsive after deleting a project", async ({ page }) => {
+  const projectName = `delete-input-regression-${Date.now()}`;
+  await page.goto(e2eApiOverride);
+  await page.getByRole("button", { name: /Create Analysis/ }).click();
+  await page.getByLabel("Desired Keyword").fill(projectName);
+  await page.getByLabel("Product Category").fill("regression test");
+  await page.getByRole("button", { name: /Proceed to Browser/ }).click();
+  await expect(page.getByText("Platform Browser")).toBeVisible();
+
+  await page.getByRole("button", { name: "Back to Projects" }).click();
+  await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue Collection" })).toBeVisible();
+  await page.getByRole("button", { name: "Back to Projects" }).click();
+  await expect(page.getByText("Keyword Projects", { exact: true }).first()).toBeVisible();
+
+  await page.getByRole("button", { name: `Delete ${projectName}` }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Project name confirmation").fill(projectName);
+  await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole("button", { name: "New Research" }).click();
+  await page.getByRole("button", { name: /Create Analysis/ }).click();
+  const keywordInput = page.getByLabel("Desired Keyword");
+  await keywordInput.fill("responsive after deletion");
+  await expect(keywordInput).toHaveValue("responsive after deletion");
 });

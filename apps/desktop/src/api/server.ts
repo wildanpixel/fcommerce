@@ -456,13 +456,44 @@ export function createApp(): Express {
       return;
     }
 
-    const image = decodeDataUrl(input.imageDataUrl);
+    const reuseAssetId = typeof input.metadata?.reuseAssetId === "string" ? input.metadata.reuseAssetId : undefined;
+    let hydratedInput = input;
+    if (reuseAssetId) {
+      const detail = await dependencies.projectRepository.getDetail(input.projectId);
+      const reusableAsset = detail?.assets.find((asset) => asset.id === reuseAssetId);
+      const reusableHtmlPath = typeof reusableAsset?.metadata.htmlPath === "string" ? reusableAsset.metadata.htmlPath : undefined;
+      const reusableTextPath = typeof reusableAsset?.metadata.textPath === "string" ? reusableAsset.metadata.textPath : undefined;
+      const [reusedHtml, reusedText] = await Promise.all([
+        reusableHtmlPath ? readFile(reusableHtmlPath, "utf8").catch(() => undefined) : Promise.resolve(undefined),
+        reusableTextPath ? readFile(reusableTextPath, "utf8").catch(() => undefined) : Promise.resolve(undefined)
+      ]);
+      const reusedProductsResult = z.array(extractedPageProductSchema).safeParse(reusableAsset?.metadata.capturedProducts);
+      const reusedDecorationImages = extractStringArray(reusableAsset?.metadata.storeDecorationImages);
+      hydratedInput = {
+        ...input,
+        sourceUrl: reusableAsset?.sourceUrl ?? input.sourceUrl,
+        pageHtml: reusedHtml ?? input.pageHtml,
+        visibleText: reusedText ?? input.visibleText,
+        extractedProducts: reusedProductsResult.success ? reusedProductsResult.data : input.extractedProducts,
+        metadata: {
+          ...(reusableAsset?.metadata ?? {}),
+          ...(input.metadata ?? {}),
+          reuseAssetId,
+          reusedStoreEvidence: true,
+          storeDecorationImages: extractStringArray(input.metadata?.storeDecorationImages).length > 0
+            ? extractStringArray(input.metadata?.storeDecorationImages)
+            : reusedDecorationImages
+        }
+      };
+    }
+
+    const image = decodeDataUrl(hydratedInput.imageDataUrl);
     const projectFolder = await dependencies.workspace.projectFolder(project);
     const evidenceFolder = resolve(projectFolder, "manual-evidence");
     await mkdir(evidenceFolder, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const baseName = `${timestamp}-${slug(input.stepId)}`;
-    const processedInput = await localizeManualEvidenceImages(input, evidenceFolder, baseName);
+    const processedInput = await localizeManualEvidenceImages(hydratedInput, evidenceFolder, baseName);
     const assetPath = resolve(evidenceFolder, `${baseName}.png`);
     await writeFile(assetPath, image.buffer);
     const htmlPath = processedInput.pageHtml ? resolve(evidenceFolder, `${baseName}.html`) : undefined;
@@ -511,6 +542,7 @@ export function createApp(): Express {
         normalizedRecordCount: normalizedEvidence.normalizedRecordCount,
         reviewCount: normalizedEvidence.reviewCount,
         storeId: normalizedEvidence.storeId,
+        capturedProducts: processedInput.extractedProducts ?? [],
         ...(processedInput.metadata ?? {})
       }
     };
@@ -551,7 +583,8 @@ export function createApp(): Express {
       htmlPath,
       textPath,
       pdfPath,
-      extractedProductCount: normalizedEvidence.extractedProductCount
+      extractedProductCount: normalizedEvidence.extractedProductCount,
+      storeBannerCount: storeBannerAssetPaths.length
     });
   }));
 
@@ -1669,7 +1702,7 @@ function extractProductEnrichment(
   const collectDescriptionPromotions = collectEverything || subAction === "description-promotions";
   const htmlStoreInfo = extractPdpStoreInfoFromHtml(html);
   const resolvedStoreName = safeStoreName(structured?.storeName ?? htmlStoreInfo.storeName);
-  const resolvedStoreType = normalizeStoreType(structured?.storeType ?? htmlStoreInfo.storeType) ?? storeTypeFromOfficialStoreName(resolvedStoreName);
+  const resolvedStoreType = storeTypeFromOfficialStoreName(resolvedStoreName) ?? normalizeStoreType(structured?.storeType ?? htmlStoreInfo.storeType);
   const price = extractMoneyRange(text);
   const structuredImages = structured?.images ?? [];
   const structuredVideos = structured?.videos ?? [];
@@ -1921,7 +1954,7 @@ function reviewDedupeKey(reviewItem: ReviewEvidence): string {
   ].join("|");
 }
 
-function extractRatingTextValue(text: string): string | undefined {
+export function extractRatingTextValue(text: string): string | undefined {
   const normalized = normalizeEvidenceText(text);
   const firstRatingToken = (value: string): string | undefined => {
     const candidates = Array.from(value.matchAll(/(^|[^\d.,a-z])([1-5](?:[.,]\d)?)(?![\d.,a-z])/giu))
@@ -1935,7 +1968,7 @@ function extractRatingTextValue(text: string): string | undefined {
   const ratingTokenFromMetricLine = (value: string): string | undefined => {
     const line = cleanText(value);
     const explicit =
-      /(?:rating|ratings?|penilaian|ulasan|bintang|star)\s*:?\s*([1-5](?:[.,]\d)?)/iu.exec(line)?.[1] ??
+      /(?:rating\b|bintang)\s*:?\s*([1-5](?:[.,]\d)?)/iu.exec(line)?.[1] ??
       /([1-5](?:[.,]\d)?)\s*(?:\/\s*5|★|⭐|bintang|star)/iu.exec(line)?.[1] ??
       /(?:★|⭐)\s*([1-5](?:[.,]\d)?)/iu.exec(line)?.[1];
     if (explicit) {
@@ -1945,21 +1978,21 @@ function extractRatingTextValue(text: string): string | undefined {
     if (token && /[,.]/u.test(token)) {
       return token;
     }
-    return /^([1-5])(?:\s|$)/u.exec(line)?.[1];
+    return undefined;
   };
   const lines = normalized
     .split("\n")
     .map((line) => cleanText(line))
     .filter(Boolean);
-  const metricLine = lines.find((line) => /(★|star|bintang)/iu.test(line)) ??
+  const metricLine = lines.find((line) => /(★|⭐|bintang)/iu.test(line) && ratingTokenFromMetricLine(line)) ??
     lines.find((line) => /(ratings?|reviews?|penilaian|ulasan)/iu.test(line) && ratingTokenFromMetricLine(line)) ??
-    lines.find((line) => /(sold|terjual)/iu.test(line) && ratingTokenFromMetricLine(line));
+    lines.find((line) => /(sold|terjual)/iu.test(line) && /[1-5][.,]\d/u.test(line) && ratingTokenFromMetricLine(line));
   const contextual = metricLine ? ratingTokenFromMetricLine(metricLine) : undefined;
-  if (!contextual && !/(★|⭐|rating|ratings?|penilaian|ulasan|star|bintang)/iu.test(normalized)) {
+  if (!contextual && !/(★|⭐|rating|ratings?|penilaian|ulasan|bintang)/iu.test(normalized)) {
     return undefined;
   }
   const candidate = contextual ??
-    normalized.match(/(?:rating|bintang|star|penilaian)\s*:?\s*(?:^|[^\d.,a-z])([1-5](?:[.,]\d)?)(?![\d.,a-z])/iu)?.[1] ??
+    normalized.match(/(?:rating|bintang|penilaian)\s*:?\s*(?:^|[^\d.,a-z])([1-5](?:[.,]\d)?)(?![\d.,a-z])/iu)?.[1] ??
     normalized.match(/(?:^|[^\d.,a-z])([1-5](?:[.,]\d)?)(?![\d.,a-z])\s*(?:\/\s*5|★|star|bintang)/iu)?.[1];
   return candidate ? candidate.replace(".", ",") : undefined;
 }
@@ -1988,7 +2021,7 @@ function extractSoldTextValue(text: string): string | undefined {
   return cleanText(`${value} ${label}`);
 }
 
-function extractMoneyRange(text: string): {
+export function extractMoneyRange(text: string): {
   min?: number;
   max?: number;
   average?: number;
@@ -2003,7 +2036,7 @@ function extractMoneyRange(text: string): {
     return {
       min,
       max,
-      average: min && max ? Math.round((min + max) / 2) : min ?? max,
+      average: min ?? max,
       original
     };
   }
@@ -2107,7 +2140,7 @@ export function extractPdpStoreInfoFromHtml(html: string): {
   return {
     storeName,
     storeUrl: storeUrl ? normalizeUrl(storeUrl) : undefined,
-    storeType: storeType ?? storeTypeFromOfficialStoreName(storeName)
+    storeType: storeTypeFromOfficialStoreName(storeName) ?? storeType
   };
 }
 
@@ -2500,18 +2533,19 @@ function selectionReason(
   return Array.from(reasons).join(" / ");
 }
 
-function parsePrice(value?: string): number | undefined {
+export function parsePrice(value?: string): number | undefined {
   if (!value) {
     return undefined;
   }
-  const matches = value.match(/(?:Rp\s*)?[\d.]+(?:,\d+)?/giu) ?? [];
-  const values = matches
+  const rupiahMatches = value.match(/Rp\s*\d{1,3}(?:[.\s]\d{3})+(?:,\d+)?|Rp\s*\d+(?:[.,]\d+)?/giu);
+  const matches = rupiahMatches?.length ? rupiahMatches : value.match(/\d{1,3}(?:[.\s]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?/gu) ?? [];
+  const first = matches
     .map((match) => Number(match.replace(/[^\d]/gu, "")))
-    .filter((number) => Number.isFinite(number) && number > 0);
-  if (values.length === 0) {
+    .find((number) => Number.isFinite(number) && number > 0);
+  if (!first) {
     return undefined;
   }
-  return Math.round(values.reduce((sum, number) => sum + number, 0) / values.length);
+  return Math.round(first);
 }
 
 function normalizeUrl(value: string): string {

@@ -30,7 +30,6 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
-  Printer,
   RefreshCcw,
   Search,
   Settings,
@@ -179,6 +178,7 @@ type BrowserCaptureStatus = {
   message: string;
   state: "idle" | "working" | "done" | "failed";
   actionLabel?: string;
+  progress?: number;
 };
 
 const COLLECTION_STAGES: CollectionStage[] = ["KEYWORD_GENERAL", "PRODUCT_DETAILS", "EVALUATION_KEY_STORE"];
@@ -494,6 +494,7 @@ function TopBar({
 
 function ManualResearchExperience() {
   const queryClient = useQueryClient();
+  const openProjectInspector = useUiStore((state) => state.openProjectInspector);
   const [mode, setMode] = useState<ResearchMode>("home");
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
   const [form, setForm] = useState<AnalysisFormState>({
@@ -551,21 +552,21 @@ function ManualResearchExperience() {
     return <CreateAnalysisHome onCreate={() => setMode("setup")} />;
   }
 
-  const resetAnalysis = () => {
+  const returnToProjectInspector = () => {
+    const projectId = activeProject.id;
     setActiveProject(null);
-    setForm({
-      keyword: "",
-      productCategory: "",
-      marketplace: "SHOPEE_ID",
-      createdAt: new Date().toISOString(),
-      language: "id-ID"
-    });
-    setBrowserUrl(SHOPEE_HOME_URL);
-    setMode("setup");
+    openProjectInspector(projectId);
   };
 
   if (activeProject.marketplace === "TIKTOK_SHOP") {
-    return <AndroidTikTokCollector project={activeProject} productCategory={form.productCategory} onNewAnalysis={resetAnalysis} />;
+    return (
+      <AndroidTikTokCollector
+        project={activeProject}
+        productCategory={form.productCategory}
+        onNewAnalysis={returnToProjectInspector}
+        exitLabel="Back to Projects"
+      />
+    );
   }
 
   return (
@@ -574,7 +575,8 @@ function ManualResearchExperience() {
       productCategory={form.productCategory}
       browserUrl={browserUrl}
       onBrowserUrlChange={setBrowserUrl}
-      onNewAnalysis={resetAnalysis}
+      onNewAnalysis={returnToProjectInspector}
+      exitLabel="Back to Projects"
     />
   );
 }
@@ -1062,16 +1064,17 @@ function GuidedBrowserCollector({
   const [activeSubActionId, setActiveSubActionId] = useState<string | undefined>(undefined);
   const [analysisSessionCollapsed, setAnalysisSessionCollapsed] = useState(true);
   const [activitySidebarOpen, setActivitySidebarOpen] = useState(false);
-  const [pageTextPreview, setPageTextPreview] = useState("");
   const [zoomFactor, setZoomFactor] = useState(1);
   const [pendingCapture, setPendingCapture] = useState<PendingEvidenceCapture | null>(null);
   const [preparingEvidenceKey, setPreparingEvidenceKey] = useState<string | null>(null);
   const [manualNoticeVisible, setManualNoticeVisible] = useState(false);
   const [expandedPortalRoot, setExpandedPortalRoot] = useState<HTMLElement | null>(null);
+  const [browserInteractionToken, setBrowserInteractionToken] = useState(0);
   const [captureStatus, setCaptureStatus] = useState<BrowserCaptureStatus>({
     message: "Waiting for target page",
     state: "idle"
   });
+  const [displayedCaptureProgress, setDisplayedCaptureProgress] = useState(0);
   const [activityLog, setActivityLog] = useState<string[]>([
     "Open each target page manually, then capture the matching report step."
   ]);
@@ -1134,24 +1137,67 @@ function GuidedBrowserCollector({
     (isProtectedShopeePage(currentUrl) || isShopeeLoginPage(currentUrl) || loadState === "failed");
 
   useEffect(() => {
+    const detail = projectDetail.data;
+    if (!detail) {
+      return;
+    }
+    setCollectedSteps((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const step of allSteps.filter((item) => item.stage === "PRODUCT_DETAILS" && item.ownerType === "PRODUCT" && item.ownerId)) {
+        const product = detail.products.find((item) => item.id === step.ownerId);
+        const sharedAsset = product
+          ? productAssetsForStep(detail, product).find((asset) => asset.kind === "STORE_HOME")
+          : undefined;
+        const progressKey = stepProgressKey(step, "shop-homepage");
+        if (sharedAsset && !next[progressKey]) {
+          next[progressKey] = sharedAsset.path;
+          changed = true;
+        }
+      }
+      const keyStoreAsset = reusableKeyStoreHomepageAsset(detail);
+      if (keyStoreAsset && !next["store-homepage"]) {
+        next["store-homepage"] = keyStoreAsset.path;
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [allSteps, projectDetail.data]);
+
+  useEffect(() => {
     if (!isManualActionState) {
       setManualNoticeVisible(false);
       return;
     }
     setManualNoticeVisible(true);
-    const timer = window.setTimeout(() => setManualNoticeVisible(false), 5000);
+    const timer = window.setTimeout(() => setManualNoticeVisible(false), 4000);
     return () => window.clearTimeout(timer);
   }, [isManualActionState, currentUrl]);
 
   useEffect(() => {
-    if (captureStatus.state !== "done") {
+    if (captureStatus.state !== "done" && captureStatus.state !== "failed") {
       return;
     }
     const timer = window.setTimeout(() => {
       setCaptureStatus({ message: "Waiting for target page", state: "idle" });
-    }, 5000);
+    }, 4000);
     return () => window.clearTimeout(timer);
   }, [captureStatus.message, captureStatus.state]);
+
+  useEffect(() => {
+    const target = captureStatus.state === "idle" ? 0 : Math.max(1, Math.min(100, Math.round(captureStatus.progress ?? 1)));
+    if (displayedCaptureProgress > target || captureStatus.state === "idle") {
+      setDisplayedCaptureProgress(target);
+      return;
+    }
+    if (displayedCaptureProgress >= target) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setDisplayedCaptureProgress((current) => current >= target ? current : current + 1);
+    }, 24);
+    return () => window.clearInterval(timer);
+  }, [captureStatus.progress, captureStatus.state, displayedCaptureProgress]);
 
   useEffect(() => {
     const toggleActivity = () => setActivitySidebarOpen((value) => !value);
@@ -1213,7 +1259,8 @@ function GuidedBrowserCollector({
         : payload.label;
       setCaptureStatus({
         message: `Saving ${actionLabel}`,
-        state: "working"
+        state: "working",
+        progress: 82
       });
     },
     onSuccess: async (result, payload) => {
@@ -1238,7 +1285,20 @@ function GuidedBrowserCollector({
         setActivityLog,
         `Captured ${step.label}${productDetailSubActionLabel ? ` / ${productDetailSubActionLabel}` : ""}${result.extractedProductCount ? ` and extracted ${result.extractedProductCount} product rows` : ""}.`
       );
-      setCaptureStatus({ message: "Evidence saved", state: "done" });
+      const missingActionData = productDetailSubAction
+        ? productDetailSubActionEvidenceCount(payload, productDetailSubAction) === 0
+        : (["STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER"].includes(payload.kind) && (result.extractedProductCount ?? 0) === 0) ||
+          (payload.kind === "STORE_BANNER" && (result.storeBannerCount ?? 0) === 0);
+      if (missingActionData) {
+        const missingLabel = productDetailSubActionLabel ?? step.label;
+        setCaptureStatus({ message: `${missingLabel} not found`, state: "failed", progress: 100 });
+        appendLog(setActivityLog, `${missingLabel} was saved as completed, but no matching data was found on the current page.`);
+      } else {
+        setCaptureStatus({ message: "Evidence saved", state: "done", progress: 100 });
+        if (step.stage === "PRODUCT_DETAILS") {
+          appendLog(setActivityLog, "Key Product ranking refreshed with the latest PDP metrics.");
+        }
+      }
       const completedStageSteps = steps.every((item) => isCollectionStepComplete(item, nextCollectedSteps));
       if (step.stage === "EVALUATION_KEY_STORE" && completedStageSteps) {
         persistCollectionState({
@@ -1253,6 +1313,12 @@ function GuidedBrowserCollector({
       const stayOnProductDetail = step.stage === "PRODUCT_DETAILS" && Boolean(productDetailSubAction);
       const nextStepIndex = stayOnProductDetail ? activeStepIndex : Math.min(activeStepIndex + 1, steps.length - 1);
       setActiveStepIndex(nextStepIndex);
+      if (step.id === "keyword-relevance") {
+        const topSalesStep = steps.find((item) => item.id === "keyword-top-sales");
+        if (topSalesStep?.targetUrl) {
+          navigateTo(topSalesStep.targetUrl);
+        }
+      }
       persistCollectionState({
         stepAssetPaths: nextCollectedSteps,
         completedStepIds: Object.keys(nextCollectedSteps),
@@ -1262,14 +1328,14 @@ function GuidedBrowserCollector({
     },
     onError: (error) => {
       setPreparingEvidenceKey(null);
-      setCaptureStatus({ message: "Evidence save failed", state: "failed" });
+      setCaptureStatus({ message: "Evidence save failed", state: "failed", progress: 100 });
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not capture the current step.");
     }
   });
 
   const attachFileEvidence = useMutation({
     onMutate: (step) => {
-      setCaptureStatus({ message: `Attaching ${step.label}`, state: "working" });
+      setCaptureStatus({ message: `Attaching ${step.label}`, state: "working", progress: 10 });
     },
     mutationFn: async (step: CollectionStep) => {
       const picked = await window.marketplaceOS?.platform?.pickFile?.();
@@ -1312,7 +1378,7 @@ function GuidedBrowserCollector({
       });
     },
     onError: (error) => {
-      setCaptureStatus({ message: "Evidence save failed", state: "failed" });
+      setCaptureStatus({ message: "Evidence save failed", state: "failed", progress: 100 });
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not attach screenshot evidence.");
     }
   });
@@ -1361,12 +1427,78 @@ function GuidedBrowserCollector({
     }
   }
 
+  function advanceGuidedCollection() {
+    if (!activeStep) {
+      return;
+    }
+    const actions = activeStep.subActions ?? [];
+    if (activeStep.stage === "PRODUCT_DETAILS" && actions.length > 0) {
+      const currentActionIndex = Math.max(0, actions.findIndex((action) => action.id === activeSubAction?.id));
+      const nextPendingAction = actions
+        .slice(currentActionIndex + 1)
+        .find((action) => (activeSubActionStates[action.id] ?? "pending") === "pending");
+      if (nextPendingAction) {
+        selectSubAction(nextPendingAction.id);
+        if (nextPendingAction.id === "shop-homepage" && (nextPendingAction.targetUrl ?? activeStep.targetUrl)) {
+          navigateTo(nextPendingAction.targetUrl ?? activeStep.targetUrl!);
+        }
+        return;
+      }
+      const nextStepIndex = Math.min(activeStepIndex + 1, steps.length - 1);
+      const nextStep = steps[nextStepIndex];
+      setActiveStepIndex(nextStepIndex);
+      setActiveSubActionId(undefined);
+      if (nextStep && nextStep.id !== activeStep.id && nextStep.targetUrl) {
+        navigateTo(nextStep.targetUrl);
+      }
+      return;
+    }
+    setActiveStepIndex((current) => Math.min(steps.length - 1, current + 1));
+  }
+
   useEffect(() => {
     const webview = webviewRef.current;
     if (!webview) {
       return;
     }
     applyWebviewShadowFrameLayout(webview);
+    const executeInWebview = webview.executeJavaScript?.bind(webview);
+    let interactionBaseline = 0;
+    let interactionPollBusy = false;
+    const installInteractionProbe = async () => {
+      if (!executeInWebview) {
+        return;
+      }
+      const installedAt = await executeInWebview(`
+        (() => {
+          const marker = "__mioLastBrowserInteractionAt";
+          window[marker] = Date.now();
+          if (!window.__mioBrowserInteractionProbeInstalled) {
+            const mark = () => { window[marker] = Date.now(); };
+            document.addEventListener("click", mark, true);
+            document.addEventListener("input", mark, true);
+            document.addEventListener("change", mark, true);
+            document.addEventListener("keydown", mark, true);
+            window.__mioBrowserInteractionProbeInstalled = true;
+          }
+          return window[marker];
+        })()
+      `).catch(() => 0);
+      interactionBaseline = Number(installedAt) || 0;
+    };
+    const pollInteraction = async () => {
+      if (interactionPollBusy || !executeInWebview) {
+        return;
+      }
+      interactionPollBusy = true;
+      const latestValue = await executeInWebview("window.__mioLastBrowserInteractionAt || 0").catch(() => 0);
+      const latest = Number(latestValue) || 0;
+      interactionPollBusy = false;
+      if (latest > interactionBaseline && interactionBaseline > 0) {
+        interactionBaseline = latest;
+        setBrowserInteractionToken((value) => value + 1);
+      }
+    };
     const updateUrl = (event?: WebviewNavigationEvent) => {
       applyWebviewShadowFrameLayout(webview);
       const nextUrl = event?.url ?? event?.validatedURL ?? webview.getURL?.() ?? currentUrl;
@@ -1376,6 +1508,7 @@ function GuidedBrowserCollector({
         onBrowserUrlChange(nextUrl);
       }
       setLoadState("ready");
+      void installInteractionProbe();
     };
     const loading = () => {
       applyWebviewShadowFrameLayout(webview);
@@ -1395,6 +1528,7 @@ function GuidedBrowserCollector({
     webview.addEventListener("did-navigate", updateUrl as EventListener);
     webview.addEventListener("did-navigate-in-page", updateUrl as EventListener);
     webview.addEventListener("did-fail-load", failed);
+    const interactionTimer = window.setInterval(() => void pollInteraction(), 350);
     return () => {
       webview.removeEventListener("did-start-loading", loading);
       webview.removeEventListener("dom-ready", updateUrl);
@@ -1402,6 +1536,7 @@ function GuidedBrowserCollector({
       webview.removeEventListener("did-navigate", updateUrl as EventListener);
       webview.removeEventListener("did-navigate-in-page", updateUrl as EventListener);
       webview.removeEventListener("did-fail-load", failed);
+      window.clearInterval(interactionTimer);
     };
   }, [currentUrl, onBrowserUrlChange]);
 
@@ -1464,16 +1599,6 @@ function GuidedBrowserCollector({
     const clamped = Math.max(0.4, Math.min(4, Number(nextZoom.toFixed(2))));
     setZoomFactor(clamped);
     webviewRef.current?.setZoomFactor?.(clamped);
-  }
-
-  function printCurrentPage() {
-    const webview = webviewRef.current;
-    if (!webview?.print) {
-      appendLog(setActivityLog, "Print is not available in the current embedded browser runtime.");
-      return;
-    }
-    webview.print({ printBackground: true });
-    appendLog(setActivityLog, "Opened the browser print workflow for the current page.");
   }
 
   function saveProgress() {
@@ -1582,7 +1707,8 @@ function GuidedBrowserCollector({
       message: subAction
         ? subAction.mode === "download" ? `Downloading ${actionLabel}` : `Collecting ${actionLabel}`
         : `Preparing ${actionLabel}`,
-      state: "working"
+      state: "working",
+      progress: 1
     });
     try {
       appendLog(setActivityLog, `Capturing rendered page snapshot for ${subAction ? `${step.label} / ${subAction.label}` : step.label}...`);
@@ -1593,7 +1719,7 @@ function GuidedBrowserCollector({
           stepLabel: subAction ? `${step.label} / ${subAction.label}` : step.label
         });
         setPreparingEvidenceKey(null);
-        setCaptureStatus({ message: "Review screenshot before saving", state: "working" });
+        setCaptureStatus({ message: "Review screenshot before saving", state: "working", progress: 72 });
         appendLog(setActivityLog, "Review the screenshot, crop if needed, then save the evidence.");
         return;
       }
@@ -1601,13 +1727,14 @@ function GuidedBrowserCollector({
         message: subAction
           ? subAction.mode === "download" ? `Downloading ${subAction.label}` : `Collecting ${subAction.label}`
           : `Collecting ${step.label}`,
-        state: "working"
+        state: "working",
+        progress: 72
       });
       appendLog(setActivityLog, `Saving ${subAction?.label ?? step.label} data from the current page.`);
       saveEvidence.mutate(payload);
     } catch (error) {
       setPreparingEvidenceKey(null);
-      setCaptureStatus({ message: "Capture failed", state: "failed" });
+      setCaptureStatus({ message: "Capture failed", state: "failed", progress: 100 });
       appendLog(setActivityLog, error instanceof Error ? error.message : "Could not prepare rendered page snapshot.");
     }
   }
@@ -1621,13 +1748,17 @@ function GuidedBrowserCollector({
     const targetSelector = subAction?.targetSelector ?? step.targetSelector;
     const captureStrategy = subAction?.captureStrategy ?? step.captureStrategy ?? "selector";
     const dataOnlyEvidence = isDataOnlyEvidenceStep(step, subAction);
+    const reusableStoreAsset = ["store-products", "store-visual-style"].includes(step.id) && projectDetail.data
+      ? reusableKeyStoreHomepageAsset(projectDetail.data)
+      : undefined;
     setCaptureStatus({
       message: dataOnlyEvidence
         ? "Collecting page data"
         : targetSelector
         ? "Capturing target section"
         : captureMode === "viewport" ? "Capturing visible viewport" : "Capturing full page screenshot",
-      state: "working"
+      state: "working",
+      progress: 18
     });
     const screenshot = dataOnlyEvidence
       ? DATA_ONLY_EVIDENCE_IMAGE
@@ -1638,19 +1769,46 @@ function GuidedBrowserCollector({
         : captureMode === "viewport"
           ? await captureViewportScreenshot(webview)
           : await captureFullPageScreenshot(webview);
-    const sourceUrl = webview.getURL?.() ?? currentUrl;
-    setCaptureStatus({ message: "Downloading HTML from #main", state: "working" });
-    const snapshot = await extractRenderedPageSnapshot(webview, targetSelector)
+    const sourceUrl = reusableStoreAsset?.sourceUrl ?? webview.getURL?.() ?? currentUrl;
+    setCaptureStatus({
+      message: reusableStoreAsset ? "Reusing saved store HTML" : "Downloading HTML from #main",
+      state: "working",
+      progress: 45
+    });
+    const snapshot = reusableStoreAsset
+      ? {
+          html: "",
+          visibleText: "",
+          products: [] as ExtractedPageProduct[],
+          productDetail: {
+            storeName: undefined,
+            storeUrl: undefined,
+            storeType: undefined,
+            activeReviewFilter: undefined,
+            images: [],
+            videos: [],
+            descriptionImages: [],
+            shopVouchers: [],
+            bundleDeals: [],
+            promotionCount: 0,
+            reviews: [],
+            reviewMediaImages: [],
+            reviewMediaVideos: []
+          },
+          storeDecorationImages: []
+        }
+      : await extractRenderedPageSnapshot(webview, targetSelector)
       .then((value) => {
         setCaptureStatus({
           message: value.html ? "HTML download done" : "HTML download failed",
           state: value.html ? "done" : "failed",
-          actionLabel: value.html ? undefined : "Download HTML"
+          actionLabel: value.html ? undefined : "Download HTML",
+          progress: value.html ? 68 : 100
         });
         return value;
       })
       .catch(() => {
-        setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML" });
+        setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML", progress: 100 });
         return {
           html: "",
           visibleText: "",
@@ -1712,23 +1870,10 @@ function GuidedBrowserCollector({
         storeDecorationImages: snapshot.storeDecorationImages,
         extractedText: snapshot.visibleText,
         extractedProductCount: snapshot.products.length,
-        capturedAt: new Date().toISOString()
+        capturedAt: new Date().toISOString(),
+        reuseAssetId: reusableStoreAsset?.id
       }
     };
-  }
-
-  async function extractCurrentPageText() {
-    const webview = webviewRef.current;
-    if (!webview) {
-      appendLog(setActivityLog, "The embedded browser is not ready for text extraction.");
-      return;
-    }
-    const text = await extractVisibleBrowserText(webview).catch((error: unknown) => {
-      appendLog(setActivityLog, error instanceof Error ? error.message : "Could not extract browser text.");
-      return "";
-    });
-    setPageTextPreview(text);
-    appendLog(setActivityLog, text ? "Extracted visible page text from the current browser session." : "No readable browser text was found on the current page.");
   }
 
   async function downloadCurrentHtml() {
@@ -1737,13 +1882,13 @@ function GuidedBrowserCollector({
       appendLog(setActivityLog, "The embedded browser is not ready for HTML download.");
       return;
     }
-    setCaptureStatus({ message: "Downloading HTML from #main", state: "working" });
+    setCaptureStatus({ message: "Downloading HTML from #main", state: "working", progress: 12 });
     const snapshot = await extractRenderedPageSnapshot(webview).catch((error: unknown) => {
       appendLog(setActivityLog, error instanceof Error ? `HTML extraction failed: ${error.message}` : "HTML extraction failed before a snapshot could be created.");
       return undefined;
     });
     if (!snapshot?.html) {
-      setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML" });
+      setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML", progress: 100 });
       appendLog(setActivityLog, "Could not download readable HTML from this page. Complete login/verification or reload the target page.");
       return;
     }
@@ -1756,10 +1901,10 @@ function GuidedBrowserCollector({
         pageHtml: snapshot.html,
         visibleText: snapshot.visibleText
       });
-      setCaptureStatus({ message: "HTML download done", state: "done" });
+      setCaptureStatus({ message: "HTML download done", state: "done", progress: 100 });
       appendLog(setActivityLog, `Saved the current #main HTML snapshot to ${saved.htmlPath}.`);
     } catch (error) {
-      setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML" });
+      setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML", progress: 100 });
       appendLog(setActivityLog, error instanceof Error ? `Could not save HTML snapshot: ${error.message}` : "Could not save the current HTML snapshot.");
     }
   }
@@ -1815,17 +1960,20 @@ function GuidedBrowserCollector({
           <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={() => applyZoom(zoomFactor + 0.1)} aria-label="Zoom in" title="Zoom in">
             <ZoomIn size={15} />
           </button>
-          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={printCurrentPage} aria-label="Print current page" title="Print current page">
-            <Printer size={15} />
-          </button>
-          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={() => void extractCurrentPageText()} aria-label="Extract visible page text" title="Extract visible page text">
-            <TerminalSquare size={15} />
-          </button>
         </div>
         <LoadStatePill state={loadState} />
       </div>
 
-      <div className={["mio-browser-frame relative min-h-0 overflow-hidden border border-white/12 bg-black", expanded ? "flex-1 rounded-none" : "rounded-[18px]", viewMode === "mobile" && !expanded ? "mx-auto h-[720px] max-w-[430px]" : expanded ? "h-full w-full" : "h-[720px] w-full"].join(" ")}>
+      <div
+        className={["mio-browser-frame relative min-h-0 overflow-hidden border border-white/12 bg-black", expanded ? "flex-1 rounded-none" : "rounded-[18px]", viewMode === "mobile" && !expanded ? "mx-auto h-[720px] max-w-[430px]" : expanded ? "h-full w-full" : "h-[720px] w-full"].join(" ")}
+        onPointerDownCapture={(event) => {
+          const target = event.target as Element | null;
+          if (target?.closest(".mio-floating-collector")) {
+            return;
+          }
+          setBrowserInteractionToken((value) => value + 1);
+        }}
+      >
         <webview
           key={`${project.id}-${viewMode}`}
           ref={(node) => {
@@ -1866,7 +2014,7 @@ function GuidedBrowserCollector({
             </motion.div>
           )}
         </AnimatePresence>
-        <BrowserCaptureStatusPill status={captureStatus} onAction={() => void downloadCurrentHtml()} />
+        <BrowserCaptureStatusPill status={{ ...captureStatus, progress: displayedCaptureProgress }} onAction={() => void downloadCurrentHtml()} />
         <FloatingStepController
           step={controllerStep}
           activeSubActionId={activeSubAction?.id}
@@ -1878,6 +2026,7 @@ function GuidedBrowserCollector({
           subActionCounts={activeSubActionCounts}
           subActionStates={activeSubActionStates}
           saving={saveEvidence.isPending || Boolean(preparingEvidenceKey)}
+          collapseSignal={browserInteractionToken}
           onOpenTarget={(subActionId) => {
             const selectedSubAction = subActionId
               ? activeStep.subActions?.find((action) => action.id === subActionId)
@@ -1911,14 +2060,9 @@ function GuidedBrowserCollector({
           onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
           onOpenAndroid={activeStep.id === "tiktok-brand-search" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
           onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
-          onNext={() => setActiveStepIndex((current) => Math.min(steps.length - 1, current + 1))}
+          onNext={advanceGuidedCollection}
         />
       </div>
-      {pageTextPreview && (
-        <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
-          {pageTextPreview.slice(0, 4000)}
-        </pre>
-      )}
     </Panel>
   );
 
@@ -2104,7 +2248,7 @@ function GuidedBrowserCollector({
           saving={saveEvidence.isPending}
           onCancel={() => setPendingCapture(null)}
           onSave={(payload) => {
-            setCaptureStatus({ message: "Saving screenshot evidence", state: "working" });
+            setCaptureStatus({ message: "Saving screenshot evidence", state: "working", progress: 82 });
             saveEvidence.mutate(payload);
           }}
         />,
@@ -2171,8 +2315,10 @@ function CollectionStepPreview({
     ? detail.products.find((item) => item.id === step.ownerId)
     : undefined;
   if (product) {
-    const productAssets = detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id);
+    const productAssets = productAssetsForStep(detail, product);
     const productReviews = curatedShopeeReviews(detail.reviews.filter((review) => review.productId === product.id));
+    const positiveReviews = productReviews.filter((review) => review.sentiment === "POSITIVE" || (review.rating ?? 0) >= 5);
+    const negativeReviews = productReviews.filter((review) => review.sentiment === "NEGATIVE" || (review.rating ?? 5) <= 3);
     const previewImage = product.images[0] ?? product.imageUrl;
     return (
       <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
@@ -2203,9 +2349,12 @@ function CollectionStepPreview({
           <EvidenceStatusPill label="First page" done={productAssets.some((asset) => asset.kind === "PRODUCT_PAGE")} />
           <EvidenceStatusPill label="Slides / video" done={product.images.length > 0 || product.videos.length > 0} />
           <EvidenceStatusPill label="Description" done={Boolean(product.description)} />
-          <EvidenceStatusPill label="Reviews" done={productReviews.length > 0} />
+          <EvidenceStatusPill label="Positive reviews" done={positiveReviews.length > 0} />
+          <EvidenceStatusPill label="Negative reviews" done={negativeReviews.length > 0} />
           <EvidenceStatusPill label="Media in user" done={product.reviewMediaImages.length > 0 || product.reviewMediaVideos.length > 0} />
-          <EvidenceStatusPill label="Shop vouchers" done={product.shopVouchers.length > 0 || product.bundleDeals.length > 0} />
+          <EvidenceStatusPill label="Shop vouchers" done={product.shopVouchers.length > 0} />
+          <EvidenceStatusPill label="Bundle deals" done={product.bundleDeals.length > 0} />
+          <EvidenceStatusPill label="Shop Home Page" done={productAssets.some((asset) => asset.kind === "STORE_HOME")} />
         </div>
         {product.description && (
           <div className="mt-3 rounded border border-white/8 bg-white/[0.04] p-2 text-[11px] leading-4 text-ink-400">
@@ -2287,6 +2436,36 @@ function collectionSubActionCounts(step: CollectionStep, detail?: ProjectDetailP
   };
 }
 
+function productDetailSubActionEvidenceCount(payload: ManualEvidencePayload, subActionId: string): number {
+  const structured = isRecord(payload.metadata?.structuredProductDetail)
+    ? payload.metadata.structuredProductDetail
+    : undefined;
+  const values = (key: string): unknown[] => {
+    const value = structured?.[key];
+    return Array.isArray(value) ? value : [];
+  };
+  switch (subActionId) {
+    case "first-page":
+    case "shop-homepage":
+      return payload.imageDataUrl ? 1 : 0;
+    case "slides":
+      return values("images").length + values("videos").length;
+    case "positive-reviews":
+      return values("reviews").filter((review) => isRecord(review) && (review.type === "Positive Reviews" || Number(review.rating) >= 5)).length;
+    case "negative-reviews":
+      return values("reviews").filter((review) => isRecord(review) && (review.type === "Negative Reviews" || Number(review.rating) <= 3)).length;
+    case "media-in-user":
+      return values("reviewMediaImages").length + values("reviewMediaVideos").length;
+    case "description-promotions":
+      return (typeof structured?.description === "string" && structured.description.trim() ? 1 : 0) +
+        values("descriptionImages").length +
+        values("shopVouchers").length +
+        values("bundleDeals").length;
+    default:
+      return 1;
+  }
+}
+
 function EvaluationCollectionPanel({
   detail,
   onBackToBrowser,
@@ -2361,6 +2540,9 @@ function BrowserCaptureStatusPill({
         ].join(" ")}
       >
         <span>{status.message}</span>
+        {status.state === "working" && typeof status.progress === "number" && (
+          <span className="rounded-full bg-black/15 px-2 py-0.5 tabular-nums">{Math.round(status.progress)}%</span>
+        )}
         {status.actionLabel && (
           <button className="rounded-full border border-current/30 px-2 py-1 text-[11px] font-semibold" type="button" onClick={onAction}>
             {status.actionLabel}
@@ -2382,6 +2564,7 @@ function FloatingStepController({
   subActionCounts,
   subActionStates,
   saving,
+  collapseSignal,
   onOpenTarget,
   onCollect,
   onSelectSubAction,
@@ -2400,6 +2583,7 @@ function FloatingStepController({
   subActionCounts?: Record<string, number>;
   subActionStates?: Record<string, "pending" | "collected" | "not-found">;
   saving: boolean;
+  collapseSignal: number;
   onOpenTarget: (subActionId?: string) => void;
   onCollect: (subActionId?: string) => void;
   onSelectSubAction: (id: string) => void;
@@ -2412,6 +2596,12 @@ function FloatingStepController({
   const activeSubAction = step.subActions?.find((action) => action.id === activeSubActionId) ?? step.subActions?.[0];
   const activeSubActionCount = activeSubAction ? subActionCounts?.[activeSubAction.id] ?? 0 : 0;
   const activeSubActionMaxed = activeSubAction?.id === "slides" && activeSubActionCount >= 9;
+  const activeSubActionState = activeSubAction ? subActionStates?.[activeSubAction.id] ?? "pending" : "pending";
+  const activeSubActionFinished = activeSubActionState !== "pending" || activeSubActionMaxed;
+  const activeSubActionIndex = activeSubAction ? step.subActions?.findIndex((action) => action.id === activeSubAction.id) ?? -1 : -1;
+  const nextSubAction = activeSubActionIndex >= 0
+    ? step.subActions?.slice(activeSubActionIndex + 1).find((action) => (subActionStates?.[action.id] ?? "pending") === "pending")
+    : undefined;
   const collectLabel = activeSubAction
     ? subActionButtonLabel(activeSubAction, activeSubActionCount)
     : undefined;
@@ -2420,6 +2610,16 @@ function FloatingStepController({
     ? "Choose the sub-action, confirm the target page, then collect."
     : step.instruction;
   const usesSubActionCollectButtons = step.stage === "PRODUCT_DETAILS" && Boolean(step.subActions?.length);
+  useEffect(() => {
+    if (collapseSignal > 0) {
+      setCompact(true);
+    }
+  }, [collapseSignal]);
+
+  function advanceCollector() {
+    onNext();
+  }
+
   if (compact) {
     return (
       <motion.div
@@ -2442,26 +2642,39 @@ function FloatingStepController({
           <span className={["shrink-0 rounded-full px-2 py-1 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
             {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "wait"}
           </span>
-          <button
-            className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
-            type="button"
-            onClick={() => onOpenTarget(activeSubAction?.id)}
-            disabled={!targetUrl}
-            aria-label="Open target page"
-            title="Open target page"
-          >
-            <ExternalLink size={13} />
-          </button>
+          {(!usesSubActionCollectButtons || activeSubAction?.id === "shop-homepage") && (
+            <button
+              className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
+              type="button"
+              onClick={() => onOpenTarget(activeSubAction?.id)}
+              disabled={!targetUrl}
+              aria-label="Open target page"
+              title="Open target page"
+            >
+              <ExternalLink size={13} />
+            </button>
+          )}
           <button
             className="primary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
             type="button"
-            disabled={saving || !step.ready || activeSubActionMaxed}
+            disabled={saving || !step.ready || activeSubActionMaxed || (activeSubAction?.id !== "slides" && activeSubActionFinished)}
             onClick={() => onCollect(activeSubAction?.id)}
             aria-label={step.mode === "PROCESS" ? "Process step" : "Collect step"}
             title={step.mode === "PROCESS" ? "Process step" : "Collect step"}
           >
             {saving ? <span className="mio-spinner" /> : step.mode === "PROCESS" ? <Table2 size={13} /> : <ClipboardCheck size={13} />}
           </button>
+          {usesSubActionCollectButtons && activeSubActionFinished && (
+            <button
+              className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
+              type="button"
+              onClick={advanceCollector}
+              aria-label={nextSubAction ? `Continue to ${nextSubAction.label}` : "Continue to next product"}
+              title={nextSubAction ? `Continue to ${nextSubAction.label}` : "Continue to next product"}
+            >
+              <ChevronRight size={13} />
+            </button>
+          )}
         </div>
       </motion.div>
     );
@@ -2526,24 +2739,26 @@ function FloatingStepController({
                   </div>
                   <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
                     <div className="truncate text-[10px] text-ink-500">{action.description}</div>
-                    <button
-                      className="secondary-button mio-round-icon-button h-8 w-8 px-0 text-[10px]"
-                      type="button"
-                      disabled={!actionTargetUrl}
-                      onClick={() => {
-                        onSelectSubAction(action.id);
-                        onOpenTarget(action.id);
-                      }}
-                      aria-label={`Open target for ${action.label}`}
-                      title={`Open target for ${action.label}`}
-                    >
-                      <ExternalLink size={12} />
-                    </button>
+                    {(!usesSubActionCollectButtons || action.id === "shop-homepage") && (
+                      <button
+                        className="secondary-button mio-round-icon-button h-8 w-8 px-0 text-[10px]"
+                        type="button"
+                        disabled={!actionTargetUrl}
+                        onClick={() => {
+                          onSelectSubAction(action.id);
+                          onOpenTarget(action.id);
+                        }}
+                        aria-label={`Open target for ${action.label}`}
+                        title={`Open target for ${action.label}`}
+                      >
+                        <ExternalLink size={12} />
+                      </button>
+                    )}
                     {usesSubActionCollectButtons && (
                       <button
                         className="secondary-button h-7 w-auto px-3 text-[10px]"
                         type="button"
-                        disabled={saving || !step.ready || actionMaxed}
+                        disabled={saving || !step.ready || actionMaxed || (action.id !== "slides" && actionState !== "pending")}
                         onClick={() => {
                           onSelectSubAction(action.id);
                           onCollect(action.id);
@@ -2927,6 +3142,8 @@ function ScreenshotReviewModal({
 
 function ProjectsView() {
   const queryClient = useQueryClient();
+  const projectInspectorRequestId = useUiStore((state) => state.projectInspectorRequestId);
+  const clearProjectInspectorRequest = useUiStore((state) => state.clearProjectInspectorRequest);
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
   const projects = useMemo(() => dashboard.data?.projects ?? [], [dashboard.data?.projects]);
   const [inspectingProjectId, setInspectingProjectId] = useState("");
@@ -2934,11 +3151,25 @@ function ProjectsView() {
   const [collectionBrowserUrl, setCollectionBrowserUrl] = useState(SHOPEE_HOME_URL);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [projectViewMode, setProjectViewMode] = useState<"cards" | "list">("cards");
+  const [projectPendingDeletion, setProjectPendingDeletion] = useState<ProjectSummary | null>(null);
+  const [deleteConfirmationName, setDeleteConfirmationName] = useState("");
+  const [deleteError, setDeleteError] = useState("");
   const categories = useMemo(
     () => Array.from(new Set(projects.map((project) => project.productCategory).filter((value): value is string => Boolean(value?.trim())))).sort(),
     [projects]
   );
   const filteredProjects = projects.filter((project) => categoryFilter === "all" || project.productCategory === categoryFilter);
+
+  useEffect(() => {
+    if (!projectInspectorRequestId) {
+      return;
+    }
+
+    setCollectingProject(null);
+    setInspectingProjectId(projectInspectorRequestId);
+    clearProjectInspectorRequest();
+  }, [clearProjectInspectorRequest, projectInspectorRequestId]);
+
   const detail = useQuery({
     queryKey: ["project-detail", inspectingProjectId],
     queryFn: () => apiClient.projectDetail(inspectingProjectId),
@@ -2949,6 +3180,9 @@ function ProjectsView() {
     onSuccess: async () => {
       setInspectingProjectId("");
       setCollectingProject(null);
+      setProjectPendingDeletion(null);
+      setDeleteConfirmationName("");
+      setDeleteError("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
@@ -2956,15 +3190,23 @@ function ProjectsView() {
       ]);
     },
     onError: (error) => {
-      window.alert(error instanceof Error ? error.message : "Could not delete this project.");
+      setDeleteError(error instanceof Error ? error.message : "Could not delete this project.");
     }
   });
 
   function confirmDeleteProject(project: ProjectSummary) {
-    const confirmed = window.confirm(`Delete keyword project "${project.name}"? This removes the project, evidence, reports, and local files.`);
-    if (confirmed) {
-      deleteProject.mutate(project.id);
+    setProjectPendingDeletion(project);
+    setDeleteConfirmationName("");
+    setDeleteError("");
+  }
+
+  function closeDeleteProjectDialog() {
+    if (deleteProject.isPending) {
+      return;
     }
+    setProjectPendingDeletion(null);
+    setDeleteConfirmationName("");
+    setDeleteError("");
   }
 
   function startProjectCollection(project: ProjectSummary) {
@@ -2976,7 +3218,11 @@ function ProjectsView() {
   }
 
   function closeProjectCollection() {
+    const projectId = collectingProject?.id;
     setCollectingProject(null);
+    if (projectId) {
+      setInspectingProjectId(projectId);
+    }
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
       queryClient.invalidateQueries({ queryKey: ["project-detail"] })
@@ -3020,25 +3266,37 @@ function ProjectsView() {
 
   if (inspectingProjectId) {
     return (
-      <section className="mio-inspect-page">
-        {detail.data ? (
-          <ProjectInspectionPanel
-            detail={detail.data}
-            deleting={deleteProject.isPending}
-            onBack={() => setInspectingProjectId("")}
-            onDelete={() => confirmDeleteProject(detail.data.project)}
-            onContinueCollection={() => startProjectCollection(detail.data.project)}
-          />
-        ) : (
-          <Panel title="Project Inspector" icon={Search}>
-            <EmptyState label="Loading project evidence..." />
-          </Panel>
-        )}
-      </section>
+      <>
+        <section className="mio-inspect-page">
+          {detail.data ? (
+            <ProjectInspectionPanel
+              detail={detail.data}
+              deleting={deleteProject.isPending}
+              onBack={() => setInspectingProjectId("")}
+              onDelete={() => confirmDeleteProject(detail.data.project)}
+              onContinueCollection={() => startProjectCollection(detail.data.project)}
+            />
+          ) : (
+            <Panel title="Project Inspector" icon={Search}>
+              <EmptyState label="Loading project evidence..." />
+            </Panel>
+          )}
+        </section>
+        <ProjectDeleteDialog
+          project={projectPendingDeletion}
+          confirmationName={deleteConfirmationName}
+          error={deleteError}
+          deleting={deleteProject.isPending}
+          onConfirmationNameChange={setDeleteConfirmationName}
+          onCancel={closeDeleteProjectDialog}
+          onDelete={() => projectPendingDeletion && deleteProject.mutate(projectPendingDeletion.id)}
+        />
+      </>
     );
   }
 
   return (
+    <>
     <section className="space-y-5">
       <Panel title="Vault Metrics" icon={Gauge} className="mio-vault-metrics-panel">
         <div className="mio-vault-metrics-grid grid grid-cols-4 gap-3">
@@ -3129,6 +3387,86 @@ function ProjectsView() {
         </div>
       </Panel>
     </section>
+    <ProjectDeleteDialog
+      project={projectPendingDeletion}
+      confirmationName={deleteConfirmationName}
+      error={deleteError}
+      deleting={deleteProject.isPending}
+      onConfirmationNameChange={setDeleteConfirmationName}
+      onCancel={closeDeleteProjectDialog}
+      onDelete={() => projectPendingDeletion && deleteProject.mutate(projectPendingDeletion.id)}
+    />
+    </>
+  );
+}
+
+function ProjectDeleteDialog({
+  project,
+  confirmationName,
+  error,
+  deleting,
+  onConfirmationNameChange,
+  onCancel,
+  onDelete
+}: {
+  project: ProjectSummary | null;
+  confirmationName: string;
+  error: string;
+  deleting: boolean;
+  onConfirmationNameChange: (value: string) => void;
+  onCancel: () => void;
+  onDelete: () => void;
+}) {
+  const portalRoot = document.querySelector<HTMLElement>(".mio-app") ?? document.body;
+  return createPortal(
+    <AnimatePresence>
+      {project && (
+        <motion.div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-5 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
+        >
+          <motion.div
+            className="mio-panel w-full max-w-md rounded-[28px] border border-white/10 bg-ink-900 p-6 shadow-glow"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-project-dialog-title"
+            initial={{ opacity: 0, y: 12, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 360, damping: 30 }}
+          >
+            <h2 id="delete-project-dialog-title" className="text-lg font-semibold text-white">Delete keyword project?</h2>
+            <p className="mt-2 text-sm leading-6 text-ink-400">
+              This permanently removes the project, evidence, reports, and local files. Type <strong className="text-white">{project.name}</strong> to confirm.
+            </p>
+            <input
+              autoFocus
+              value={confirmationName}
+              onChange={(event) => onConfirmationNameChange(event.target.value)}
+              className="input mt-4"
+              aria-label="Project name confirmation"
+            />
+            {error && <div className="mt-3 rounded-xl bg-signal-rose/12 px-3 py-2 text-sm text-signal-rose">{error}</div>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button className="secondary-button h-10 w-auto rounded-full px-5" type="button" onClick={onCancel} disabled={deleting}>Cancel</button>
+              <button
+                className="primary-button mio-danger-button h-10 w-auto rounded-full bg-signal-rose px-5 text-white"
+                type="button"
+                onClick={onDelete}
+                disabled={deleting || confirmationName !== project.name}
+              >
+                <Trash2 size={15} />
+                {deleting ? "Deleting" : "Delete"}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    portalRoot
   );
 }
 
@@ -3465,9 +3803,15 @@ function KeyStorePanel({
   const storeBestSellers = detail.products.filter((product) => product.source === "Store Best Sellers" && productMatchesStoreCandidate(product, candidate));
   const storeAssets = detail.assets.filter((asset) =>
     asset.ownerType === "STORE" &&
-    (!candidate.url || !asset.sourceUrl || sameUrlIntent(asset.sourceUrl, candidate.url) || sameUrlIntent(candidate.url, asset.sourceUrl))
+    (!candidate.url || !asset.sourceUrl || sameStoreIntent(asset.sourceUrl, candidate.url))
   );
-  const homeAssets = storeAssets.filter((asset) => asset.kind === "STORE_HOME");
+  const sharedProductHomeAssets = detail.assets.filter((asset) =>
+    asset.ownerType === "PRODUCT" &&
+    asset.kind === "STORE_HOME" &&
+    Boolean(asset.sourceUrl && candidate.url && sameStoreIntent(asset.sourceUrl, candidate.url))
+  );
+  const homeAssets = [...storeAssets.filter((asset) => asset.kind === "STORE_HOME"), ...sharedProductHomeAssets]
+    .filter((asset, index, values) => values.findIndex((candidateAsset) => candidateAsset.id === asset.id) === index);
   const bannerAssets = storeAssets.filter((asset) => asset.kind === "STORE_BANNER");
 
   return (
@@ -3872,7 +4216,7 @@ function ProductQualifiedSection({
 
 function productAssetsForStep(detail: ProjectDetailPayload, product: ProjectProductEvidence): ProjectDetailPayload["assets"] {
   const productAssets = detail.assets.filter((asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id);
-  const productStoreUrl = product.storeUrl ? normalizeUrl(product.storeUrl) : undefined;
+  const productStoreUrl = canonicalStoreUrl(product.storeUrl);
   const matchingShopProductIds = detail.products
     .filter((item) => normalizeStoreKey(item) === normalizeStoreKey(product))
     .map((item) => item.id);
@@ -3887,11 +4231,22 @@ function productAssetsForStep(detail: ProjectDetailPayload, product: ProjectProd
         asset.kind === "STORE_HOME" &&
         asset.ownerType === "STORE" &&
         asset.sourceUrl &&
-        sameUrlIntent(asset.sourceUrl, productStoreUrl) &&
+        sameStoreIntent(asset.sourceUrl, productStoreUrl) &&
         !productAssets.some((productAsset) => productAsset.id === asset.id)
       )
     : [];
   return [...productAssets, ...sharedProductShopHomeAssets, ...legacyShopHomeAssets];
+}
+
+function reusableKeyStoreHomepageAsset(detail: ProjectDetailPayload): ProjectDetailPayload["assets"][number] | undefined {
+  const keyProducts = selectKeyProductCandidates(detail.products, detail.project.keyword);
+  const seed = selectKeyStoreSeedProduct(keyProducts);
+  if (!seed) {
+    return undefined;
+  }
+  return productAssetsForStep(detail, seed)
+    .filter((asset) => asset.kind === "STORE_HOME")
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
 }
 
 function uniqueMediaValues(values: string[]): string[] {
@@ -4428,8 +4783,9 @@ function SettingsView() {
   }
 
   return (
-    <section className="grid grid-cols-[minmax(0,1fr)_360px] gap-5">
-      <Panel title="Settings" icon={Settings}>
+    <section className="space-y-5">
+      <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-5">
+        <Panel title="Settings" icon={Settings}>
         <form className="grid grid-cols-2 gap-4" onSubmit={submit}>
           <Field label="Theme">
             <select value={value.theme} onChange={(event) => update({ theme: event.target.value as SaveSettingsPayload["theme"] })} className="input">
@@ -4484,8 +4840,8 @@ function SettingsView() {
             Save Settings
           </button>
         </form>
-      </Panel>
-      <Panel title="Runtime" icon={TerminalSquare}>
+        </Panel>
+        <Panel title="Runtime" icon={TerminalSquare}>
         <div className="space-y-3 text-sm text-ink-300">
           <StatusLine label="OpenAI" active={value.openAiKeyConfigured} />
           <StatusLine label="Gemini" active={value.geminiKeyConfigured} />
@@ -4514,8 +4870,87 @@ function SettingsView() {
             )}
           </div>
         </div>
+        </Panel>
+      </div>
+      <Panel title="AI API Key Setup" icon={KeyRound}>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ApiKeyGuide
+            provider="OpenAI"
+            configured={value.openAiKeyConfigured}
+            steps={[
+              "Open the OpenAI API Keys page and sign in.",
+              "Select Create new secret key and copy it when it is shown.",
+              "Paste it into OpenAI API key above, then save settings."
+            ]}
+            primaryLabel="Open OpenAI API Keys"
+            primaryUrl="https://platform.openai.com/api-keys"
+            documentationUrl="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key"
+          />
+          <ApiKeyGuide
+            provider="Gemini"
+            configured={value.geminiKeyConfigured}
+            steps={[
+              "Open Google AI Studio and sign in with your Google account.",
+              "Select Create API key, choose a project, and copy the generated key.",
+              "Paste it into Gemini API key above, then save settings."
+            ]}
+            primaryLabel="Open Google AI Studio"
+            primaryUrl="https://aistudio.google.com/app/apikey"
+            documentationUrl="https://ai.google.dev/gemini-api/docs/api-key"
+          />
+        </div>
+        <div className="mt-4 flex items-start gap-3 rounded-2xl bg-signal-amber/10 p-4 text-sm leading-6 text-ink-400">
+          <ShieldCheck className="mt-0.5 shrink-0 text-signal-amber" size={18} />
+          <span>API keys are secrets. Keep each key private, do not place it in screenshots or source control, and rotate it immediately if it is exposed.</span>
+        </div>
       </Panel>
     </section>
+  );
+}
+
+function ApiKeyGuide({
+  provider,
+  configured,
+  steps,
+  primaryLabel,
+  primaryUrl,
+  documentationUrl
+}: {
+  provider: string;
+  configured: boolean;
+  steps: string[];
+  primaryLabel: string;
+  primaryUrl: string;
+  documentationUrl: string;
+}) {
+  return (
+    <article className="rounded-[24px] bg-white/6 p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-base font-semibold text-white">{provider}</div>
+          <div className="mt-1 text-xs text-ink-500">Official provider setup</div>
+        </div>
+        <span className={configured ? "status-pill status-running" : "status-pill status-pending"}>{configured ? "Configured" : "Not configured"}</span>
+      </div>
+      <ol className="mt-4 space-y-3">
+        {steps.map((step, index) => (
+          <li key={step} className="flex gap-3 text-sm leading-6 text-ink-300">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal-blue/14 text-xs font-semibold text-signal-blue">{index + 1}</span>
+            <span>{step}</span>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button className="primary-button h-10 w-auto rounded-full px-4 text-sm" type="button" onClick={() => void apiClient.openUrl(primaryUrl)}>
+          <ExternalLink size={15} />
+          {primaryLabel}
+        </button>
+        <button className="secondary-button h-10 w-auto rounded-full px-4 text-sm" type="button" onClick={() => void apiClient.openUrl(documentationUrl)}>
+          <FileText size={15} />
+          Official guide
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -4958,7 +5393,6 @@ function buildShopeeSteps(
   const keyword = encodeURIComponent(project.keyword);
   const relevanceUrl = `https://shopee.co.id/search?keyword=${keyword}&page=0&sortBy=relevancy`;
   const salesUrl = `https://shopee.co.id/search?keyword=${keyword}&page=0&sortBy=sales`;
-  const searchReady = isShopeeSearchPage(currentUrl);
   const productReady = isShopeeProductPage(currentUrl);
   const storeReady = isShopeeStorePage(currentUrl);
   const hasRelevanceProducts = products.some((product) => product.source === "Relevance");
@@ -4982,7 +5416,7 @@ function buildShopeeSteps(
       targetSelector: "section.shopee-search-item-result, section[aria-label].shopee-search-item-result",
       instruction: "Open the Shopee relevance result page for the desired keyword and capture the visible first page.",
       targetUrl: relevanceUrl,
-      ready: sameUrlIntent(currentUrl, relevanceUrl) || searchReady
+      ready: sameUrlIntent(currentUrl, relevanceUrl)
     },
     {
       id: "keyword-top-sales",
@@ -4993,7 +5427,7 @@ function buildShopeeSteps(
       targetSelector: "section.shopee-search-item-result, section[aria-label].shopee-search-item-result",
       instruction: "Open the Shopee top-sales result page for the desired keyword and capture the visible first page.",
       targetUrl: salesUrl,
-      ready: sameUrlIntent(currentUrl, salesUrl) || searchReady
+      ready: sameUrlIntent(currentUrl, salesUrl)
     },
     {
       id: "key-product-table",
@@ -5023,13 +5457,15 @@ function buildShopeeSteps(
       targetUrl: productUrl,
       instruction: `Open ${productTitle}. Capture the visible first frame; the app syncs slides, video, description, reviews, user media, vouchers, and bundle deals from the page HTML in the background.`,
       substeps: [
-        "First page: capture visible first viewport only",
-        "Slides: download images and videos from page-product picture/source/video elements",
-        "Description: sync from page-product__content in the background",
-        "Reviews: open 5-star tab and collect 3 positive rows, then open 1-star tab or the nearest available 2/3-star tab and collect 2 negative rows",
-        "Media in User: download review image/video carousel URLs",
-        "Shop vouchers and bundle deals: sync in the background",
-        "Shop Home Page: open the shop page later for store evidence"
+        "First page",
+        "Slides / video",
+        "Description",
+        "Positive reviews",
+        "Negative reviews",
+        "Media in user",
+        "Shop vouchers",
+        "Bundle deals",
+        "Shop Home Page"
       ],
       subActions: [
         {
@@ -5045,6 +5481,13 @@ function buildShopeeSteps(
           mode: "download",
           collectLabel: "Download Images",
           description: "Extract first-page product gallery image and video URLs only."
+        },
+        {
+          id: "description-promotions",
+          label: "Description, vouchers, bundle deals",
+          mode: "background",
+          collectLabel: "Collect Data",
+          description: "Sync description, mini vouchers, and Bundle Deals from readable HTML."
         },
         {
           id: "positive-reviews",
@@ -5068,13 +5511,6 @@ function buildShopeeSteps(
           mode: "download",
           collectLabel: "Download Review Media",
           description: "Extract image and video URLs from review media only."
-        },
-        {
-          id: "description-promotions",
-          label: "Description, vouchers, bundle deals",
-          mode: "background",
-          collectLabel: "Collect Data",
-          description: "Sync description, mini vouchers, and Bundle Deals from readable HTML."
         },
         {
           id: "shop-homepage",
@@ -5178,7 +5614,7 @@ function buildShopeeSteps(
       targetSelector: ".shop-decoration",
       instruction: "Download readable banner and carousel images from shop-decoration. Product-card images are ignored and no screenshot is required.",
       targetUrl: keyStoreUrl,
-      ready: storeReady
+      ready: Boolean(keyStoreUrl || storeReady)
     },
     {
       id: "tiktok-brand-search",
@@ -5318,6 +5754,29 @@ function samePathIntent(current: string, target: string): boolean {
   } catch {
     return false;
   }
+}
+
+function canonicalStoreUrl(value?: string | null): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    const source = new URL(normalizeUrl(value));
+    const canonical = new URL(`${source.origin}${source.pathname.replace(/\/+$/u, "") || "/"}`);
+    const categoryId = source.searchParams.get("categoryId");
+    if (categoryId) {
+      canonical.searchParams.set("categoryId", categoryId);
+    }
+    return canonical.toString().replace(/\/$/u, "");
+  } catch {
+    return normalizeUrl(value).split("#")[0];
+  }
+}
+
+function sameStoreIntent(left?: string | null, right?: string | null): boolean {
+  const leftCanonical = canonicalStoreUrl(left);
+  const rightCanonical = canonicalStoreUrl(right);
+  return Boolean(leftCanonical && rightCanonical && leftCanonical.toLowerCase() === rightCanonical.toLowerCase());
 }
 
 function shopeeProductIdentity(value: string): string | undefined {
@@ -6073,7 +6532,7 @@ function selectKeyStoreSeedProduct(products: ProjectProductEvidence[]): ProjectP
 }
 
 function normalizeStoreKey(product: ProjectProductEvidence): string {
-  return (product.storeUrl ?? product.storeName ?? product.title).toLowerCase().replace(/\s+/g, "-");
+  return (canonicalStoreUrl(product.storeUrl) ?? product.storeName ?? product.title).toLowerCase().replace(/\s+/g, "-");
 }
 
 function productMatchesStoreCandidate(product: ProjectProductEvidence, candidate: StoreEvaluationCandidate): boolean {
@@ -6083,7 +6542,7 @@ function productMatchesStoreCandidate(product: ProjectProductEvidence, candidate
   if (normalizeStoreKey(product) === candidate.key) {
     return true;
   }
-  if (product.storeUrl && candidate.url && sameUrlIntent(product.storeUrl, candidate.url)) {
+  if (product.storeUrl && candidate.url && sameStoreIntent(product.storeUrl, candidate.url)) {
     return true;
   }
   return Boolean(product.storeName && product.storeName.toLowerCase() === candidate.name.toLowerCase());
@@ -6217,30 +6676,6 @@ function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): str
   }
 }
 
-async function extractVisibleBrowserText(webview: WebviewElement): Promise<string> {
-  if (!webview.executeJavaScript) {
-    return "";
-  }
-  const result = await webview.executeJavaScript<{
-    title: string;
-    url: string;
-    text: string;
-  }>(`
-    (async () => {
-      const text = (document.body?.innerText || "")
-        .replace(/\\s+/g, " ")
-        .trim()
-        .slice(0, 12000);
-      return {
-        title: document.title || "",
-        url: location.href,
-        text
-      };
-    })();
-  `);
-  return [result.title, result.url, result.text].filter(Boolean).join("\n");
-}
-
 async function extractRenderedPageSnapshot(webview: WebviewElement, productScopeSelector?: string): Promise<{
   html: string;
   visibleText: string;
@@ -6292,12 +6727,19 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         return Math.round(number);
       };
       const parsePrice = (value) => {
-        const matches = String(value || "").match(/(?:Rp\\s*)?[\\d.]+(?:,\\d+)?/gi) || [];
-        const values = matches
+        const input = String(value || "");
+        const complete = input.match(/Rp\\s*\\d{1,3}(?:[.\\s]\\d{3})+(?:,\\d+)?/gi) || [];
+        const matches = complete.length ? complete : input.match(/Rp\\s*\\d+(?:[.,]\\d+)?|\\d{1,3}(?:[.\\s]\\d{3})+(?:,\\d+)?|\\d+(?:[.,]\\d+)?/gi) || [];
+        const first = matches
           .map((item) => Number(item.replace(/[^\\d]/g, "")))
-          .filter((item) => Number.isFinite(item) && item > 0);
-        if (!values.length) return undefined;
-        return Math.round(values.reduce((sum, item) => sum + item, 0) / values.length);
+          .find((item) => Number.isFinite(item) && item > 0);
+        return first ? Math.round(first) : undefined;
+      };
+      const extractPriceText = (value) => {
+        const input = String(value || "");
+        const complete = input.match(/Rp\\s*\\d{1,3}(?:[.\\s]\\d{3})+(?:,\\d+)?/gi) || [];
+        if (complete.length) return compact(complete[0]);
+        return compact((input.match(/Rp\\s*\\d+(?:[.,]\\d+)?/i) || [])[0] || "");
       };
       const absoluteUrl = (href) => {
         try { return new URL(href, location.href).toString(); } catch { return href || ""; }
@@ -6515,14 +6957,50 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       const ratingTokenFromMetricLine = (value) => {
         const line = compact(value);
         const explicit =
-          line.match(/(?:rating|ratings?|penilaian|ulasan|bintang|star)\\s*:?\\s*([1-5](?:[.,]\\d)?)/iu)?.[1] ||
+          line.match(/(?:rating\\b|bintang)\\s*:?\\s*([1-5](?:[.,]\\d)?)/iu)?.[1] ||
           line.match(/([1-5](?:[.,]\\d)?)\\s*(?:\\/\\s*5|★|⭐|bintang|star)/iu)?.[1] ||
           line.match(/(?:★|⭐)\\s*([1-5](?:[.,]\\d)?)/iu)?.[1];
         if (explicit) return explicit;
         const token = firstRatingToken(line);
         if (token && /[,.]/u.test(token)) return token;
-        const leading = line.match(/^([1-5])(?:\\s|$)/u)?.[1];
-        return leading;
+        return undefined;
+      };
+      const extractRatingFromRoot = (root, text, soldText) => {
+        if (!root?.querySelectorAll) return undefined;
+        const candidates = [];
+        for (const element of root.querySelectorAll("span, div, strong, p")) {
+          const value = compact(element.textContent || "");
+          if (!/^[1-5](?:[.,]\\d)?$/u.test(value)) continue;
+          const numeric = Number(value.replace(",", "."));
+          if (numeric < 1 || numeric > 5) continue;
+          const parent = element.parentElement;
+          const grandParent = parent?.parentElement;
+          const descriptor = compact([
+            element.className,
+            element.getAttribute?.("aria-label"),
+            element.getAttribute?.("title"),
+            parent?.className,
+            parent?.getAttribute?.("aria-label"),
+            parent?.getAttribute?.("title"),
+            grandParent?.className
+          ].filter(Boolean).join(" "));
+          const context = compact(parent?.innerText || grandParent?.innerText || "");
+          const hasNamedContext = /(rating|ratings|penilaian|ulasan|bintang)/iu.test(descriptor + " " + context);
+          const hasStarVisual = Boolean(parent?.querySelector?.('[class*="star" i], [aria-label*="star" i], [title*="star" i], svg, path')) || /(★|⭐)/u.test(context);
+          let color = "";
+          try {
+            color = String(getComputedStyle(element).color || "");
+          } catch {}
+          const score =
+            (/[,.]/u.test(value) ? 45 : 0) +
+            (/(rating|ratings|penilaian|ulasan|bintang)/iu.test(descriptor) ? 70 : 0) +
+            (hasNamedContext ? 35 : 0) +
+            (hasStarVisual ? 45 : 0) +
+            (/(255,\\s*(?:1[2-9]\\d|2\\d{2}),\\s*0|orange|gold)/iu.test(color) ? 15 : 0);
+          if (score >= 45) candidates.push({ value, score });
+        }
+        const selected = candidates.sort((left, right) => right.score - left.score || Number(right.value.replace(",", ".")) - Number(left.value.replace(",", ".")))[0]?.value;
+        return selected || extractRatingText(text, soldText);
       };
       const extractReviewText = (text) => {
         const metricText = compact(text);
@@ -6538,15 +7016,15 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           .split(/\\n+/u)
           .map(compact)
           .filter(Boolean);
-        const metricLine = rawLines.find((line) => /(★|star|bintang)/iu.test(line)) ||
+        const metricLine = rawLines.find((line) => /(★|⭐|bintang)/iu.test(line) && ratingTokenFromMetricLine(line)) ||
           rawLines.find((line) => /(ratings?|reviews?|penilaian|ulasan)/iu.test(line) && ratingTokenFromMetricLine(line)) ||
-          rawLines.find((line) => /(sold|terjual)/iu.test(line) && ratingTokenFromMetricLine(line));
+          rawLines.find((line) => /(sold|terjual)/iu.test(line) && /[1-5][.,]\\d/u.test(line) && ratingTokenFromMetricLine(line));
         if (metricLine) {
           return ratingTokenFromMetricLine(metricLine);
         }
         const metricText = compact(text);
         const searchable = soldText && metricText.includes(soldText) ? metricText.slice(0, metricText.indexOf(soldText)) : metricText;
-        if (!/(★|⭐|rating|ratings?|penilaian|ulasan|star|bintang)/iu.test(searchable)) {
+        if (!/(★|⭐|rating|ratings?|penilaian|ulasan|bintang)/iu.test(searchable)) {
           return undefined;
         }
         return ratingTokenFromMetricLine(searchable);
@@ -6624,9 +7102,9 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           const badgeImageUrl = imageUrlFrom(badgeImage);
           const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title, badgeImage?.outerHTML].filter(Boolean).join(" "));
           const storeType = inferStoreType(badgeText, badgeImageUrl, badgeImage?.outerHTML) || await classifyBadgeImageByPixels(badgeImage);
-          const priceText = compact((text.match(/Rp\\s*[\\d.]+(?:\\s*-\\s*Rp\\s*[\\d.]+)?/i) || [])[0] || "");
+          const priceText = extractPriceText(text);
           const soldText = extractSoldText(text);
-          const ratingText = extractRatingText(text, soldText);
+          const ratingText = extractRatingFromRoot(dataRoot, text, soldText);
           const reviewText = extractReviewText(text);
           products.push({
             rank: products.length + 1,
@@ -6798,18 +7276,18 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           return Boolean(value && productTitleText && (value === productTitleText || value.includes(productTitleText.slice(0, 48))));
         });
       const pdpBadgeRoots = [
+        shopSection,
         titleElement?.parentElement,
         titleElement?.closest?.("section"),
-        titleElement?.closest?.("div"),
-        shopSection
+        titleElement?.closest?.("div")
       ].filter(Boolean);
       const pdpBadgeImage = pdpBadgeRoots
         .map((root) => findStoreBadgeImage(root, undefined))
         .find(Boolean);
       const compactBadgeStoreType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
-      const storeType = compactBadgeStoreType || officialStoreTypeFromName(storeName);
+      const storeType = officialStoreTypeFromName(storeName) || compactBadgeStoreType;
       const pdpSoldText = extractSoldText(productPageText);
-      const pdpRatingText = extractRatingText(productPageText, pdpSoldText);
+      const pdpRatingText = extractRatingFromRoot(productPageRoot, productPageText, pdpSoldText);
       const pdpReviewText = extractReviewText(productPageText);
       const voucherRoot = document.querySelector("section.mini-vouchers .mini-vouchers-with-popover") || document.querySelector("section.mini-vouchers");
       const shopVouchers = unique(textFrom(voucherRoot).split(/\\n|\\s{2,}|(?=Rp\\s)|(?=Diskon)|(?=Voucher)|(?=Cashback)/iu))

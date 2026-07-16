@@ -2,6 +2,16 @@
 
 All notable changes to MarketPlace Keyword Competitor Analysis will be documented in this file.
 
+## Unreleased - 2026-07-16
+
+- Fixed Indonesian Rupiah parsing so complete grouped prices such as `Rp13.200.000` are preserved and product price ranges use the first displayed price.
+- Reworked project deletion into a controlled confirmation dialog so keyboard input remains responsive after deleting a project.
+- Improved Part 1 collection flow with integer loading progress, automatic navigation from Relevance to Top Sales, and strict target-page validation.
+- Fixed expanded browser layout so its toolbar no longer overlays Shopee content, and removed obsolete visible-text and print controls.
+- Improved Product Detail navigation so only Shop Home Page exposes a target action and Next advances through shared shop evidence and subsequent products correctly.
+- Added official OpenAI and Gemini API-key setup guidance in Settings.
+- Split macOS CI packaging into independent Intel (`x64`) and Apple Silicon (`arm64`) jobs with architecture-specific downloadable artifacts.
+
 ## Unreleased - 2026-07-14
 
 - Fixed Report Preview so the modal portals outside the animated report page wrapper, stays inside the Electron viewport, keeps the header and close control reachable, and supports Escape-to-close.

@@ -365,6 +365,7 @@ export type ManualEvidenceResult = {
   textPath?: string;
   pdfPath?: string;
   extractedProductCount?: number;
+  storeBannerCount?: number;
 };
 
 export type ExtractedPageProduct = {

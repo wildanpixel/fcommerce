@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-14
+Last updated: 2026-07-16
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -131,6 +131,8 @@ Release blocker fixes:
 - 2026-07-13: Added explicit height inheritance for the Electron `webview` shadow-root iframe and verified the internal iframe style plus fullscreen browser surface height in Playwright.
 - 2026-07-14: Fixed Report Preview positioning by portaling the modal outside animated page content, constraining it to the viewport, and keeping the sticky header and close action reachable.
 - 2026-07-14: Added macOS installation documentation for GitHub Actions artifacts, Apple Silicon/Intel DMG selection, unsigned Gatekeeper opening steps, and local macOS app data folders.
+- 2026-07-16: Fixed Indonesian Rupiah parsing and PDP range handling, controlled project deletion/input focus, Part 1 Relevance-to-Top-Sales navigation, integer collection progress, non-overlapping fullscreen browser controls, Product Detail Next/target behavior, and API-key setup guidance.
+- 2026-07-16: Split macOS CI into independently downloadable Intel x64 and Apple Silicon arm64 artifacts while retaining the shared Electron codebase and Prisma runtime targets.
 
 ## M1 Product Experience
 

@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-14
+Last updated: 2026-07-16
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -99,6 +99,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-13 | Embedded browser iframe/webview height could fail to inherit full expanded height | Fixed | The Electron `webview` shadow-root iframe is now assigned `height: 100%`, and the fullscreen smoke test verifies both the internal iframe style and rendered browser surface height. |
 | 2026-07-14 | Report Preview modal rendered off-screen inside animated page wrappers | Fixed | The preview now portals to the app root, uses viewport-safe sizing, keeps a sticky header with a circular close action, and supports Escape-to-close. |
 | 2026-07-14 | macOS users could confuse Windows portable builds with macOS installers | Fixed | Added `docs/MACOS_INSTALLATION.md` with GitHub Actions artifact download steps, DMG selection by CPU, Gatekeeper handling, app data locations, and signing/notarization notes. |
+| 2026-07-16 | Product pricing and guided collection navigation produced incorrect or confusing state | Fixed | Full grouped Rupiah values and lower range prices are preserved, Relevance advances to Top Sales, progress animates numerically, missing evidence is explicit, and Product Detail Next/target behavior follows the active sub-action. |
+| 2026-07-16 | Project deletion could leave New Research inputs unresponsive | Fixed | Native blocking prompts were replaced with a controlled typed-confirmation dialog, with Playwright coverage proving a new keyword can be entered immediately after deletion. |
+| 2026-07-16 | macOS CI downloads did not distinguish CPU architecture | Fixed | CI now runs separate Intel x64 and Apple Silicon arm64 packaging jobs and uploads architecture-labeled DMG/app artifacts. |
 
 ## Sprint Overview
 
