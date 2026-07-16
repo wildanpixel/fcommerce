@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -102,6 +102,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-16 | Product pricing and guided collection navigation produced incorrect or confusing state | Fixed | Full grouped Rupiah values and lower range prices are preserved, Relevance advances to Top Sales, progress animates numerically, missing evidence is explicit, and Product Detail Next/target behavior follows the active sub-action. |
 | 2026-07-16 | Project deletion could leave New Research inputs unresponsive | Fixed | Native blocking prompts were replaced with a controlled typed-confirmation dialog, with Playwright coverage proving a new keyword can be entered immediately after deletion. |
 | 2026-07-16 | macOS CI downloads did not distinguish CPU architecture | Fixed | CI now runs separate Intel x64 and Apple Silicon arm64 packaging jobs and uploads architecture-labeled DMG/app artifacts. |
+| 2026-07-17 | Product Detail missing evidence looked unfinished and review media could include avatars | Fixed | Evidence now records collected/not-found outcomes, review media is restricted to review attachments, seller responses are removed, and compact success/failure notices are shown after collection actions. |
+| 2026-07-17 | Part 3 data-only store collection stalled on large Shopee HTML | Fixed | Popular Products, Best Sellers, and Visual Shop Banner extraction skips unnecessary full HTML serialization while Store Home evidence remains reusable. |
+| 2026-07-17 | Multiple project reports required manual one-by-one export | Fixed | Reports now include a category-based bulk wizard for multi-project DOCX/PDF/HTML generation with custom sections and category-named ZIP delivery. |
 
 ## Sprint Overview
 
@@ -402,6 +405,7 @@ Status: Partial
 | Align configurable report headings | Project Inspector hierarchy | Done | Completed: report section toggles use Keyword General, Key Products, Product Detail subparts, Key Store subparts, and TikTok Evidence. |
 | Harden DOCX/PDF media rendering | Report renderer, DOCX exporter | Done | Completed: DOCX renders from structured data with JPEG image conversion, PDF/HTML layout is cleaner, product slides exclude UI arrows/review media, and reviews preserve Shopee-style line breaks. |
 | Align report Key Products with inspector | Key Product selection | Done | Completed: generated reports use the same max-10 selected Key Product set and exclude Store Products/Store Best Sellers from the Key Product table. |
+| Add category bulk report delivery | Project reports, JSZip | Done | Completed: users select a category, multiple projects, DOCX/PDF/HTML formats, and report sections before downloading a category-named ZIP. |
 
 ### Dependencies
 
@@ -420,6 +424,7 @@ Status: Partial
 - Passed: Key Product report rows now mirror Project Inspector's selected Key Product table instead of broad store matrix rows.
 - Passed: missing evidence is explicit in the report.
 - Passed: report sections remain modular and can be enabled or disabled.
+- Passed: category-based bulk report configuration is covered by Playwright and packages the requested formats into one ZIP.
 - Passed: M3 report rows in `IMPLEMENTATION_STATUS.md` are updated.
 - Follow-up: visual QA against a fully populated real project remains required before marking PDF export complete.
 

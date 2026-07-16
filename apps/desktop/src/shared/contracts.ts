@@ -266,6 +266,24 @@ export type ReportGenerationResult = {
   pdfPath: string;
 };
 
+export type BulkReportFormat = "DOCX" | "PDF" | "HTML";
+
+export type BulkReportGenerationPayload = {
+  category: string;
+  projectIds: string[];
+  formats: BulkReportFormat[];
+  templateId: string;
+  sections: ReportSectionConfig[];
+  theme?: "light" | "dark";
+};
+
+export type BulkReportGenerationResult = {
+  ok: true;
+  zipPath: string;
+  reportCount: number;
+  fileCount: number;
+};
+
 export type ReportHtmlPayload = {
   reportId: string;
   htmlPath: string;

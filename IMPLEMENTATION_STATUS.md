@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[##################--] 88%
+[##################--] 89%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -32,7 +32,7 @@ The overall percentage is a weighted product estimate based on foundation readin
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
 | M2 | Shopee Desktop | [####################] 99% | Partial |
-| M3 | Intelligence | [##################--] 90% | Partial |
+| M3 | Intelligence | [##################--] 92% | Partial |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -133,6 +133,7 @@ Release blocker fixes:
 - 2026-07-14: Added macOS installation documentation for GitHub Actions artifacts, Apple Silicon/Intel DMG selection, unsigned Gatekeeper opening steps, and local macOS app data folders.
 - 2026-07-16: Fixed Indonesian Rupiah parsing and PDP range handling, controlled project deletion/input focus, Part 1 Relevance-to-Top-Sales navigation, integer collection progress, non-overlapping fullscreen browser controls, Product Detail Next/target behavior, and API-key setup guidance.
 - 2026-07-16: Split macOS CI into independently downloadable Intel x64 and Apple Silicon arm64 artifacts while retaining the shared Electron codebase and Prisma runtime targets.
+- 2026-07-17: Added regression-tested post-deletion focus recovery, tri-state evidence outcomes, strict review-media extraction, seller-response filtering, outcome notifications, collapsed inspector navigation, lazy evidence media, and faster data-only Part 3 store extraction.
 
 ## M1 Product Experience
 
@@ -357,7 +358,7 @@ Sprint 1 completion evidence:
 
 ## M3 Intelligence
 
-[##################--] 88%
+[##################--] 92%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -376,6 +377,7 @@ Sprint 1 completion evidence:
 | Key Stores AI ranking | Partial | AI Engineering and Product UI | Store evidence, persisted scoring | 2 days | P0 |
 | HTML report generation | Completed | Reporting | Report data loader, renderer | Done | P0 |
 | PDF export | Partial | Reporting | Puppeteer PDF, local workspace | 2 days | P0 |
+| Bulk category report ZIP | Completed | Reporting and Product UI | Project reports, DOCX/PDF/HTML exporters, JSZip | Done | P1 |
 
 Implemented:
 
@@ -397,6 +399,7 @@ Implemented:
 - Generated report headers include the developer attribution for Wildan Ega Pradana and the LinkedIn profile link.
 - Report rendering now maps AI output into score cards, recommendation tables, store overall text, and explicit missing-evidence notes instead of hiding incomplete sections.
 - Puppeteer PDF export exists.
+- Reports can be generated in bulk through a four-stage category, project, format, and section workflow; the selected DOCX/PDF/HTML outputs are packaged into a category-named ZIP.
 
 Incomplete:
 

@@ -1,4 +1,4 @@
-import { FormEvent, PointerEvent, ReactNode, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent, ReactNode, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -51,6 +51,7 @@ import type { LucideIcon } from "lucide-react";
 import type {
   AndroidAppRuntimeStatus,
   AndroidToolStatus,
+  BulkReportFormat,
   CollectionStage,
   CollectionState,
   DashboardSnapshot,
@@ -274,6 +275,23 @@ function applyWebviewShadowFrameLayout(webview: WebviewElement | null | undefine
   shadowFrame.style.border = "0px";
 }
 
+function restoreRendererFocus(): void {
+  window.requestAnimationFrame(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    window.focus();
+    const bodyHadTabIndex = document.body.hasAttribute("tabindex");
+    if (!bodyHadTabIndex) {
+      document.body.tabIndex = -1;
+    }
+    document.body.focus({ preventScroll: true });
+    if (!bodyHadTabIndex) {
+      document.body.removeAttribute("tabindex");
+    }
+  });
+}
+
 export default function App() {
   const activeView = useUiStore((state) => state.activeView);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -285,6 +303,10 @@ export default function App() {
     const timer = window.setTimeout(() => setShowSplash(false), 1800);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    restoreRendererFocus();
+  }, [activeView]);
 
   useEffect(() => {
     const handleCollectionPageState = (event: Event) => {
@@ -473,10 +495,7 @@ function TopBar({
 }) {
   return (
     <header className="flex h-16 items-center justify-between px-8">
-      <div>
-        <div className="text-xs uppercase tracking-[0.16em] text-ink-500">{APP_DISPLAY_NAME}</div>
-        <h1 className="text-lg font-semibold text-white">Manual Evidence Collection</h1>
-      </div>
+      <h1 className="text-lg font-semibold text-white">Manual Evidence Collection</h1>
       <div className="flex items-center gap-2">
         <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onThemeToggle}>
           {themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
@@ -1797,7 +1816,7 @@ function GuidedBrowserCollector({
           },
           storeDecorationImages: []
         }
-      : await extractRenderedPageSnapshot(webview, targetSelector)
+      : await extractRenderedPageSnapshot(webview, targetSelector, { includeHtml: !dataOnlyEvidence })
       .then((value) => {
         setCaptureStatus({
           message: value.html ? "HTML download done" : "HTML download failed",
@@ -2175,25 +2194,33 @@ function GuidedBrowserCollector({
                     "mio-step-card w-full cursor-pointer rounded-md border px-3 py-2 text-left text-xs transition",
                     index === activeStepIndex ? "mio-step-card-active border-signal-blue/40 bg-signal-blue/12" : "border-white/8 bg-white/5 hover:bg-white/8"
                   ].join(" ")}
-                  onClick={() => setActiveStepIndex(index)}
+                  onClick={() => {
+                    setActiveStepIndex(index);
+                    if (step.stage === "PRODUCT_DETAILS" && step.targetUrl) {
+                      navigateTo(step.targetUrl);
+                    }
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
                       setActiveStepIndex(index);
+                      if (step.stage === "PRODUCT_DETAILS" && step.targetUrl) {
+                        navigateTo(step.targetUrl);
+                      }
                     }
                   }}
                 >
                   <div className="mb-1 flex items-center justify-between gap-2 text-white">
-                    <span>Step {index + 1}</span>
+                    <span className="line-clamp-2 font-medium">{step.label}</span>
                     {isCollectionStepComplete(step, collectedSteps) ? <CheckCircle2 size={14} className="text-signal-green" /> : <Circle size={12} className="text-ink-500" />}
                   </div>
-                  <div className="text-ink-300">{step.label}</div>
                   {index === activeStepIndex && (
                     <CollectionStepPreview
                       step={step}
                       detail={projectDetail.data}
                       selectedProducts={selectedKeyProducts}
                       collected={isCollectionStepComplete(step, collectedSteps)}
+                      collectedSteps={collectedSteps}
                     />
                   )}
                 </div>
@@ -2238,9 +2265,7 @@ function GuidedBrowserCollector({
     </section>
   );
 
-  const screenshotReviewPortalRoot = typeof document !== "undefined"
-    ? document.querySelector<HTMLElement>(".mio-app") ?? document.body
-    : null;
+  const screenshotReviewPortalRoot = typeof document !== "undefined" ? document.body : null;
   const screenshotReviewPortal = pendingCapture && screenshotReviewPortalRoot
     ? createPortal(
         <ScreenshotReviewModal
@@ -2268,12 +2293,14 @@ function CollectionStepPreview({
   step,
   detail,
   selectedProducts,
-  collected
+  collected,
+  collectedSteps
 }: {
   step: CollectionStep;
   detail?: ProjectDetailPayload;
   selectedProducts: ProjectProductEvidence[];
   collected: boolean;
+  collectedSteps: Record<string, string>;
 }) {
   if (!detail) {
     return null;
@@ -2315,17 +2342,15 @@ function CollectionStepPreview({
     ? detail.products.find((item) => item.id === step.ownerId)
     : undefined;
   if (product) {
-    const productAssets = productAssetsForStep(detail, product);
     const productReviews = curatedShopeeReviews(detail.reviews.filter((review) => review.productId === product.id));
-    const positiveReviews = productReviews.filter((review) => review.sentiment === "POSITIVE" || (review.rating ?? 0) >= 5);
-    const negativeReviews = productReviews.filter((review) => review.sentiment === "NEGATIVE" || (review.rating ?? 5) <= 3);
     const previewImage = product.images[0] ?? product.imageUrl;
+    const subActionStates = collectionSubActionStates(step, collectedSteps, collectionSubActionCounts(step, detail));
     return (
       <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             {previewImage && (
-              <img src={previewImage} alt="" className="h-10 w-10 shrink-0 rounded border border-white/8 bg-white object-cover" />
+              <img src={previewImage} alt="" loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded border border-white/8 bg-white object-cover" />
             )}
             <div className="min-w-0">
               <div className="truncate font-semibold text-white">{displayProductTitle(product)}</div>
@@ -2346,15 +2371,15 @@ function CollectionStepPreview({
           <InfoLine label="Media" value={`${product.images.length} images · ${product.videos.length} videos`} />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <EvidenceStatusPill label="First page" done={productAssets.some((asset) => asset.kind === "PRODUCT_PAGE")} />
-          <EvidenceStatusPill label="Slides / video" done={product.images.length > 0 || product.videos.length > 0} />
-          <EvidenceStatusPill label="Description" done={Boolean(product.description)} />
-          <EvidenceStatusPill label="Positive reviews" done={positiveReviews.length > 0} />
-          <EvidenceStatusPill label="Negative reviews" done={negativeReviews.length > 0} />
-          <EvidenceStatusPill label="Media in user" done={product.reviewMediaImages.length > 0 || product.reviewMediaVideos.length > 0} />
-          <EvidenceStatusPill label="Shop vouchers" done={product.shopVouchers.length > 0} />
-          <EvidenceStatusPill label="Bundle deals" done={product.bundleDeals.length > 0} />
-          <EvidenceStatusPill label="Shop Home Page" done={productAssets.some((asset) => asset.kind === "STORE_HOME")} />
+          <EvidenceStatusPill label="First page" state={subActionStates["first-page"] ?? "pending"} />
+          <EvidenceStatusPill label="Slides / video" state={subActionStates.slides ?? "pending"} />
+          <EvidenceStatusPill label="Description" state={subActionStates.description ?? "pending"} />
+          <EvidenceStatusPill label="Positive reviews" state={subActionStates["positive-reviews"] ?? "pending"} />
+          <EvidenceStatusPill label="Negative reviews" state={subActionStates["negative-reviews"] ?? "pending"} />
+          <EvidenceStatusPill label="Media in user" state={subActionStates["media-in-user"] ?? "pending"} />
+          <EvidenceStatusPill label="Shop vouchers" state={subActionStates["shop-vouchers"] ?? "pending"} />
+          <EvidenceStatusPill label="Bundle deals" state={subActionStates["bundle-deals"] ?? "pending"} />
+          <EvidenceStatusPill label="Shop Home Page" state={subActionStates["shop-homepage"] ?? "pending"} />
         </div>
         {product.description && (
           <div className="mt-3 rounded border border-white/8 bg-white/[0.04] p-2 text-[11px] leading-4 text-ink-400">
@@ -2406,10 +2431,16 @@ function CollectionStepPreview({
   ) : null;
 }
 
-function EvidenceStatusPill({ label, done }: { label: string; done: boolean }) {
+function EvidenceStatusPill({ label, state = "pending", done }: { label: string; state?: "pending" | "collected" | "not-found"; done?: boolean }) {
+  const resolvedState = done === undefined ? state : done ? "collected" : "pending";
   return (
-    <div className={["flex items-center gap-1.5 rounded border px-2 py-1", done ? "border-signal-green/25 bg-signal-green/10 text-signal-green" : "border-white/8 bg-white/[0.04] text-ink-500"].join(" ")}>
-      {done ? <CheckCircle2 size={12} /> : <Circle size={11} />}
+    <div className={[
+      "flex items-center gap-1.5 rounded border px-2 py-1",
+      resolvedState === "collected" ? "border-signal-green/25 bg-signal-green/10 text-signal-green" : "",
+      resolvedState === "not-found" ? "border-signal-rose/30 bg-signal-rose/10 text-signal-rose" : "",
+      resolvedState === "pending" ? "border-white/8 bg-white/[0.04] text-ink-500" : ""
+    ].join(" ")}>
+      {resolvedState === "collected" ? <CheckCircle2 size={12} /> : resolvedState === "not-found" ? <X size={12} /> : <Circle size={11} />}
       <span className="truncate">{label}</span>
     </div>
   );
@@ -2432,6 +2463,9 @@ function collectionSubActionCounts(step: CollectionStep, detail?: ProjectDetailP
     "negative-reviews": productReviews.filter((review) => review.sentiment === "NEGATIVE" || (review.rating ?? 5) <= 3).length,
     "media-in-user": uniqueMediaValues([...product.reviewMediaImages, ...product.reviewMediaVideos]).length,
     "description-promotions": product.description || product.shopVouchers.length || product.bundleDeals.length ? 1 : 0,
+    description: product.description || product.descriptionImages.length ? 1 : 0,
+    "shop-vouchers": product.shopVouchers.length,
+    "bundle-deals": product.bundleDeals.length,
     "shop-homepage": productAssets.filter((asset) => asset.kind === "STORE_HOME").length
   };
 }
@@ -2593,6 +2627,8 @@ function FloatingStepController({
   onNext: () => void;
 }) {
   const [compact, setCompact] = useState(true);
+  const [outcomeNotice, setOutcomeNotice] = useState<{ label: string; state: "collected" | "not-found" } | null>(null);
+  const outcomeRef = useRef<{ id?: string; state: "pending" | "collected" | "not-found" }>({ state: "pending" });
   const activeSubAction = step.subActions?.find((action) => action.id === activeSubActionId) ?? step.subActions?.[0];
   const activeSubActionCount = activeSubAction ? subActionCounts?.[activeSubAction.id] ?? 0 : 0;
   const activeSubActionMaxed = activeSubAction?.id === "slides" && activeSubActionCount >= 9;
@@ -2615,6 +2651,23 @@ function FloatingStepController({
       setCompact(true);
     }
   }, [collapseSignal]);
+  useEffect(() => {
+    const current = { id: activeSubAction?.id, state: activeSubActionState };
+    const previous = outcomeRef.current;
+    outcomeRef.current = current;
+    if (!current.id || previous.id !== current.id || previous.state !== "pending" || current.state === "pending") {
+      return;
+    }
+    const outcomeState = current.state;
+    const showTimer = window.setTimeout(() => {
+      setOutcomeNotice({ label: activeSubAction?.label ?? step.label, state: outcomeState });
+    }, 500);
+    const hideTimer = window.setTimeout(() => setOutcomeNotice(null), 2_500);
+    return () => {
+      window.clearTimeout(showTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, [activeSubAction?.id, activeSubAction?.label, activeSubActionState, step.label]);
 
   function advanceCollector() {
     onNext();
@@ -2622,13 +2675,14 @@ function FloatingStepController({
 
   if (compact) {
     return (
-      <motion.div
-        className="mio-floating-collector mio-floating-collector-compact absolute left-4 top-4 z-20 max-w-[430px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
-        initial={{ opacity: 0, y: -10, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.18 }}
-      >
-        <div className="flex items-center gap-2">
+      <>
+        <motion.div
+          className="mio-floating-collector mio-floating-collector-compact absolute left-4 top-4 z-20 max-w-[430px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
+          initial={{ opacity: 0, y: -10, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.18 }}
+        >
+          <div className="flex items-center gap-2">
           <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={() => setCompact(false)} aria-label="Expand collector">
             <Maximize2 size={13} />
           </button>
@@ -2675,8 +2729,28 @@ function FloatingStepController({
               <ChevronRight size={13} />
             </button>
           )}
-        </div>
-      </motion.div>
+          </div>
+        </motion.div>
+        <AnimatePresence>
+          {outcomeNotice && (
+            <motion.div
+              className={[
+                "mio-collector-outcome absolute left-6 top-[72px] z-20 flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold shadow-glow backdrop-blur-xl",
+                outcomeNotice.state === "collected"
+                  ? "border-signal-green/30 bg-signal-green/15 text-signal-green"
+                  : "border-signal-rose/35 bg-signal-rose/15 text-signal-rose"
+              ].join(" ")}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              {outcomeNotice.state === "collected" ? <CheckCircle2 size={14} /> : <X size={14} />}
+              <span>{outcomeNotice.label}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </>
     );
   }
 
@@ -3183,11 +3257,13 @@ function ProjectsView() {
       setProjectPendingDeletion(null);
       setDeleteConfirmationName("");
       setDeleteError("");
+      restoreRendererFocus();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail"] }),
         queryClient.invalidateQueries({ queryKey: ["reports"] })
       ]);
+      restoreRendererFocus();
     },
     onError: (error) => {
       setDeleteError(error instanceof Error ? error.message : "Could not delete this project.");
@@ -3417,27 +3493,26 @@ function ProjectDeleteDialog({
   onCancel: () => void;
   onDelete: () => void;
 }) {
-  const portalRoot = document.querySelector<HTMLElement>(".mio-app") ?? document.body;
+  if (!project) {
+    return null;
+  }
+
   return createPortal(
-    <AnimatePresence>
-      {project && (
-        <motion.div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-5 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
-        >
-          <motion.div
-            className="mio-panel w-full max-w-md rounded-[28px] border border-white/10 bg-ink-900 p-6 shadow-glow"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-project-dialog-title"
-            initial={{ opacity: 0, y: 12, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.98 }}
-            transition={{ type: "spring", stiffness: 360, damping: 30 }}
-          >
+    <motion.div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-5 backdrop-blur-sm"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
+    >
+      <motion.div
+        className="mio-panel w-full max-w-md rounded-[28px] border border-white/10 bg-ink-900 p-6 shadow-glow"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-project-dialog-title"
+        initial={{ opacity: 0, y: 12, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ type: "spring", stiffness: 360, damping: 30 }}
+      >
             <h2 id="delete-project-dialog-title" className="text-lg font-semibold text-white">Delete keyword project?</h2>
             <p className="mt-2 text-sm leading-6 text-ink-400">
               This permanently removes the project, evidence, reports, and local files. Type <strong className="text-white">{project.name}</strong> to confirm.
@@ -3462,11 +3537,9 @@ function ProjectDeleteDialog({
                 {deleting ? "Deleting" : "Delete"}
               </button>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
-    portalRoot
+      </motion.div>
+    </motion.div>,
+    document.body
   );
 }
 
@@ -3488,7 +3561,7 @@ function ProjectInspectionPanel({
   const collectionState = projectCollectionState(detail.project);
   const completed = isProjectComplete(detail.project);
   const outlineItems = projectOutlineItems(detail);
-  const [outlineCollapsed, setOutlineCollapsed] = useState(false);
+  const [outlineCollapsed, setOutlineCollapsed] = useState(true);
   const runAnalysis = useMutation({
     mutationFn: () => apiClient.analyzeProject(detail.project.id),
     onSuccess: async () => {
@@ -3499,7 +3572,7 @@ function ProjectInspectionPanel({
     <section className="mio-project-inspector-page space-y-6">
       <div className="mio-project-hero">
         <div className="min-w-0">
-          <h1 className="mio-project-title">{detail.project.name}</h1>
+          <AnimatedProjectTitle title={detail.project.name} />
           <div className="mio-project-subtitle">{marketplaceLabel(detail.project.marketplace)} | {formatDateTime(detail.project.createdAt)}</div>
           <button className="secondary-button mt-5 h-10 w-auto rounded-full px-5" type="button" onClick={onBack}>
             <ChevronLeft size={16} />
@@ -3587,7 +3660,7 @@ function ProjectReportOutline({
   const keyProducts = selectKeyProductCandidates(detail.products, detail.project.keyword);
   return (
     <div className="space-y-3">
-      <ReportOutlineSection id="keyword-general" title="Keyword General" defaultOpen>
+      <ReportOutlineSection id="keyword-general" title="Keyword General">
         <NestedReportSection title="Relevance">
           <AssetList assets={detail.assets.filter((asset) => asset.kind === "SEARCH_RESULT")} />
           <ProductCardGrid products={relevanceProducts} />
@@ -3609,7 +3682,7 @@ function ProjectReportOutline({
       <ReportOutlineSection id="product-detail-qualified" title="Product Detailed Qualified">
         <div className="space-y-3">
           {keyProducts.map((product) => (
-            <NestedReportSection key={product.id} title={displayProductTitle(product)} defaultOpen={false}>
+            <NestedReportSection key={product.id} title={displayProductTitle(product)}>
               <ProductQualifiedSection
                 product={product}
                 reviews={detail.reviews.filter((review) => review.productId === product.id)}
@@ -3697,7 +3770,7 @@ function EvaluationCards({
         {candidates.map((candidate, index) => (
           <button key={candidate.key} type="button" className="rounded-md border border-white/8 bg-white/5 p-3 text-left hover:bg-white/8" onClick={() => candidate.url && void apiClient.openUrl(candidate.url)}>
             <div className="aspect-video overflow-hidden rounded bg-white/10">
-              {candidate.thumbnail ? <img src={imageSource(candidate.thumbnail)} alt={candidate.name} className="h-full w-full object-cover" /> : null}
+              {candidate.thumbnail ? <img src={imageSource(candidate.thumbnail)} alt={candidate.name} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
             </div>
             <div className="mt-3 flex items-center justify-between gap-3">
               <div>
@@ -3833,7 +3906,7 @@ function KeyStorePanel({
         </button>
       </div>
 
-      <NestedReportSection title="Overall" defaultOpen>
+      <NestedReportSection title="Overall">
         <div className="space-y-2 text-sm leading-6 text-ink-300">
           {conclusionSentences.map((sentence) => (
             <p key={sentence}>{sentence}</p>
@@ -3841,19 +3914,19 @@ function KeyStorePanel({
         </div>
       </NestedReportSection>
 
-      <NestedReportSection title="Store Home Page" defaultOpen={false}>
+      <NestedReportSection title="Store Home Page">
         <AssetList assets={homeAssets} limit={12} />
       </NestedReportSection>
 
-      <NestedReportSection title="Popular Products" defaultOpen={false}>
+      <NestedReportSection title="Popular Products">
         <ProductCardGrid products={storeProducts.length > 0 ? storeProducts : matchingProducts} limit={80} />
       </NestedReportSection>
 
-      <NestedReportSection title="Best Sellers" defaultOpen={false}>
+      <NestedReportSection title="Best Sellers">
         <ProductCardGrid products={storeBestSellers} limit={80} />
       </NestedReportSection>
 
-      <NestedReportSection title="Visual Shop Banner" defaultOpen={false}>
+      <NestedReportSection title="Visual Shop Banner">
         <AssetList assets={bannerAssets} limit={80} />
       </NestedReportSection>
     </div>
@@ -3872,10 +3945,21 @@ function ProjectOutlineNav({
   onToggle: () => void;
 }) {
   const groups = groupProjectOutlineItems(items);
+  function openOutlineTarget(event: ReactMouseEvent<HTMLAnchorElement>, id: string) {
+    event.preventDefault();
+    const target = document.getElementById(id);
+    if (!target) return;
+    let current: HTMLElement | null = target;
+    while (current) {
+      if (current instanceof HTMLDetailsElement) current.open = true;
+      current = current.parentElement?.closest("details") ?? null;
+    }
+    window.requestAnimationFrame(() => target.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
   if (collapsed) {
     return (
       <nav className="mio-inspector-nav sticky top-4 self-start rounded-md border border-white/8 bg-white/5 p-2 text-sm">
-        <button className="secondary-button h-8 w-8 px-0" type="button" onClick={onToggle} aria-label="Show project outline" title="Show project outline">
+        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label="Show project outline" title="Show project outline">
           <PanelLeftOpen size={15} />
         </button>
       </nav>
@@ -3885,27 +3969,28 @@ function ProjectOutlineNav({
     <nav className="mio-inspector-nav sticky top-4 max-h-[calc(100vh-96px)] self-start overflow-auto rounded-md border border-white/8 bg-white/5 p-3 text-sm">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="line-clamp-2 font-semibold text-white">{title}</div>
-        <button className="secondary-button h-8 w-8 px-0" type="button" onClick={onToggle} aria-label="Hide project outline" title="Hide project outline">
+        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label="Hide project outline" title="Hide project outline">
           <PanelLeftClose size={15} />
         </button>
       </div>
       <div className="space-y-1">
         {groups.map((group) => group.children.length > 0 ? (
-          <details key={`${group.id}-${group.label}`} className="mio-outline-group rounded-md" open>
+          <details key={`${group.id}-${group.label}`} className="mio-outline-group rounded-md">
             <summary className="cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
-              <a href={`#${group.id}`} onClick={(event) => event.stopPropagation()}>{group.label}</a>
+              <a href={`#${group.id}`} onClick={(event) => openOutlineTarget(event, group.id)}>{group.label}</a>
             </summary>
             <div className="mt-1 space-y-1">
               {group.children.map((item) => item.children.length > 0 ? (
                 <details key={`${item.id}-${item.label}`} className="mio-outline-subgroup ml-3 rounded-md">
                   <summary className="cursor-pointer select-none rounded px-2 py-1.5 text-xs font-medium text-ink-300 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
-                    <a href={`#${item.id}`} onClick={(event) => event.stopPropagation()}>{item.label}</a>
+                    <a href={`#${item.id}`} onClick={(event) => openOutlineTarget(event, item.id)}>{item.label}</a>
                   </summary>
                   <div className="mt-1 space-y-1">
                     {item.children.map((child) => (
                       <a
                         key={`${child.id}-${child.label}`}
                         href={`#${child.id}`}
+                        onClick={(event) => openOutlineTarget(event, child.id)}
                         className="block rounded px-2 py-1.5 pl-5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
                       >
                         {child.label}
@@ -3917,6 +4002,7 @@ function ProjectOutlineNav({
                 <a
                   key={`${item.id}-${item.label}`}
                   href={`#${item.id}`}
+                  onClick={(event) => openOutlineTarget(event, item.id)}
                   className="ml-3 block rounded px-2 py-1.5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
                 >
                   {item.label}
@@ -3928,6 +4014,7 @@ function ProjectOutlineNav({
           <a
             key={`${group.id}-${group.label}`}
             href={`#${group.id}`}
+            onClick={(event) => openOutlineTarget(event, group.id)}
             className="block rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
           >
             {group.label}
@@ -3963,21 +4050,46 @@ function groupProjectOutlineItems(items: Array<{ id: string; label: string; dept
   return groups;
 }
 
-function ReportOutlineSection({ id, title, defaultOpen, children }: { id: string; title: string; defaultOpen?: boolean; children: ReactNode }) {
+function ReportOutlineSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <details id={id} className="mio-report-section scroll-mt-4 rounded-md border border-white/8 bg-white/5 p-4" open={defaultOpen}>
+    <details id={id} className="mio-report-section scroll-mt-4 rounded-md border border-white/8 bg-white/5 p-4">
       <summary className="cursor-pointer select-none text-sm font-semibold text-white">{title}</summary>
       <div className="mt-4">{children}</div>
     </details>
   );
 }
 
-function NestedReportSection({ title, defaultOpen = true, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
+function NestedReportSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <details className="mb-3 rounded-md border border-white/8 bg-white/[0.04] p-3" open={defaultOpen}>
+    <details className="mb-3 rounded-md border border-white/8 bg-white/[0.04] p-3">
       <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-[0.08em] text-ink-300">{title}</summary>
       <div className="mt-3">{children}</div>
     </details>
+  );
+}
+
+function AnimatedProjectTitle({ title }: { title: string }) {
+  const words = title.trim().split(/\s+/u);
+  return (
+    <h1 className="mio-project-title" aria-label={title}>
+      {words.map((word, index) => (
+        <motion.span
+          key={`${word}-${index}`}
+          aria-hidden="true"
+          className="mio-title-word"
+          initial={{
+            opacity: 0,
+            x: index % 3 === 0 ? -18 : 0,
+            y: index % 3 === 1 ? 14 : 0,
+            filter: index % 3 === 0 ? "blur(8px)" : "blur(0px)"
+          }}
+          animate={{ opacity: 1, x: 0, y: 0, filter: "blur(0px)" }}
+          transition={{ delay: index * 0.09, duration: 0.42, ease: [0.2, 0.9, 0.2, 1] }}
+        >
+          {word}{index < words.length - 1 ? "\u00a0" : ""}
+        </motion.span>
+      ))}
+    </h1>
   );
 }
 
@@ -3990,7 +4102,7 @@ function AssetList({ assets, limit = 24 }: { assets: ProjectDetailPayload["asset
       {assets.slice(0, limit).map((asset) => (
         <button key={asset.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openPath(asset.path)}>
           <div className="aspect-video overflow-hidden rounded bg-white/10">
-            {asset.mimeType.startsWith("image/") ? <img src={toFileImageSrc(asset.path)} alt={asset.label} className="h-full w-full object-cover" /> : null}
+            {asset.mimeType.startsWith("image/") ? <img src={toFileImageSrc(asset.path)} alt={asset.label} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
           </div>
           <div className="mt-2 truncate text-xs font-medium text-white">{asset.label}</div>
           <div className="mt-1 truncate text-[11px] text-ink-500">{asset.kind}</div>
@@ -4013,7 +4125,7 @@ function ProductCardGrid({ products, limit = 80 }: { products: ProjectProductEvi
           {products.slice(0, limit).map((product) => (
             <button key={product.id} type="button" className="grid w-full grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-white/8 bg-white/5 p-2 text-left last:border-b-0 hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
               <div className="h-16 w-16 overflow-hidden rounded bg-white/10">
-              {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} className="h-full w-full object-cover" /> : null}
+              {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
               </div>
               <div className="min-w-0">
                 <div className="line-clamp-1 text-sm font-medium text-white">{displayProductTitle(product)}</div>
@@ -4035,7 +4147,7 @@ function ProductCardGrid({ products, limit = 80 }: { products: ProjectProductEvi
         {products.slice(0, limit).map((product) => (
           <button key={product.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
             <div className="aspect-square overflow-hidden rounded bg-white/10">
-              {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} className="h-full w-full object-cover" /> : null}
+              {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
             </div>
             <div className="mt-2 min-w-0">
               <div className="line-clamp-2 text-xs font-medium text-white">{displayProductTitle(product)}</div>
@@ -4169,11 +4281,11 @@ function ProductQualifiedSection({
         <InfoLine label="GMV ETA" value={formatCurrency((product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0))} />
       </div>
 
-      <NestedReportSection title="1st Page" defaultOpen={false}>
+      <NestedReportSection title="1st Page">
         <AssetList assets={firstPageAssets} />
       </NestedReportSection>
 
-      <NestedReportSection title="Slides" defaultOpen={false}>
+      <NestedReportSection title="Slides">
         <ProductImageGrid images={(product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []).slice(0, product.videos.length > 0 ? 8 : 9)} />
         {product.videos.length > 0 && (
           <div className="mt-3">
@@ -4182,7 +4294,7 @@ function ProductQualifiedSection({
         )}
       </NestedReportSection>
 
-      <NestedReportSection title="Description" defaultOpen={false}>
+      <NestedReportSection title="Description">
         <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
           <p className="whitespace-pre-wrap text-sm leading-6 text-ink-300">
             {product.description ?? "No browser-readable product description captured yet."}
@@ -4196,18 +4308,18 @@ function ProductQualifiedSection({
         <ProductPromotionSignals product={product} />
       </NestedReportSection>
 
-      <NestedReportSection title="Reviews" defaultOpen={false}>
+      <NestedReportSection title="Reviews">
         <ReviewEvidenceTable reviews={reviews} />
       </NestedReportSection>
 
-      <NestedReportSection title="Media in User" defaultOpen={false}>
+      <NestedReportSection title="Media in User">
         <ProductImageGrid images={product.reviewMediaImages} />
         <div className="mt-3">
           <ProductVideoGrid videos={product.reviewMediaVideos} />
         </div>
       </NestedReportSection>
 
-      <NestedReportSection title="Shop Home Page" defaultOpen={false}>
+      <NestedReportSection title="Shop Home Page">
         <AssetList assets={shopHomeAssets} />
       </NestedReportSection>
     </div>
@@ -4398,6 +4510,8 @@ function ProductImageGrid({ images }: { images: string[] }) {
             <img
               src={image}
               alt={`Product slide ${index + 1}`}
+              loading="lazy"
+              decoding="async"
               className="h-full w-full object-cover"
               onError={() => setBrokenImages((current) => new Set(current).add(image))}
             />
@@ -4496,6 +4610,192 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
   );
 }
 
+function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[]; themeMode: ThemeMode }) {
+  const queryClient = useQueryClient();
+  const [step, setStep] = useState(1);
+  const [category, setCategory] = useState("");
+  const [projectIds, setProjectIds] = useState<string[]>([]);
+  const [formats, setFormats] = useState<BulkReportFormat[]>(["PDF"]);
+  const [bulkSections, setBulkSections] = useState<ReportSectionConfig[]>(DEFAULT_REPORT_SECTIONS);
+  const [progress, setProgress] = useState(0);
+  const categories = useMemo(
+    () => Array.from(new Set(projects.map((project) => project.productCategory?.trim() || "Uncategorized"))).sort(),
+    [projects]
+  );
+  const eligibleProjects = useMemo(
+    () => projects.filter((project) => (project.productCategory?.trim() || "Uncategorized") === category),
+    [category, projects]
+  );
+  const generateBulk = useMutation({
+    mutationFn: apiClient.generateBulkReports,
+    onMutate: () => setProgress(4),
+    onSuccess: (result) => {
+      setProgress(100);
+      void queryClient.invalidateQueries({ queryKey: ["reports"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      void apiClient.openPath(result.zipPath);
+    },
+    onError: () => setProgress(0)
+  });
+
+  useEffect(() => {
+    if (!generateBulk.isPending) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setProgress((current) => Math.min(94, current + (current < 50 ? 6 : current < 80 ? 3 : 1)));
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [generateBulk.isPending]);
+
+  function selectCategory(nextCategory: string) {
+    setCategory(nextCategory);
+    setProjectIds([]);
+  }
+
+  function toggleProject(id: string) {
+    setProjectIds((current) => current.includes(id) ? current.filter((projectId) => projectId !== id) : [...current, id]);
+  }
+
+  function toggleFormat(format: BulkReportFormat) {
+    setFormats((current) => current.includes(format) ? current.filter((item) => item !== format) : [...current, format]);
+  }
+
+  function canContinue() {
+    if (step === 1) return Boolean(category);
+    if (step === 2) return projectIds.length > 0;
+    if (step === 3) return formats.length > 0;
+    return bulkSections.some((section) => section.enabled);
+  }
+
+  function generate() {
+    if (!category || projectIds.length === 0 || formats.length === 0) {
+      return;
+    }
+    generateBulk.mutate({
+      category,
+      projectIds,
+      formats,
+      templateId: "marketplace-research-os-v1",
+      theme: themeMode,
+      sections: bulkSections
+    });
+  }
+
+  const stepLabels = ["Category", "Projects", "Formats", "Sections"];
+  return (
+    <Panel title="Bulk Report Generation" icon={Archive}>
+      <div className="mb-5 grid grid-cols-4 gap-2" aria-label="Bulk report steps">
+        {stepLabels.map((label, index) => (
+          <button
+            key={label}
+            type="button"
+            className={`mio-bulk-step rounded-full px-3 py-2 text-xs font-medium transition ${step === index + 1 ? "bg-signal-blue text-white" : "bg-white/7 text-ink-500"}`}
+            onClick={() => index + 1 <= step && setStep(index + 1)}
+          >
+            {index + 1}. {label}
+          </button>
+        ))}
+      </div>
+
+      {step === 1 && (
+        <Field label="Select by category">
+          <select value={category} onChange={(event) => selectCategory(event.target.value)} className="input">
+            <option value="">Choose a category</option>
+            {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </Field>
+      )}
+
+      {step === 2 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 text-xs text-ink-500">
+            <span>Select multiple projects from {category}</span>
+            <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => setProjectIds(eligibleProjects.map((project) => project.id))}>Select all</button>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {eligibleProjects.map((project) => {
+              const selected = projectIds.includes(project.id);
+              return (
+                <button
+                  type="button"
+                  key={project.id}
+                  className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${selected ? "border-signal-blue/45 bg-signal-blue/12" : "border-white/8 bg-white/5"}`}
+                  onClick={() => toggleProject(project.id)}
+                >
+                  <span className="min-w-0 truncate text-sm font-medium text-white">{project.name}</span>
+                  {selected ? <CheckCircle2 size={17} className="shrink-0 text-signal-blue" /> : <Circle size={17} className="shrink-0 text-ink-500" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {step === 3 && (
+        <div className="grid grid-cols-3 gap-3">
+          {(["DOCX", "PDF", "HTML"] as BulkReportFormat[]).map((format) => {
+            const selected = formats.includes(format);
+            return (
+              <button key={format} type="button" className={`rounded-2xl border p-4 text-center text-sm font-semibold transition ${selected ? "border-signal-blue/45 bg-signal-blue/12 text-white" : "border-white/8 bg-white/5 text-ink-500"}`} onClick={() => toggleFormat(format)}>
+                {format}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {step === 4 && (
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {bulkSections.map((section) => (
+            <button
+              type="button"
+              key={section.id}
+              className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition ${section.enabled ? "border-signal-blue/40 bg-signal-blue/10 text-white" : "border-white/8 bg-white/5 text-ink-500"}`}
+              onClick={() => setBulkSections((current) => current.map((item) => item.id === section.id ? { ...item, enabled: !item.enabled } : item))}
+            >
+              <span>{section.label}</span>
+              {section.enabled ? <CheckCircle2 size={16} className="shrink-0 text-signal-blue" /> : <Circle size={16} className="shrink-0" />}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {(generateBulk.isPending || progress > 0) && (
+        <div className="mt-4 rounded-2xl border border-white/8 bg-white/5 p-3">
+          <div className="mb-2 flex items-center justify-between text-xs">
+            <span className="text-ink-500">{generateBulk.isPending ? `Packaging ${projectIds.length} reports` : "Bulk report ready"}</span>
+            <span className="font-semibold text-signal-blue">{progress}%</span>
+          </div>
+          <ProgressBar value={progress} />
+        </div>
+      )}
+      {generateBulk.data && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
+          <span>{generateBulk.data.fileCount} files packaged in {generateBulk.data.zipPath}</span>
+          <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(generateBulk.data.zipPath)}>Open ZIP</button>
+        </div>
+      )}
+      {generateBulk.error && <div className="mt-4 rounded-2xl bg-signal-rose/12 p-3 text-sm text-signal-rose">{generateBulk.error.message}</div>}
+
+      <div className="mt-5 flex justify-between gap-3">
+        <button className="secondary-button h-10 w-auto rounded-full px-5" type="button" disabled={step === 1 || generateBulk.isPending} onClick={() => setStep((current) => Math.max(1, current - 1))}>
+          <ChevronLeft size={16} /> Back
+        </button>
+        {step < 4 ? (
+          <button className="primary-button h-10 w-auto rounded-full px-5" type="button" disabled={!canContinue()} onClick={() => setStep((current) => Math.min(4, current + 1))}>
+            Next <ChevronRight size={16} />
+          </button>
+        ) : (
+          <button className="primary-button h-10 w-auto rounded-full px-5" type="button" disabled={!canContinue() || generateBulk.isPending} onClick={generate}>
+            <Archive size={16} /> {generateBulk.isPending ? "Generating ZIP" : "Generate ZIP"}
+          </button>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   const queryClient = useQueryClient();
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
@@ -4566,6 +4866,9 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
 
   return (
     <section className="grid grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)] gap-5">
+      <div className="col-span-2">
+        <BulkReportWizard projects={dashboard.data?.projects ?? []} themeMode={themeMode} />
+      </div>
       <div className="space-y-5">
         <Panel title="Report Generator" icon={FileDown}>
           <form className="space-y-4" onSubmit={submit}>
@@ -4734,8 +5037,7 @@ function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; on
     </div>
   );
 
-  const portalRoot = document.querySelector<HTMLElement>(".mio-app") ?? document.body;
-  return createPortal(modal, portalRoot);
+  return createPortal(modal, document.body);
 }
 
 function SettingsView() {
@@ -5286,6 +5588,11 @@ function collectionSubActionStates(
       continue;
     }
     states[action.id] = (counts[action.id] ?? 0) > 0 ? "collected" : "not-found";
+  }
+  if (states["description-promotions"] && states["description-promotions"] !== "pending") {
+    states.description = (counts.description ?? 0) > 0 ? "collected" : "not-found";
+    states["shop-vouchers"] = (counts["shop-vouchers"] ?? 0) > 0 ? "collected" : "not-found";
+    states["bundle-deals"] = (counts["bundle-deals"] ?? 0) > 0 ? "collected" : "not-found";
   }
   return states;
 }
@@ -6676,7 +6983,11 @@ function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): str
   }
 }
 
-async function extractRenderedPageSnapshot(webview: WebviewElement, productScopeSelector?: string): Promise<{
+async function extractRenderedPageSnapshot(
+  webview: WebviewElement,
+  productScopeSelector?: string,
+  options: { includeHtml?: boolean } = {}
+): Promise<{
   html: string;
   visibleText: string;
   products: ExtractedPageProduct[];
@@ -6706,7 +7017,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       storeDecorationImages: []
     };
   }
-  return webview.executeJavaScript<{
+  const extraction = webview.executeJavaScript<{
     html: string;
     visibleText: string;
     products: ExtractedPageProduct[];
@@ -6766,6 +7077,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       };
       const htmlRoot = pickShopeeContentRoot();
       const productScopeSelector = ${JSON.stringify(productScopeSelector ?? "")};
+      const includeHtml = ${JSON.stringify(options.includeHtml !== false)};
       const productScopeRoot = productScopeSelector ? document.querySelector(productScopeSelector) || htmlRoot : htmlRoot;
       const isStoreProductScope = /shop-page__all-products-section/i.test(productScopeSelector);
       const isSearchProductScope = /shopee-search-item-result/i.test(productScopeSelector);
@@ -6779,7 +7091,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         await wait(250);
         let previousCount = 0;
         let stablePasses = 0;
-        const passes = isStoreProductScope ? 120 : 132;
+        const passes = 10;
         for (let index = 0; index < passes; index += 1) {
           const currentCount = productScopeRoot.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
           const elementCanScroll = productScopeRoot.scrollHeight > productScopeRoot.clientHeight + 24;
@@ -6790,14 +7102,14 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           }
           productScopeRoot.dispatchEvent?.(new Event("scroll", { bubbles: true }));
           window.dispatchEvent(new Event("scroll"));
-          await wait(isStoreProductScope ? 520 : 260);
+          await wait(140);
           if (isStoreProductScope || isSearchProductScope) {
             stablePasses = currentCount === previousCount ? stablePasses + 1 : 0;
-            const targetCount = isStoreProductScope ? 72 : 120;
-            if (currentCount >= targetCount && stablePasses >= 3) {
+            const targetCount = isStoreProductScope ? 60 : 80;
+            if (currentCount >= targetCount && stablePasses >= 2) {
               break;
             }
-            if (stablePasses >= 14 && index >= 28 && currentCount >= 36) {
+            if (stablePasses >= 4 && index >= 6 && currentCount >= 24) {
               break;
             }
           }
@@ -7139,12 +7451,12 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         const rect = productScopeRoot.getBoundingClientRect();
         const startY = Math.max(0, rect.top + (window.scrollY || root.scrollTop || 0) - 80);
         const step = Math.max(320, window.innerHeight * (isStoreProductScope ? 0.58 : 0.72));
-        const targetCount = isStoreProductScope ? 72 : 120;
-        const passLimit = isStoreProductScope ? 132 : 150;
+        const targetCount = isStoreProductScope ? 60 : 80;
+        const passLimit = isStoreProductScope ? 60 : 80;
         let stablePasses = 0;
         let lastCount = -1;
         window.scrollTo({ top: startY, behavior: "auto" });
-        await wait(420);
+        await wait(180);
         for (let pass = 0; pass < passLimit; pass += 1) {
           await collectVisibleProductRows();
           if (products.length === lastCount) {
@@ -7156,7 +7468,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
           if (products.length >= targetCount && stablePasses >= 3) {
             break;
           }
-          if (stablePasses >= 16 && pass >= 28 && (products.length >= 48 || pass >= passLimit - 8)) {
+          if (stablePasses >= 8 && pass >= 16 && (products.length >= 36 || pass >= passLimit - 6)) {
             break;
           }
           const nextTop = Math.min(
@@ -7171,7 +7483,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
             productScopeRoot.dispatchEvent?.(new Event("scroll", { bubbles: true }));
             window.dispatchEvent(new Event("scroll"));
           }
-          await wait(isStoreProductScope ? 460 : 520);
+          await wait(180);
         }
         await collectVisibleProductRows();
         window.scrollTo({ top: originalScrollY, behavior: "auto" });
@@ -7285,7 +7597,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         .map((root) => findStoreBadgeImage(root, undefined))
         .find(Boolean);
       const compactBadgeStoreType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
-      const storeType = officialStoreTypeFromName(storeName) || compactBadgeStoreType;
+      const storeType = compactBadgeStoreType || officialStoreTypeFromName(storeName);
       const pdpSoldText = extractSoldText(productPageText);
       const pdpRatingText = extractRatingFromRoot(productPageRoot, productPageText, pdpSoldText);
       const pdpReviewText = extractReviewText(productPageText);
@@ -7363,17 +7675,17 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
         ? unique(Array.from(descriptionRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
           .map(imageUrlFrom))
         : [];
-      const mediaRoot = document.querySelector(".rating-media-list-image-carousel__item-list-wrapper") || reviewRoot;
-      const reviewMediaImages = mediaRoot
-        ? unique(Array.from(mediaRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
+      const reviewMediaRoots = Array.from(document.querySelectorAll(".rating-media-list-image-carousel__item-list-wrapper, [class*='rating-media-list-image-carousel__item-list-wrapper']"));
+      const reviewMediaImages = unique(reviewMediaRoots.flatMap((mediaRoot) =>
+        Array.from(mediaRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
           .filter((element) => !isProductGalleryElement(element))
-          .map(imageUrlFrom))
-        : [];
-      const reviewMediaVideos = mediaRoot
-        ? unique(Array.from(mediaRoot.querySelectorAll("video"))
+          .map(imageUrlFrom)
+      ));
+      const reviewMediaVideos = unique(reviewMediaRoots.flatMap((mediaRoot) =>
+        Array.from(mediaRoot.querySelectorAll("video"))
           .filter((element) => !isProductGalleryElement(element))
-          .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || "")))
-        : [];
+          .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || ""))
+      ));
       const looksLikeReviewRow = (element) => {
         const text = textFrom(element);
         if (text.length < 20) return false;
@@ -7384,6 +7696,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       };
       const cleanReviewComment = (value) => {
         const rawLines = String(value || "")
+          .replace(/(?:Seller'?s Response|Respons(?:e)? Penjual|Penjual Membalas)\\s*:?[\\s\\S]*$/iu, "")
           .replace(/\\r\\n?/g, "\\n")
           .split("\\n")
           .map((line) => compact(line))
@@ -7570,7 +7883,7 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
             })
           ])
         : [];
-      const html = prettyHtml(htmlRoot.outerHTML || document.documentElement?.outerHTML || "");
+      const html = includeHtml ? prettyHtml(htmlRoot.outerHTML || document.documentElement?.outerHTML || "") : "";
       const visibleTextSource = htmlRoot.innerText || document.body?.innerText || "";
       const visibleText = [document.title || "", location.href, compact(visibleTextSource).slice(0, 24000)]
         .filter(Boolean)
@@ -7578,6 +7891,10 @@ async function extractRenderedPageSnapshot(webview: WebviewElement, productScope
       return { html, visibleText, products, productDetail, storeDecorationImages: storeDecorationImages.slice(0, 40) };
     })();
   `);
+  const timeout = new Promise<never>((_resolve, reject) => {
+    window.setTimeout(() => reject(new Error("Rendered page extraction timed out after 30 seconds. Scroll the target section into view and retry.")), 30_000);
+  });
+  return Promise.race([extraction, timeout]);
 }
 
 async function captureFullPageScreenshot(webview: WebviewElement): Promise<FullPageScreenshot> {

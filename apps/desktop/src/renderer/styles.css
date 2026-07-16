@@ -726,8 +726,8 @@ webview {
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -1370,6 +1370,26 @@ details[open] > summary {
 
 details[open] > :not(summary) {
   animation: mio-collapse-pop 240ms cubic-bezier(0.2, 0.95, 0.2, 1.08);
+}
+
+@supports selector(details::details-content) {
+  details {
+    interpolate-size: allow-keywords;
+  }
+
+  details::details-content {
+    block-size: 0;
+    opacity: 0;
+    overflow: clip;
+    transition:
+      block-size 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 180ms ease;
+  }
+
+  details[open]::details-content {
+    block-size: auto;
+    opacity: 1;
+  }
 }
 
 @keyframes mio-collapse-pop {

@@ -6,6 +6,8 @@ import type {
   AndroidStartPayload,
   AndroidToolStatus,
   AndroidVisibleTextResult,
+  BulkReportGenerationPayload,
+  BulkReportGenerationResult,
   CollectionState,
   CreateJobPayload,
   DashboardSnapshot,
@@ -124,6 +126,11 @@ export const apiClient = {
   reportSections: () => request<ReportSectionConfig[]>("/report-sections"),
   generateReport: (payload: ReportGenerationPayload) =>
     request<ReportGenerationResult>("/reports", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  generateBulkReports: (payload: BulkReportGenerationPayload) =>
+    request<BulkReportGenerationResult>("/reports/bulk", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

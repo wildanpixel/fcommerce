@@ -2,6 +2,18 @@
 
 All notable changes to MarketPlace Keyword Competitor Analysis will be documented in this file.
 
+## Unreleased - 2026-07-17
+
+- Fixed the post-deletion focus regression so New Research inputs remain keyboard-responsive after a project is removed, with a dedicated Playwright regression test.
+- Added explicit collected, pending, and not-found evidence states throughout Product Detail collection; missing review media no longer falls back to customer profile images.
+- Cleaned review text by excluding seller-response content and added delayed success/not-found collection notifications beneath the compact guided controller.
+- Improved guided Product Detail navigation: product rows open their PDP targets, numbered `Step` prefixes are removed, and the active collection controller reports compact outcomes.
+- Reworked Project Inspector navigation so the outline starts collapsed, opens the relevant report hierarchy on navigation, scrolls to the selected section, and uses lazy-loaded evidence media.
+- Added animated project-title words, smooth native-details transitions, clickable disclosure controls, and thin neutral scrollbars across inspector surfaces.
+- Reduced Part 3 store-grid stalls by skipping unnecessary large HTML serialization for data-only Popular Products, Best Sellers, and Visual Shop Banner captures while retaining reusable Store Home HTML evidence.
+- Added a four-stage bulk report workflow for category selection, multi-project selection, DOCX/PDF/HTML output selection, custom report sections, and category-named ZIP delivery.
+- Added Playwright coverage for the complete bulk-report configuration workflow.
+
 ## Unreleased - 2026-07-16
 
 - Fixed Indonesian Rupiah parsing so complete grouped prices such as `Rp13.200.000` are preserved and product price ranges use the first displayed price.

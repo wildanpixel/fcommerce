@@ -98,3 +98,23 @@ test("keeps New Research inputs responsive after deleting a project", async ({ p
   await keywordInput.fill("responsive after deletion");
   await expect(keywordInput).toHaveValue("responsive after deletion");
 });
+
+test("exposes the category-based bulk report workflow", async ({ page }) => {
+  const projectName = `bulk-report-${Date.now()}`;
+  await page.goto(e2eApiOverride);
+  await page.getByRole("button", { name: /Create Analysis/ }).click();
+  await page.getByLabel("Desired Keyword").fill(projectName);
+  await page.getByLabel("Product Category").fill("bulk report category");
+  await page.getByRole("button", { name: /Proceed to Browser/ }).click();
+  await expect(page.getByText("Platform Browser")).toBeVisible();
+  await page.getByRole("button", { name: "Reports" }).click();
+  await expect(page.getByText("Bulk Report Generation")).toBeVisible();
+
+  await page.locator("select").first().selectOption("bulk report category");
+  await page.getByRole("button", { name: /Next/ }).click();
+  await page.getByRole("button", { name: "Select all" }).click();
+  await page.getByRole("button", { name: /Next/ }).click();
+  await expect(page.getByRole("button", { name: "PDF", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /Next/ }).click();
+  await expect(page.getByRole("button", { name: "Generate ZIP" })).toBeVisible();
+});

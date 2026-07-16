@@ -1,8 +1,9 @@
 import http from "node:http";
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { extname, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
+import JSZip from "jszip";
 import sharp from "sharp";
 import { z } from "zod";
 import { DEFAULT_REPORT_SECTIONS } from "../shared/reportSections.js";
@@ -13,6 +14,8 @@ import type {
   AndroidInstallPayload,
   AndroidStartPayload,
   AndroidVisibleTextResult,
+  BulkReportGenerationPayload,
+  BulkReportGenerationResult,
   CollectionState,
   CreateJobPayload,
   ExtractedPageProduct,
@@ -138,6 +141,15 @@ const reportSchema = z.object({
       requiredEvidence: z.array(z.string())
     })
   )
+});
+
+const bulkReportSchema = z.object({
+  category: z.string().min(1),
+  projectIds: z.array(z.string().uuid()).min(1),
+  formats: z.array(z.enum(["DOCX", "PDF", "HTML"])).min(1),
+  templateId: z.string().min(2),
+  theme: z.enum(["light", "dark"]).optional(),
+  sections: reportSchema.shape.sections
 });
 
 const manualEvidenceKindSchema = z.enum([
@@ -767,6 +779,57 @@ export function createApp(): Express {
   app.post("/api/reports", asyncRoute(async (request, response) => {
     const input = reportSchema.parse(request.body) satisfies ReportGenerationPayload;
     response.status(201).json(await dependencies.reports.generate(input));
+  }));
+
+  app.post("/api/reports/bulk", asyncRoute(async (request, response) => {
+    const input = bulkReportSchema.parse(request.body) satisfies BulkReportGenerationPayload;
+    const archive = new JSZip();
+    const formats = new Set(input.formats);
+    let archiveDirectory: string | undefined;
+    let fileCount = 0;
+
+    for (const projectId of input.projectIds) {
+      const data = await dependencies.reportDataLoader.load(projectId);
+      const generated = await dependencies.reports.generate({
+        projectId,
+        templateId: input.templateId,
+        theme: input.theme,
+        sections: input.sections
+      });
+      archiveDirectory ??= dirname(generated.htmlPath);
+      const fileStem = `${slug(data.project.name)}-${projectId.slice(0, 8)}`;
+
+      if (formats.has("HTML")) {
+        archive.file(`${fileStem}.html`, await readFile(generated.htmlPath));
+        fileCount += 1;
+      }
+      if (formats.has("PDF")) {
+        archive.file(`${fileStem}.pdf`, await readFile(generated.pdfPath));
+        fileCount += 1;
+      }
+      if (formats.has("DOCX")) {
+        const docx = await dependencies.docxReports.render(data, {
+          projectId,
+          templateId: input.templateId,
+          sections: input.sections,
+          theme: input.theme
+        });
+        archive.file(`${fileStem}.docx`, docx);
+        fileCount += 1;
+      }
+    }
+
+    if (!archiveDirectory) {
+      throw new Error("No report output directory was created.");
+    }
+    const zipPath = join(archiveDirectory, `${slug(input.category)}.zip`);
+    await writeFile(zipPath, await archive.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
+    response.status(201).json({
+      ok: true,
+      zipPath,
+      reportCount: input.projectIds.length,
+      fileCount
+    } satisfies BulkReportGenerationResult);
   }));
 
   app.get("/api/reports", asyncRoute(async (_request, response) => {
