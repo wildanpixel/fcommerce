@@ -108,6 +108,7 @@ test("exposes the category-based bulk report workflow", async ({ page }) => {
   await page.getByRole("button", { name: /Proceed to Browser/ }).click();
   await expect(page.getByText("Platform Browser")).toBeVisible();
   await page.getByRole("button", { name: "Reports" }).click();
+  await page.getByRole("button", { name: "Bulk Report", exact: true }).click();
   await expect(page.getByText("Bulk Report Generation")).toBeVisible();
 
   await page.locator("select").first().selectOption("bulk report category");

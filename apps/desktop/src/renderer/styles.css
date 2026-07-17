@@ -828,6 +828,51 @@ webview {
   gap: 24px;
 }
 
+.mio-project-sticky-header {
+  position: sticky;
+  top: 8px;
+  z-index: 40;
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border: 1px solid rgba(100, 116, 139, 0.16);
+  border-radius: 20px;
+  background: rgba(248, 250, 252, 0.9);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
+  backdrop-filter: blur(20px);
+}
+
+.mio-dark .mio-project-sticky-header {
+  border-color: rgba(154, 170, 195, 0.14);
+  background: rgba(31, 36, 44, 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.mio-project-sticky-header .mio-project-title {
+  max-width: none;
+  overflow: hidden;
+  font-size: 21px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mio-project-sticky-header .mio-project-subtitle {
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mio-project-sticky-header .mio-project-hero-actions {
+  flex-shrink: 0;
+  gap: 8px;
+  padding-top: 0;
+}
+
 .mio-project-title {
   max-width: 980px;
   overflow-wrap: anywhere;
@@ -1291,7 +1336,7 @@ button:active,
 .mio-capture-status-pill,
 details > div,
 details > section {
-  transition: opacity 180ms ease, transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
+  transition: opacity 1s ease-in-out, transform 1s ease-in-out, background-color 1s ease-in-out, border-color 1s ease-in-out;
 }
 
 .mio-capture-status-pill {
@@ -1358,10 +1403,10 @@ details > section {
 
 details > summary {
   transition:
-    background 220ms ease,
-    color 220ms ease,
-    border-color 220ms ease,
-    transform 240ms cubic-bezier(0.2, 0.95, 0.2, 1.12);
+    background 1s ease-in-out,
+    color 1s ease-in-out,
+    border-color 1s ease-in-out,
+    transform 1s ease-in-out;
 }
 
 details[open] > summary {
@@ -1369,7 +1414,7 @@ details[open] > summary {
 }
 
 details[open] > :not(summary) {
-  animation: mio-collapse-pop 240ms cubic-bezier(0.2, 0.95, 0.2, 1.08);
+  animation: mio-collapse-pop 1s ease-in-out;
 }
 
 @supports selector(details::details-content) {
@@ -1382,8 +1427,9 @@ details[open] > :not(summary) {
     opacity: 0;
     overflow: clip;
     transition:
-      block-size 260ms cubic-bezier(0.22, 1, 0.36, 1),
-      opacity 180ms ease;
+      block-size 1s ease-in-out,
+      opacity 1s ease-in-out,
+      content-visibility 1s allow-discrete;
   }
 
   details[open]::details-content {
@@ -1640,6 +1686,11 @@ button[aria-label="Next step"] {
   isolation: isolate;
 }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(107, 114, 128, 0.62) transparent;
+}
+
 .mio-report-preview-modal {
   max-height: calc(100dvh - 32px);
 }
@@ -1666,4 +1717,56 @@ button[aria-label="Next step"] {
 .mio-dark .mio-report-preview-header {
   background: rgba(31, 36, 44, 0.96) !important;
   border-color: rgba(154, 170, 195, 0.12) !important;
+}
+
+.mio-delete-dialog {
+  color: #111827;
+}
+
+.mio-delete-dialog-copy {
+  color: #4b5563;
+}
+
+.mio-delete-dialog-copy strong {
+  color: #111827;
+}
+
+.mio-dark .mio-delete-dialog {
+  color: #f8fafc;
+}
+
+.mio-dark .mio-delete-dialog-copy {
+  color: #b8c3d4;
+}
+
+.mio-dark .mio-delete-dialog-copy strong {
+  color: #f8fafc;
+}
+
+.mio-light .mio-screenshot-dialog {
+  border-color: rgba(148, 163, 184, 0.34);
+  background: rgba(248, 250, 252, 0.98);
+  color: #111827;
+}
+
+.mio-light .mio-screenshot-title {
+  color: #111827;
+}
+
+.mio-light .mio-screenshot-copy {
+  color: #64748b;
+}
+
+.mio-dark .mio-screenshot-dialog {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(17, 24, 39, 0.98);
+  color: #f8fafc;
+}
+
+.mio-dark .mio-screenshot-title {
+  color: #f8fafc;
+}
+
+.mio-dark .mio-screenshot-copy {
+  color: #94a3b8;
 }

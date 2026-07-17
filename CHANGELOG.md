@@ -4,6 +4,10 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-17
 
+- Made portaled dialogs inherit the active app theme, added a compact sticky Project Inspector header, and kept the inspector outline collapsed until the user opens or navigates to a report section.
+- Hardened review cleanup so samples stop before seller responses and `Report Abuse`, while missing review attachments are stored as explicit not-found outcomes instead of customer avatars.
+- Changed Evaluation Phase to remain unscored until the user explicitly runs AI scoring, and reused Product Detail store-home HTML/assets when starting Key Store collection.
+- Added cumulative Product Detail media notifications, three-second evidence outcome notices, and a bounded Best Seller collection timeout so guided collection remains responsive.
 - Fixed the post-deletion focus regression so New Research inputs remain keyboard-responsive after a project is removed, with a dedicated Playwright regression test.
 - Added explicit collected, pending, and not-found evidence states throughout Product Detail collection; missing review media no longer falls back to customer profile images.
 - Cleaned review text by excluding seller-response content and added delayed success/not-found collection notifications beneath the compact guided controller.
@@ -13,6 +17,7 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 - Reduced Part 3 store-grid stalls by skipping unnecessary large HTML serialization for data-only Popular Products, Best Sellers, and Visual Shop Banner captures while retaining reusable Store Home HTML evidence.
 - Added a four-stage bulk report workflow for category selection, multi-project selection, DOCX/PDF/HTML output selection, custom report sections, and category-named ZIP delivery.
 - Added Playwright coverage for the complete bulk-report configuration workflow.
+- Revalidated the clean Windows installer and portable packages against the production SQLite database; packaged Prisma queries completed successfully.
 
 ## Unreleased - 2026-07-16
 

@@ -1022,7 +1022,7 @@ function toAnalysisInput(data: ReportData): AnalysisInput {
     reviews: data.reviews.map((review) => ({
       sentiment: review.sentiment === "NEGATIVE" ? "NEGATIVE" : review.sentiment === "POSITIVE" ? "POSITIVE" : "NEUTRAL",
       rating: review.rating ?? undefined,
-      comment: review.comment,
+      comment: sanitizeShopeeReviewComment(review.comment),
       variation: review.variation ?? undefined,
       reviewDate: review.reviewDate ?? undefined,
       mediaUrls: [],
@@ -1333,7 +1333,7 @@ async function persistCapturedPageData(
       const mergedReviewMediaImages = mergeUnique([
         ...extractStringArray(currentRaw.reviewMediaImages),
         ...enrichment.reviewMediaImages
-      ]).slice(0, 40);
+      ]).filter(isReviewMediaUrl).slice(0, 40);
       const mergedReviewMediaVideos = mergeUnique([
         ...extractStringArray(currentRaw.reviewMediaVideos),
         ...enrichment.reviewMediaVideos
@@ -1808,7 +1808,7 @@ function extractProductEnrichment(
     descriptionImages: collectDescriptionPromotions ? structured?.descriptionImages ?? [] : [],
     images,
     videos,
-    reviewMediaImages: collectReviewMedia ? structured?.reviewMediaImages ?? [] : [],
+    reviewMediaImages: collectReviewMedia ? (structured?.reviewMediaImages ?? []).filter(isReviewMediaUrl) : [],
     reviewMediaVideos: collectReviewMedia ? structured?.reviewMediaVideos ?? [] : [],
     reviews,
     storeName: resolvedStoreName,
@@ -1943,7 +1943,7 @@ function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): Re
   return {
     sentiment: input.type === "Negative Reviews" ? "NEGATIVE" : "POSITIVE",
     rating: input.rating,
-    comment: normalizeEvidenceText(input.comment),
+    comment: sanitizeShopeeReviewComment(input.comment),
     variation: input.variation ? cleanText(input.variation) : undefined,
     reviewDate: input.reviewDate ? cleanText(input.reviewDate) : undefined,
     mediaUrls: [],
@@ -1956,12 +1956,33 @@ function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): Re
 }
 
 function isStructuredShopeeReviewComment(comment: string): boolean {
-  const value = cleanText(comment);
+  const value = cleanText(sanitizeShopeeReviewComment(comment));
   return value.length >= 20 &&
     value.length <= 1000 &&
     /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2})?\b/u.test(value) &&
     !/^https?:\/\//iu.test(value) &&
     !/(product ratings|all\s*\(|semua\s*\(|comments?\s*\(|with media|dengan media|repeat purchase|shop vouchers|bundle deals|barcode|bpom sesuai|dermatologically tested|add to cart|buy now)/iu.test(value);
+}
+
+function sanitizeShopeeReviewComment(comment: string): string {
+  const output: string[] = [];
+  for (const rawLine of String(comment ?? "").replace(/\r\n?/gu, "\n").split("\n")) {
+    const line = cleanText(rawLine);
+    if (!line) continue;
+    const cutoffIndex = line.search(/(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual|Report Abuse|Laporkan Penyalahgunaan)\b/iu);
+    const content = cleanText(cutoffIndex >= 0 ? line.slice(0, cutoffIndex) : line);
+    if (content && !/^(?:Helpful|Membantu|Like|Share)\s*[\d.,kkrb]*$/iu.test(content)) {
+      output.push(content);
+    }
+    if (cutoffIndex >= 0) break;
+  }
+  return output.join("\n").trim().slice(0, 900);
+}
+
+function isReviewMediaUrl(value: string): boolean {
+  const normalized = String(value ?? "").trim();
+  return /^(?:https?:|file:|data:image\/)/iu.test(normalized) &&
+    !/(?:default[-_]?avatar|avatar|profile|user[-_]?avatar|\/icons?\/|sprite)/iu.test(normalized);
 }
 
 function metadataFlag(metadata: Record<string, unknown> | undefined, key: string): boolean {

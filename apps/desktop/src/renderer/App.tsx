@@ -277,19 +277,15 @@ function applyWebviewShadowFrameLayout(webview: WebviewElement | null | undefine
 
 function restoreRendererFocus(): void {
   window.requestAnimationFrame(() => {
-    if (document.activeElement instanceof HTMLElement) {
+    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('[role="dialog"]')) {
       document.activeElement.blur();
     }
     window.focus();
-    const bodyHadTabIndex = document.body.hasAttribute("tabindex");
-    if (!bodyHadTabIndex) {
-      document.body.tabIndex = -1;
-    }
-    document.body.focus({ preventScroll: true });
-    if (!bodyHadTabIndex) {
-      document.body.removeAttribute("tabindex");
-    }
   });
+}
+
+function appPortalRoot(): Element {
+  return document.querySelector(".mio-app") ?? document.body;
 }
 
 export default function App() {
@@ -644,6 +640,13 @@ function AnalysisSetupForm({
   onSubmit: (event: FormEvent) => void;
 }) {
   const canProceed = form.keyword.trim().length >= 2 && form.productCategory.trim().length >= 2 && !isSaving;
+  const keywordInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    restoreRendererFocus();
+    const focusTimer = window.setTimeout(() => keywordInputRef.current?.focus({ preventScroll: true }), 0);
+    return () => window.clearTimeout(focusTimer);
+  }, []);
 
   return (
     <section className="mx-auto max-w-4xl">
@@ -651,6 +654,8 @@ function AnalysisSetupForm({
         <form className="grid grid-cols-2 gap-5" onSubmit={onSubmit}>
           <Field label="Desired Keyword">
             <input
+              ref={keywordInputRef}
+              data-research-keyword-input
               aria-label="Desired Keyword"
               className="input"
               value={form.keyword}
@@ -1289,6 +1294,7 @@ function GuidedBrowserCollector({
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
       ]);
+      const refreshedDetail = queryClient.getQueryData<ProjectDetailPayload>(["project-detail", project.id]);
       const productDetailSubAction = typeof payload.metadata?.productDetailSubAction === "string" ? payload.metadata.productDetailSubAction : undefined;
       const progressKey = stepProgressKey(step, productDetailSubAction);
       const nextCollectedSteps = { ...collectedSteps, [progressKey]: result.assetPath };
@@ -1313,7 +1319,13 @@ function GuidedBrowserCollector({
         setCaptureStatus({ message: `${missingLabel} not found`, state: "failed", progress: 100 });
         appendLog(setActivityLog, `${missingLabel} was saved as completed, but no matching data was found on the current page.`);
       } else {
-        setCaptureStatus({ message: "Evidence saved", state: "done", progress: 100 });
+        setCaptureStatus({
+          message: productDetailSubAction && productDetailSubActionLabel
+            ? productDetailCollectionOutcomeMessage(productDetailSubAction, productDetailSubActionLabel, refreshedDetail, step)
+            : "Evidence saved",
+          state: "done",
+          progress: 100
+        });
         if (step.stage === "PRODUCT_DETAILS") {
           appendLog(setActivityLog, "Key Product ranking refreshed with the latest PDP metrics.");
         }
@@ -1688,22 +1700,63 @@ function GuidedBrowserCollector({
     completeCurrentStage(nextCollectedSteps);
   }
 
-  function startKeyStoreCollection() {
+  async function startKeyStoreCollection() {
+    if (!projectDetail.data?.analyses.length) {
+      setCaptureStatus({ message: "Run AI Scoring before Key Store collection", state: "failed", progress: 100 });
+      return;
+    }
     const processStep = allSteps.find((step) => step.id === "evaluation-phase-scoring");
-    const nextCollectedSteps = processStep
+    const nextCollectedSteps: Record<string, string> = processStep
       ? { ...collectedSteps, [processStep.id]: "processed:evaluation-phase-scoring" }
       : collectedSteps;
+    const reusableAsset = reusableKeyStoreHomepageAsset(projectDetail.data);
+    if (reusableAsset) {
+      const homepageStep = steps.find((step) => step.id === "store-homepage");
+      if (homepageStep) {
+        nextCollectedSteps[homepageStep.id] = reusableAsset.path;
+      }
+      for (const reusableStepId of ["store-products", "store-visual-style"]) {
+        const reusableStep = steps.find((step) => step.id === reusableStepId);
+        if (!reusableStep) continue;
+        try {
+          setCaptureStatus({ message: `Reusing saved ${reusableStep.label}`, state: "working", progress: 35 });
+          const payload = await buildManualEvidencePayload(reusableStep);
+          const result = await apiClient.saveManualEvidence(payload);
+          const reuseFoundData = reusableStep.id === "store-products"
+            ? (result.extractedProductCount ?? 0) > 0
+            : (result.storeBannerCount ?? 0) > 0;
+          if (reuseFoundData) {
+            nextCollectedSteps[reusableStep.id] = result.assetPath;
+          } else {
+            appendLog(setActivityLog, `${reusableStep.label} was not present in the saved store page. Manual collection remains available.`);
+          }
+        } catch (error) {
+          appendLog(setActivityLog, error instanceof Error ? error.message : `Could not reuse ${reusableStep.label}.`);
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] });
+    }
     setCollectedSteps(nextCollectedSteps);
     setReviewingEvaluation(false);
-    const nextIndex = Math.max(0, steps.findIndex((step) => step.id !== "evaluation-phase-scoring"));
+    const keyStoreStepOrder = ["store-homepage", "store-products", "store-best-seller", "store-visual-style", "tiktok-brand-search"];
+    const nextStepId = keyStoreStepOrder.find((stepId) => !nextCollectedSteps[stepId]) ?? "tiktok-brand-search";
+    const resolvedNextIndex = steps.findIndex((step) => step.id === nextStepId);
+    const nextIndex = resolvedNextIndex >= 0 ? resolvedNextIndex : Math.max(0, steps.findIndex((step) => step.id === "store-homepage"));
     setActiveStepIndex(nextIndex);
+    if (steps[nextIndex]?.targetUrl) {
+      navigateTo(steps[nextIndex].targetUrl);
+    }
     persistCollectionState({
       stepAssetPaths: nextCollectedSteps,
       completedStepIds: Object.keys(nextCollectedSteps),
       progressPercent: collectionProgress(allSteps, nextCollectedSteps),
       currentStepId: steps[nextIndex]?.id ?? processStep?.id
     });
-    appendLog(setActivityLog, "Evaluation Phase marked processed. Continue with Key Store store-page evidence.");
+    const nextStepLabel = steps[nextIndex]?.label ?? "Key Store evidence";
+    setCaptureStatus({ message: reusableAsset ? `Saved store evidence reused. Continue with ${nextStepLabel}` : `Continue with ${nextStepLabel}`, state: "done", progress: 100 });
+    appendLog(setActivityLog, reusableAsset
+      ? `Saved Store Home Page evidence was reused. Continue with the first missing Key Store step: ${nextStepLabel}.`
+      : `Evaluation Phase marked processed. Continue with ${nextStepLabel}.`);
   }
 
   function runStagePrimaryAction() {
@@ -1790,10 +1843,13 @@ function GuidedBrowserCollector({
           : await captureFullPageScreenshot(webview);
     const sourceUrl = reusableStoreAsset?.sourceUrl ?? webview.getURL?.() ?? currentUrl;
     setCaptureStatus({
-      message: reusableStoreAsset ? "Reusing saved store HTML" : "Downloading HTML from #main",
+      message: reusableStoreAsset
+        ? "Reusing saved store HTML"
+        : dataOnlyEvidence ? "Reading rendered product grid" : "Downloading HTML from #main",
       state: "working",
       progress: 45
     });
+    const extractionTimeoutMs = step.id === "store-best-seller" ? 12_000 : 20_000;
     const snapshot = reusableStoreAsset
       ? {
           html: "",
@@ -1816,7 +1872,11 @@ function GuidedBrowserCollector({
           },
           storeDecorationImages: []
         }
-      : await extractRenderedPageSnapshot(webview, targetSelector, { includeHtml: !dataOnlyEvidence })
+      : await withTimeout(
+          extractRenderedPageSnapshot(webview, targetSelector, { includeHtml: !dataOnlyEvidence }),
+          extractionTimeoutMs,
+          "The rendered page took too long to read. Scroll through the product grid and try Collect Data again."
+        )
       .then((value) => {
         setCaptureStatus({
           message: value.html ? "HTML download done" : "HTML download failed",
@@ -2023,7 +2083,7 @@ function GuidedBrowserCollector({
               initial={{ opacity: 0, y: -8, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.98 }}
-              transition={{ duration: 0.16 }}
+              transition={{ duration: 1, ease: "easeInOut" }}
             >
               <div className="mb-1 flex items-center gap-2 font-semibold text-white">
                 <AlertTriangle size={16} className="text-signal-amber" />
@@ -2033,7 +2093,15 @@ function GuidedBrowserCollector({
             </motion.div>
           )}
         </AnimatePresence>
-        <BrowserCaptureStatusPill status={{ ...captureStatus, progress: displayedCaptureProgress }} onAction={() => void downloadCurrentHtml()} />
+        <AnimatePresence>
+          {captureStatus.state !== "idle" && (
+            <BrowserCaptureStatusPill
+              key={`${captureStatus.state}-${captureStatus.message}`}
+              status={{ ...captureStatus, progress: displayedCaptureProgress }}
+              onAction={() => void downloadCurrentHtml()}
+            />
+          )}
+        </AnimatePresence>
         <FloatingStepController
           step={controllerStep}
           activeSubActionId={activeSubAction?.id}
@@ -2044,6 +2112,7 @@ function GuidedBrowserCollector({
           captured={isCurrentCollectorTargetSaved(activeStep, activeSubAction?.id, collectedSteps)}
           subActionCounts={activeSubActionCounts}
           subActionStates={activeSubActionStates}
+          outcomeMessage={captureStatus.message}
           saving={saveEvidence.isPending || Boolean(preparingEvidenceKey)}
           collapseSignal={browserInteractionToken}
           onOpenTarget={(subActionId) => {
@@ -2196,7 +2265,7 @@ function GuidedBrowserCollector({
                   ].join(" ")}
                   onClick={() => {
                     setActiveStepIndex(index);
-                    if (step.stage === "PRODUCT_DETAILS" && step.targetUrl) {
+                    if (step.targetUrl) {
                       navigateTo(step.targetUrl);
                     }
                   }}
@@ -2204,7 +2273,7 @@ function GuidedBrowserCollector({
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
                       setActiveStepIndex(index);
-                      if (step.stage === "PRODUCT_DETAILS" && step.targetUrl) {
+                      if (step.targetUrl) {
                         navigateTo(step.targetUrl);
                       }
                     }
@@ -2265,7 +2334,7 @@ function GuidedBrowserCollector({
     </section>
   );
 
-  const screenshotReviewPortalRoot = typeof document !== "undefined" ? document.body : null;
+  const screenshotReviewPortalRoot = typeof document !== "undefined" ? appPortalRoot() : null;
   const screenshotReviewPortal = pendingCapture && screenshotReviewPortalRoot
     ? createPortal(
         <ScreenshotReviewModal
@@ -2470,6 +2539,27 @@ function collectionSubActionCounts(step: CollectionStep, detail?: ProjectDetailP
   };
 }
 
+function productDetailCollectionOutcomeMessage(
+  subActionId: string,
+  fallbackLabel: string,
+  detail: ProjectDetailPayload | undefined,
+  step: CollectionStep
+): string {
+  const product = step.ownerType === "PRODUCT" && step.ownerId
+    ? detail?.products.find((item) => item.id === step.ownerId)
+    : undefined;
+  if (!product) {
+    return `${fallbackLabel} collected`;
+  }
+  if (subActionId === "slides") {
+    return `Media: ${product.images.length} images & ${product.videos.length} video${product.videos.length === 1 ? "" : "s"} collected`;
+  }
+  if (subActionId === "media-in-user") {
+    return `Review media: ${product.reviewMediaImages.length} images & ${product.reviewMediaVideos.length} video${product.reviewMediaVideos.length === 1 ? "" : "s"} collected`;
+  }
+  return `${fallbackLabel} collected`;
+}
+
 function productDetailSubActionEvidenceCount(payload: ManualEvidencePayload, subActionId: string): number {
   const structured = isRecord(payload.metadata?.structuredProductDetail)
     ? payload.metadata.structuredProductDetail
@@ -2531,20 +2621,19 @@ function EvaluationCollectionPanel({
         Review Potential Stores without leaving the collection workspace. Run AI scoring after Product Detail Qualified evidence is synced, then start Key Store collection for the top-ranked store.
       </div>
       {detail ? (
-        <>
-          <EvaluationCards detail={detail} onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
-          <AnalysisSummary detail={detail} />
-        </>
+        <EvaluationCards detail={detail} onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
       ) : (
         <EmptyState label="Loading project evidence..." />
       )}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-5 text-ink-500">
-          {candidates.length > 0
+          {candidates.length > 0 && detail?.analyses.length
             ? `${candidates[0].name} is currently ranked as Key Store from ${candidates.length} Potential Store candidates.`
+            : candidates.length > 0
+              ? `${candidates.length} Potential Store candidates are ready for AI scoring.`
             : "No Potential Store is available yet. Capture PDP store names or store links first."}
         </div>
-        <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartKeyStoreCollection} disabled={candidates.length === 0}>
+        <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartKeyStoreCollection} disabled={candidates.length === 0 || !detail?.analyses.length}>
           <Store size={16} />
           Start Key Store Collection
         </button>
@@ -2564,7 +2653,13 @@ function BrowserCaptureStatusPill({
     return null;
   }
   return (
-    <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2">
+    <motion.div
+      className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2"
+      initial={{ opacity: 0, y: -12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -12 }}
+      transition={{ duration: 1, ease: "easeInOut" }}
+    >
       <div
         className={[
           "mio-capture-status-pill pointer-events-auto flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold shadow-glow backdrop-blur-2xl",
@@ -2583,7 +2678,7 @@ function BrowserCaptureStatusPill({
           </button>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -2597,6 +2692,7 @@ function FloatingStepController({
   captured,
   subActionCounts,
   subActionStates,
+  outcomeMessage,
   saving,
   collapseSignal,
   onOpenTarget,
@@ -2616,6 +2712,7 @@ function FloatingStepController({
   captured: boolean;
   subActionCounts?: Record<string, number>;
   subActionStates?: Record<string, "pending" | "collected" | "not-found">;
+  outcomeMessage?: string;
   saving: boolean;
   collapseSignal: number;
   onOpenTarget: (subActionId?: string) => void;
@@ -2628,7 +2725,7 @@ function FloatingStepController({
 }) {
   const [compact, setCompact] = useState(true);
   const [outcomeNotice, setOutcomeNotice] = useState<{ label: string; state: "collected" | "not-found" } | null>(null);
-  const outcomeRef = useRef<{ id?: string; state: "pending" | "collected" | "not-found" }>({ state: "pending" });
+  const outcomeRef = useRef<{ signature?: string }>({});
   const activeSubAction = step.subActions?.find((action) => action.id === activeSubActionId) ?? step.subActions?.[0];
   const activeSubActionCount = activeSubAction ? subActionCounts?.[activeSubAction.id] ?? 0 : 0;
   const activeSubActionMaxed = activeSubAction?.id === "slides" && activeSubActionCount >= 9;
@@ -2652,22 +2749,21 @@ function FloatingStepController({
     }
   }, [collapseSignal]);
   useEffect(() => {
-    const current = { id: activeSubAction?.id, state: activeSubActionState };
-    const previous = outcomeRef.current;
-    outcomeRef.current = current;
-    if (!current.id || previous.id !== current.id || previous.state !== "pending" || current.state === "pending") {
+    const signature = `${activeSubAction?.id ?? ""}:${activeSubActionState}:${outcomeMessage ?? ""}`;
+    if (!activeSubAction?.id || activeSubActionState === "pending" || outcomeRef.current.signature === signature) {
       return;
     }
-    const outcomeState = current.state;
+    outcomeRef.current = { signature };
+    const outcomeState = activeSubActionState;
     const showTimer = window.setTimeout(() => {
-      setOutcomeNotice({ label: activeSubAction?.label ?? step.label, state: outcomeState });
+      setOutcomeNotice({ label: outcomeMessage || activeSubAction?.label || step.label, state: outcomeState });
     }, 500);
-    const hideTimer = window.setTimeout(() => setOutcomeNotice(null), 2_500);
+    const hideTimer = window.setTimeout(() => setOutcomeNotice(null), 3_500);
     return () => {
       window.clearTimeout(showTimer);
       window.clearTimeout(hideTimer);
     };
-  }, [activeSubAction?.id, activeSubAction?.label, activeSubActionState, step.label]);
+  }, [activeSubAction?.id, activeSubAction?.label, activeSubActionState, outcomeMessage, step.label]);
 
   function advanceCollector() {
     onNext();
@@ -2680,7 +2776,7 @@ function FloatingStepController({
           className="mio-floating-collector mio-floating-collector-compact absolute left-4 top-4 z-20 max-w-[430px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
           initial={{ opacity: 0, y: -10, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.18 }}
+          transition={{ duration: 1, ease: "easeInOut" }}
         >
           <div className="flex items-center gap-2">
           <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={() => setCompact(false)} aria-label="Expand collector">
@@ -2711,14 +2807,14 @@ function FloatingStepController({
           <button
             className="primary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
             type="button"
-            disabled={saving || !step.ready || activeSubActionMaxed || (activeSubAction?.id !== "slides" && activeSubActionFinished)}
+            disabled={saving || !step.ready || (!usesSubActionCollectButtons && captured) || activeSubActionMaxed || (activeSubAction?.id !== "slides" && activeSubActionFinished)}
             onClick={() => onCollect(activeSubAction?.id)}
             aria-label={step.mode === "PROCESS" ? "Process step" : "Collect step"}
             title={step.mode === "PROCESS" ? "Process step" : "Collect step"}
           >
             {saving ? <span className="mio-spinner" /> : step.mode === "PROCESS" ? <Table2 size={13} /> : <ClipboardCheck size={13} />}
           </button>
-          {usesSubActionCollectButtons && activeSubActionFinished && (
+          {((usesSubActionCollectButtons && activeSubActionFinished) || (!usesSubActionCollectButtons && captured && step.mode !== "PROCESS")) && (
             <button
               className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
               type="button"
@@ -2735,7 +2831,7 @@ function FloatingStepController({
           {outcomeNotice && (
             <motion.div
               className={[
-                "mio-collector-outcome absolute left-6 top-[72px] z-20 flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold shadow-glow backdrop-blur-xl",
+                "mio-collector-outcome absolute left-6 top-[80px] z-20 flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold shadow-glow backdrop-blur-xl",
                 outcomeNotice.state === "collected"
                   ? "border-signal-green/30 bg-signal-green/15 text-signal-green"
                   : "border-signal-rose/35 bg-signal-rose/15 text-signal-rose"
@@ -2743,7 +2839,7 @@ function FloatingStepController({
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 1, ease: "easeInOut" }}
             >
               {outcomeNotice.state === "collected" ? <CheckCircle2 size={14} /> : <X size={14} />}
               <span>{outcomeNotice.label}</span>
@@ -2759,7 +2855,7 @@ function FloatingStepController({
       className="mio-floating-collector mio-floating-collector-expanded absolute left-4 top-4 z-20 flex w-[320px] flex-col rounded-[18px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl"
       initial={{ opacity: 0, y: -10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.18 }}
+      transition={{ duration: 1, ease: "easeInOut" }}
     >
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -2962,6 +3058,22 @@ function isDataOnlyEvidenceStep(step: CollectionStep, action?: CollectionSubActi
   return ["STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER"].includes(step.kind);
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: number | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+}
+
 function scopeProductDetailSnapshot(
   snapshot: RenderedProductDetailSnapshot,
   subActionId?: string
@@ -3138,11 +3250,11 @@ function ScreenshotReviewModal({
 
   return (
     <div className="mio-screenshot-modal fixed inset-0 z-[200] grid place-items-center overflow-hidden bg-black/55 p-4 backdrop-blur-sm">
-      <div className="mio-panel flex h-[calc(100vh-32px)] w-full max-w-[calc(100vw-32px)] flex-col rounded-[18px] border border-white/12 bg-ink-900/95 p-5 shadow-glow">
+      <div className="mio-panel mio-screenshot-dialog flex h-[calc(100vh-32px)] w-full max-w-[calc(100vw-32px)] flex-col rounded-[18px] border p-5 shadow-glow">
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
-            <div className="text-sm font-semibold text-white">Review Screenshot</div>
-            <div className="mt-1 text-xs text-ink-400">{capture.stepLabel}</div>
+            <div className="mio-screenshot-title text-sm font-semibold">Review Screenshot</div>
+            <div className="mio-screenshot-copy mt-1 text-xs">{capture.stepLabel}</div>
           </div>
           <div className="flex items-center gap-2">
             <button className="secondary-button h-9 w-9 px-0" type="button" onClick={() => applyPreviewZoom(previewZoom - 0.2)} aria-label="Zoom screenshot out" title="Zoom out">
@@ -3197,7 +3309,7 @@ function ScreenshotReviewModal({
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-ink-400">
+          <div className="mio-screenshot-copy text-xs">
             Scroll to move through the preview. Use zoom buttons or Ctrl/Command + wheel to zoom, then drag to pan. Use Select Area before dragging a crop box.
           </div>
           <div className="flex items-center gap-2">
@@ -3493,6 +3605,8 @@ function ProjectDeleteDialog({
   onCancel: () => void;
   onDelete: () => void;
 }) {
+  useEffect(() => () => restoreRendererFocus(), []);
+
   if (!project) {
     return null;
   }
@@ -3502,20 +3616,23 @@ function ProjectDeleteDialog({
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-5 backdrop-blur-sm"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 1, ease: "easeInOut" }}
       onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
     >
       <motion.div
-        className="mio-panel w-full max-w-md rounded-[28px] border border-white/10 bg-ink-900 p-6 shadow-glow"
+        className="mio-panel mio-delete-dialog w-full max-w-md rounded-[28px] border p-6 shadow-glow"
         role="dialog"
         aria-modal="true"
         aria-labelledby="delete-project-dialog-title"
         initial={{ opacity: 0, y: 12, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ type: "spring", stiffness: 360, damping: 30 }}
+        exit={{ opacity: 0, y: 12, scale: 0.97 }}
+        transition={{ duration: 1, ease: "easeInOut" }}
       >
-            <h2 id="delete-project-dialog-title" className="text-lg font-semibold text-white">Delete keyword project?</h2>
-            <p className="mt-2 text-sm leading-6 text-ink-400">
-              This permanently removes the project, evidence, reports, and local files. Type <strong className="text-white">{project.name}</strong> to confirm.
+            <h2 id="delete-project-dialog-title" className="text-lg font-semibold">Delete keyword project?</h2>
+            <p className="mio-delete-dialog-copy mt-2 text-sm leading-6">
+              This permanently removes the project, evidence, reports, and local files. Type <strong>{project.name}</strong> to confirm.
             </p>
             <input
               autoFocus
@@ -3539,7 +3656,7 @@ function ProjectDeleteDialog({
             </div>
       </motion.div>
     </motion.div>,
-    document.body
+    appPortalRoot()
   );
 }
 
@@ -3570,14 +3687,13 @@ function ProjectInspectionPanel({
   });
   return (
     <section className="mio-project-inspector-page space-y-6">
-      <div className="mio-project-hero">
-        <div className="min-w-0">
+      <header className="mio-project-sticky-header">
+        <button className="secondary-button mio-round-icon-button h-9 w-9 shrink-0 px-0" type="button" onClick={onBack} aria-label="Back to projects" title="Back to projects">
+          <ChevronLeft size={16} />
+        </button>
+        <div className="min-w-0 flex-1">
           <AnimatedProjectTitle title={detail.project.name} />
           <div className="mio-project-subtitle">{marketplaceLabel(detail.project.marketplace)} | {formatDateTime(detail.project.createdAt)}</div>
-          <button className="secondary-button mt-5 h-10 w-auto rounded-full px-5" type="button" onClick={onBack}>
-            <ChevronLeft size={16} />
-            Back to Projects
-          </button>
         </div>
         <div className="mio-project-hero-actions">
           <button className="primary-button h-10 w-auto rounded-full px-6" type="button" onClick={onContinueCollection}>
@@ -3588,7 +3704,7 @@ function ProjectInspectionPanel({
             <Trash2 size={16} />
           </button>
         </div>
-      </div>
+      </header>
 
       <div className="mio-inspector-summary-row">
         <div className="mio-inspector-metrics-grid grid grid-cols-2 gap-3">
@@ -3661,11 +3777,11 @@ function ProjectReportOutline({
   return (
     <div className="space-y-3">
       <ReportOutlineSection id="keyword-general" title="Keyword General">
-        <NestedReportSection title="Relevance">
+        <NestedReportSection id="keyword-relevance" title="Relevance">
           <AssetList assets={detail.assets.filter((asset) => asset.kind === "SEARCH_RESULT")} />
           <ProductCardGrid products={relevanceProducts} />
         </NestedReportSection>
-        <NestedReportSection title="Top Sales">
+        <NestedReportSection id="keyword-top-sales" title="Top Sales">
           <AssetList assets={detail.assets.filter((asset) => asset.kind === "TOP_SALES")} />
           <ProductCardGrid products={topSalesProducts} />
         </NestedReportSection>
@@ -3676,17 +3792,20 @@ function ProjectReportOutline({
           Monthly sold only applies to Top Sales result snapshots. Total sold is collected from PDP evidence when visible.
           Rating is the star value; Reviews is the rating/review count. Price ranges are stored as estimated average price.
         </div>
-        <ProductInfoTable products={keyProducts} />
+        <div id="key-product-info" className="scroll-mt-20">
+          <ProductInfoTable products={keyProducts} />
+        </div>
       </ReportOutlineSection>
 
       <ReportOutlineSection id="product-detail-qualified" title="Product Detailed Qualified">
         <div className="space-y-3">
           {keyProducts.map((product) => (
-            <NestedReportSection key={product.id} title={displayProductTitle(product)}>
+            <NestedReportSection key={product.id} id={`product-${product.id}`} title={displayProductTitle(product)}>
               <ProductQualifiedSection
                 product={product}
                 reviews={detail.reviews.filter((review) => review.productId === product.id)}
                 assets={productAssetsForStep(detail, product)}
+                sectionIdPrefix={`product-${product.id}`}
               />
             </NestedReportSection>
           ))}
@@ -3701,7 +3820,6 @@ function ProjectReportOutline({
           scoring={scoring}
           scoringProvider={scoringProvider}
         />
-        <AnalysisSummary detail={detail} />
       </ReportOutlineSection>
 
       <ReportOutlineSection id="key-store" title="Key Store">
@@ -3719,26 +3837,27 @@ function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; 
   const keyProducts = selectKeyProductCandidates(detail.products, detail.project.keyword);
   return [
     { id: "keyword-general", label: "Keyword General", depth: 0 },
-    { id: "keyword-general", label: "Relevance", depth: 1 },
-    { id: "keyword-general", label: "Top sales", depth: 1 },
+    { id: "keyword-relevance", label: "Relevance", depth: 1 },
+    { id: "keyword-top-sales", label: "Top sales", depth: 1 },
     { id: "key-product", label: "Key Product", depth: 0 },
-    { id: "key-product", label: "Product info", depth: 1 },
+    { id: "key-product-info", label: "Product info", depth: 1 },
     { id: "product-detail-qualified", label: "Product Detail Qualified", depth: 0 },
     ...keyProducts.flatMap((product, index) => [
-      { id: "product-detail-qualified", label: displayProductTitle(product, `Product ${index + 1}`), depth: 1 },
-      { id: "product-detail-qualified", label: "First page", depth: 2 },
-      { id: "product-detail-qualified", label: "Slides and images", depth: 2 },
-      { id: "product-detail-qualified", label: "Reviews", depth: 2 },
-      { id: "product-detail-qualified", label: "Media in user", depth: 2 },
-      { id: "product-detail-qualified", label: "Shop homepage", depth: 2 }
+      { id: `product-${product.id}`, label: displayProductTitle(product, `Product ${index + 1}`), depth: 1 },
+      { id: `product-${product.id}-first-page`, label: "First page", depth: 2 },
+      { id: `product-${product.id}-slides`, label: "Slides and images", depth: 2 },
+      { id: `product-${product.id}-description`, label: "Description", depth: 2 },
+      { id: `product-${product.id}-reviews`, label: "Reviews", depth: 2 },
+      { id: `product-${product.id}-media`, label: "Media in user", depth: 2 },
+      { id: `product-${product.id}-shop-home`, label: "Shop homepage", depth: 2 }
     ]),
     { id: "evaluation-phase", label: "Evaluation Phase", depth: 0 },
     { id: "key-store", label: "Key Store", depth: 0 },
-    { id: "key-store", label: "Overall", depth: 1 },
-    { id: "key-store", label: "Store Home Page", depth: 1 },
-    { id: "key-store", label: "Popular Products", depth: 1 },
-    { id: "key-store", label: "Best Sellers", depth: 1 },
-    { id: "key-store", label: "Visual Shop Banner", depth: 1 },
+    { id: "key-store-overall", label: "Overall", depth: 1 },
+    { id: "key-store-home", label: "Store Home Page", depth: 1 },
+    { id: "key-store-popular", label: "Popular Products", depth: 1 },
+    { id: "key-store-best-sellers", label: "Best Sellers", depth: 1 },
+    { id: "key-store-visual", label: "Visual Shop Banner", depth: 1 },
     { id: "tiktok-evidence", label: "TikTok Evidence", depth: 0 }
   ];
 }
@@ -3755,6 +3874,7 @@ function EvaluationCards({
   scoringProvider?: string;
 }) {
   const candidates = storeEvaluationCandidates(detail);
+  const hasScoring = detail.analyses.length > 0;
   if (candidates.length === 0) {
     return (
       <div className="space-y-3">
@@ -3778,7 +3898,7 @@ function EvaluationCards({
                 <div className="mt-1 line-clamp-1 text-sm font-semibold text-white">{candidate.name}</div>
               </div>
               <div className="rounded-full border border-signal-blue/25 bg-signal-blue/10 px-2 py-1 text-xs font-semibold text-signal-blue">
-                {candidate.score}
+                {hasScoring ? candidate.score : "Not scored"}
               </div>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-400">
@@ -3826,37 +3946,6 @@ function EvaluationActionBar({
   );
 }
 
-function AnalysisSummary({ detail }: { detail: ProjectDetailPayload }) {
-  if (detail.analyses.length === 0) {
-    return (
-      <div className="mt-3">
-        <EmptyState label="No AI evaluation yet. Run AI after collecting Product Detail Qualified and Key Store evidence." />
-      </div>
-    );
-  }
-  const latest = [...detail.analyses].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
-  const summary = analysisPreview(latest.resultJson);
-  return (
-    <div className="mt-3 rounded-md border border-white/8 bg-white/[0.04] p-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Latest AI Evaluation</div>
-          <div className="mt-1 text-sm font-semibold text-white">{latest.provider}</div>
-        </div>
-        <div className="text-xs text-ink-500">{formatDateTime(latest.createdAt)}</div>
-      </div>
-      <div className="mt-3 grid gap-2 md:grid-cols-3">
-        {summary.map((item) => (
-          <div key={item.label} className="rounded border border-white/8 bg-white/5 p-2">
-            <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{item.label}</div>
-            <div className="mt-1 text-sm text-ink-200">{item.value}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function KeyStorePanel({
   detail,
   onContinueCollection
@@ -3864,7 +3953,7 @@ function KeyStorePanel({
   detail: ProjectDetailPayload;
   onContinueCollection: () => void;
 }) {
-  const candidate = storeEvaluationCandidates(detail)[0];
+  const candidate = detail.analyses.length > 0 ? storeEvaluationCandidates(detail)[0] : undefined;
   if (!candidate) {
     return <EmptyState label="No Key Store selected yet. Complete Product Detail Qualified and run Evaluation Phase scoring first." />;
   }
@@ -3906,7 +3995,7 @@ function KeyStorePanel({
         </button>
       </div>
 
-      <NestedReportSection title="Overall">
+      <NestedReportSection id="key-store-overall" title="Overall">
         <div className="space-y-2 text-sm leading-6 text-ink-300">
           {conclusionSentences.map((sentence) => (
             <p key={sentence}>{sentence}</p>
@@ -3914,19 +4003,19 @@ function KeyStorePanel({
         </div>
       </NestedReportSection>
 
-      <NestedReportSection title="Store Home Page">
+      <NestedReportSection id="key-store-home" title="Store Home Page">
         <AssetList assets={homeAssets} limit={12} />
       </NestedReportSection>
 
-      <NestedReportSection title="Popular Products">
+      <NestedReportSection id="key-store-popular" title="Popular Products">
         <ProductCardGrid products={storeProducts.length > 0 ? storeProducts : matchingProducts} limit={80} />
       </NestedReportSection>
 
-      <NestedReportSection title="Best Sellers">
+      <NestedReportSection id="key-store-best-sellers" title="Best Sellers">
         <ProductCardGrid products={storeBestSellers} limit={80} />
       </NestedReportSection>
 
-      <NestedReportSection title="Visual Shop Banner">
+      <NestedReportSection id="key-store-visual" title="Visual Shop Banner">
         <AssetList assets={bannerAssets} limit={80} />
       </NestedReportSection>
     </div>
@@ -3945,16 +4034,32 @@ function ProjectOutlineNav({
   onToggle: () => void;
 }) {
   const groups = groupProjectOutlineItems(items);
-  function openOutlineTarget(event: ReactMouseEvent<HTMLAnchorElement>, id: string) {
-    event.preventDefault();
+  function openOutlineTarget(id: string) {
     const target = document.getElementById(id);
     if (!target) return;
-    let current: HTMLElement | null = target;
-    while (current) {
-      if (current instanceof HTMLDetailsElement) current.open = true;
-      current = current.parentElement?.closest("details") ?? null;
+    if (target instanceof HTMLDetailsElement) {
+      target.open = true;
     }
-    window.requestAnimationFrame(() => target.scrollIntoView({ behavior: "smooth", block: "start" }));
+    let ancestor = target.parentElement?.closest("details") ?? null;
+    while (ancestor) {
+      ancestor.open = true;
+      ancestor = ancestor.parentElement?.closest("details") ?? null;
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => target.scrollIntoView({ behavior: "smooth", block: "start" }));
+    });
+  }
+  function handleOutlineSummaryClick(event: ReactMouseEvent<HTMLElement>, targetId: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    const details = event.currentTarget.parentElement;
+    if (!(details instanceof HTMLDetailsElement)) return;
+    const willOpen = !details.open;
+    details.toggleAttribute("open", willOpen);
+    if (!willOpen) return;
+    window.requestAnimationFrame(() => {
+      openOutlineTarget(targetId);
+    });
   }
   if (collapsed) {
     return (
@@ -3976,21 +4081,21 @@ function ProjectOutlineNav({
       <div className="space-y-1">
         {groups.map((group) => group.children.length > 0 ? (
           <details key={`${group.id}-${group.label}`} className="mio-outline-group rounded-md">
-            <summary className="cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
-              <a href={`#${group.id}`} onClick={(event) => openOutlineTarget(event, group.id)}>{group.label}</a>
+            <summary onClick={(event) => handleOutlineSummaryClick(event, group.id)} className="cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
+              {group.label}
             </summary>
             <div className="mt-1 space-y-1">
               {group.children.map((item) => item.children.length > 0 ? (
                 <details key={`${item.id}-${item.label}`} className="mio-outline-subgroup ml-3 rounded-md">
-                  <summary className="cursor-pointer select-none rounded px-2 py-1.5 text-xs font-medium text-ink-300 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
-                    <a href={`#${item.id}`} onClick={(event) => openOutlineTarget(event, item.id)}>{item.label}</a>
+                  <summary onClick={(event) => handleOutlineSummaryClick(event, item.id)} className="cursor-pointer select-none rounded px-2 py-1.5 text-xs font-medium text-ink-300 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
+                    {item.label}
                   </summary>
                   <div className="mt-1 space-y-1">
                     {item.children.map((child) => (
                       <a
                         key={`${child.id}-${child.label}`}
                         href={`#${child.id}`}
-                        onClick={(event) => openOutlineTarget(event, child.id)}
+                        onClick={(event) => { event.preventDefault(); openOutlineTarget(child.id); }}
                         className="block rounded px-2 py-1.5 pl-5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
                       >
                         {child.label}
@@ -4002,7 +4107,7 @@ function ProjectOutlineNav({
                 <a
                   key={`${item.id}-${item.label}`}
                   href={`#${item.id}`}
-                  onClick={(event) => openOutlineTarget(event, item.id)}
+                  onClick={(event) => { event.preventDefault(); openOutlineTarget(item.id); }}
                   className="ml-3 block rounded px-2 py-1.5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
                 >
                   {item.label}
@@ -4014,7 +4119,7 @@ function ProjectOutlineNav({
           <a
             key={`${group.id}-${group.label}`}
             href={`#${group.id}`}
-            onClick={(event) => openOutlineTarget(event, group.id)}
+            onClick={(event) => { event.preventDefault(); openOutlineTarget(group.id); }}
             className="block rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
           >
             {group.label}
@@ -4059,9 +4164,9 @@ function ReportOutlineSection({ id, title, children }: { id: string; title: stri
   );
 }
 
-function NestedReportSection({ title, children }: { title: string; children: ReactNode }) {
+function NestedReportSection({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
   return (
-    <details className="mb-3 rounded-md border border-white/8 bg-white/[0.04] p-3">
+    <details id={id} className="mb-3 scroll-mt-20 rounded-md border border-white/8 bg-white/[0.04] p-3">
       <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-[0.08em] text-ink-300">{title}</summary>
       <div className="mt-3">{children}</div>
     </details>
@@ -4084,7 +4189,7 @@ function AnimatedProjectTitle({ title }: { title: string }) {
             filter: index % 3 === 0 ? "blur(8px)" : "blur(0px)"
           }}
           animate={{ opacity: 1, x: 0, y: 0, filter: "blur(0px)" }}
-          transition={{ delay: index * 0.09, duration: 0.42, ease: [0.2, 0.9, 0.2, 1] }}
+          transition={{ delay: index * 0.12, duration: 1, ease: "easeInOut" }}
         >
           {word}{index < words.length - 1 ? "\u00a0" : ""}
         </motion.span>
@@ -4264,11 +4369,13 @@ function KeyProductTableReview({
 function ProductQualifiedSection({
   product,
   reviews,
-  assets
+  assets,
+  sectionIdPrefix
 }: {
   product: ProjectProductEvidence;
   reviews: ProjectDetailPayload["reviews"];
   assets: ProjectDetailPayload["assets"];
+  sectionIdPrefix: string;
 }) {
   const firstPageAssets = assets.filter((asset) => asset.kind === "PRODUCT_PAGE");
   const shopHomeAssets = assets.filter((asset) => asset.kind === "STORE_HOME");
@@ -4281,11 +4388,11 @@ function ProductQualifiedSection({
         <InfoLine label="GMV ETA" value={formatCurrency((product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0))} />
       </div>
 
-      <NestedReportSection title="1st Page">
+      <NestedReportSection id={`${sectionIdPrefix}-first-page`} title="1st Page">
         <AssetList assets={firstPageAssets} />
       </NestedReportSection>
 
-      <NestedReportSection title="Slides">
+      <NestedReportSection id={`${sectionIdPrefix}-slides`} title="Slides">
         <ProductImageGrid images={(product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []).slice(0, product.videos.length > 0 ? 8 : 9)} />
         {product.videos.length > 0 && (
           <div className="mt-3">
@@ -4294,7 +4401,7 @@ function ProductQualifiedSection({
         )}
       </NestedReportSection>
 
-      <NestedReportSection title="Description">
+      <NestedReportSection id={`${sectionIdPrefix}-description`} title="Description">
         <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
           <p className="whitespace-pre-wrap text-sm leading-6 text-ink-300">
             {product.description ?? "No browser-readable product description captured yet."}
@@ -4308,18 +4415,18 @@ function ProductQualifiedSection({
         <ProductPromotionSignals product={product} />
       </NestedReportSection>
 
-      <NestedReportSection title="Reviews">
+      <NestedReportSection id={`${sectionIdPrefix}-reviews`} title="Reviews">
         <ReviewEvidenceTable reviews={reviews} />
       </NestedReportSection>
 
-      <NestedReportSection title="Media in User">
+      <NestedReportSection id={`${sectionIdPrefix}-media`} title="Media in User">
         <ProductImageGrid images={product.reviewMediaImages} />
         <div className="mt-3">
           <ProductVideoGrid videos={product.reviewMediaVideos} />
         </div>
       </NestedReportSection>
 
-      <NestedReportSection title="Shop Home Page">
+      <NestedReportSection id={`${sectionIdPrefix}-shop-home`} title="Shop Home Page">
         <AssetList assets={shopHomeAssets} />
       </NestedReportSection>
     </div>
@@ -4553,8 +4660,23 @@ function curatedShopeeReviews(reviews: ProjectDetailPayload["reviews"]): Project
   return [...positiveReviews, ...negativeReviews].slice(0, 5);
 }
 
+function sanitizeShopeeReviewComment(comment: string): string {
+  const output: string[] = [];
+  for (const rawLine of comment.replace(/\r\n?/gu, "\n").split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const cutoffIndex = line.search(/(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual|Report Abuse|Laporkan Penyalahgunaan)\b/iu);
+    const content = (cutoffIndex >= 0 ? line.slice(0, cutoffIndex) : line).trim();
+    if (content && !/^(?:Helpful|Membantu|Like|Share)\s*[\d.,kkrb]*$/iu.test(content)) {
+      output.push(content);
+    }
+    if (cutoffIndex >= 0) break;
+  }
+  return output.join("\n").trim().slice(0, 900);
+}
+
 function isReadableShopeeReview(comment: string): boolean {
-  const value = comment.trim();
+  const value = sanitizeShopeeReviewComment(comment);
   return value.length >= 20 &&
     /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2})?\b/u.test(value) &&
     !/^https?:\/\//iu.test(value) &&
@@ -4562,7 +4684,7 @@ function isReadableShopeeReview(comment: string): boolean {
 }
 
 function reviewCommentCell(review: ProjectDetailPayload["reviews"][number]): string {
-  const commentLines = review.comment
+  const commentLines = sanitizeShopeeReviewComment(review.comment)
     .replace(/\r\n?/gu, "\n")
     .split("\n")
     .map((line) => line.trim())
@@ -4610,6 +4732,17 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
   );
 }
 
+type BulkReportHistoryEntry = {
+  id: string;
+  category: string;
+  zipPath: string;
+  fileCount: number;
+  projectCount: number;
+  generatedAt: string;
+};
+
+const BULK_REPORT_HISTORY_KEY = "mio.bulk-report-history.v1";
+
 function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[]; themeMode: ThemeMode }) {
   const queryClient = useQueryClient();
   const [step, setStep] = useState(1);
@@ -4618,6 +4751,14 @@ function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[];
   const [formats, setFormats] = useState<BulkReportFormat[]>(["PDF"]);
   const [bulkSections, setBulkSections] = useState<ReportSectionConfig[]>(DEFAULT_REPORT_SECTIONS);
   const [progress, setProgress] = useState(0);
+  const [history, setHistory] = useState<BulkReportHistoryEntry[]>(() => {
+    try {
+      const value = window.localStorage.getItem(BULK_REPORT_HISTORY_KEY);
+      return value ? JSON.parse(value) as BulkReportHistoryEntry[] : [];
+    } catch {
+      return [];
+    }
+  });
   const categories = useMemo(
     () => Array.from(new Set(projects.map((project) => project.productCategory?.trim() || "Uncategorized"))).sort(),
     [projects]
@@ -4631,9 +4772,21 @@ function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[];
     onMutate: () => setProgress(4),
     onSuccess: (result) => {
       setProgress(100);
+      const entry: BulkReportHistoryEntry = {
+        id: `${Date.now()}-${result.zipPath}`,
+        category: category || "Uncategorized",
+        zipPath: result.zipPath,
+        fileCount: result.fileCount,
+        projectCount: projectIds.length,
+        generatedAt: new Date().toISOString()
+      };
+      setHistory((current) => {
+        const next = [entry, ...current].slice(0, 30);
+        window.localStorage.setItem(BULK_REPORT_HISTORY_KEY, JSON.stringify(next));
+        return next;
+      });
       void queryClient.invalidateQueries({ queryKey: ["reports"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      void apiClient.openPath(result.zipPath);
     },
     onError: () => setProgress(0)
   });
@@ -4792,6 +4945,23 @@ function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[];
           </button>
         )}
       </div>
+      <div className="mt-6 border-t border-white/8 pt-5">
+        <div className="mb-3 text-sm font-semibold text-white">Bulk Report History</div>
+        <div className="space-y-2">
+          {history.map((entry) => (
+            <div key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/5 p-3">
+              <div>
+                <div className="text-sm font-semibold text-white">{entry.category}</div>
+                <div className="mt-1 text-xs text-ink-500">{entry.projectCount} projects · {entry.fileCount} files · {formatDateTime(entry.generatedAt)}</div>
+              </div>
+              <button className="secondary-button h-9 w-auto rounded-full px-4 text-xs" type="button" onClick={() => void apiClient.openPath(entry.zipPath)}>
+                <Archive size={14} /> Open ZIP
+              </button>
+            </div>
+          ))}
+          {history.length === 0 && <EmptyState label="No bulk report ZIP generated yet." />}
+        </div>
+      </div>
     </Panel>
   );
 }
@@ -4804,6 +4974,7 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   const [sections, setSections] = useState<ReportSectionConfig[]>(DEFAULT_REPORT_SECTIONS);
   const [previewReport, setPreviewReport] = useState<ReportHtmlPayload | null>(null);
   const [reportProgress, setReportProgress] = useState(0);
+  const [reportMode, setReportMode] = useState<"single" | "bulk">("single");
   const generateReport = useMutation({
     mutationFn: apiClient.generateReport,
     onMutate: () => {
@@ -4865,10 +5036,15 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   }
 
   return (
-    <section className="grid grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)] gap-5">
-      <div className="col-span-2">
-        <BulkReportWizard projects={dashboard.data?.projects ?? []} themeMode={themeMode} />
+    <section className="space-y-5">
+      <div className="inline-flex rounded-full border border-white/8 bg-white/5 p-1">
+        <button className={reportMode === "single" ? "primary-button h-10 w-auto rounded-full px-5" : "secondary-button h-10 w-auto rounded-full border-0 px-5"} type="button" onClick={() => setReportMode("single")}>Single Report</button>
+        <button className={reportMode === "bulk" ? "primary-button h-10 w-auto rounded-full px-5" : "secondary-button h-10 w-auto rounded-full border-0 px-5"} type="button" onClick={() => setReportMode("bulk")}>Bulk Report</button>
       </div>
+      {reportMode === "bulk" ? (
+        <BulkReportWizard projects={dashboard.data?.projects ?? []} themeMode={themeMode} />
+      ) : (
+      <div className="grid grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)] gap-5">
       <div className="space-y-5">
         <Panel title="Report Generator" icon={FileDown}>
           <form className="space-y-4" onSubmit={submit}>
@@ -4966,6 +5142,8 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
           ))}
         </div>
       </Panel>
+      </div>
+      )}
       {previewReport && <ReportPreviewModal report={previewReport} onClose={() => setPreviewReport(null)} />}
     </section>
   );
@@ -5037,7 +5215,7 @@ function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; on
     </div>
   );
 
-  return createPortal(modal, document.body);
+  return createPortal(modal, appPortalRoot());
 }
 
 function SettingsView() {
@@ -6810,8 +6988,11 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluatio
     }
     grouped.set(key, candidate);
   }
-  return [...grouped.values()]
-    .sort((left, right) => right.gmvEstimate - left.gmvEstimate || right.score - left.score)
+  const candidates = [...grouped.values()];
+  if (detail.analyses.length > 0) {
+    candidates.sort((left, right) => right.gmvEstimate - left.gmvEstimate || right.score - left.score);
+  }
+  return candidates
     .slice(0, 10)
     .map((candidate) => ({
       key: candidate.key,
@@ -6853,29 +7034,6 @@ function productMatchesStoreCandidate(product: ProjectProductEvidence, candidate
     return true;
   }
   return Boolean(product.storeName && product.storeName.toLowerCase() === candidate.name.toLowerCase());
-}
-
-function analysisPreview(resultJson: string): Array<{ label: string; value: string }> {
-  const parsed = parseRecord(resultJson);
-  if (!parsed) {
-    return [{ label: "Raw Result", value: resultJson.slice(0, 180) || "-" }];
-  }
-  const scoredSections = Object.entries(parsed)
-    .flatMap(([label, value]) => {
-      if (!isRecord(value)) {
-        return [];
-      }
-      const score = value.score;
-      return typeof score === "number" || typeof score === "string" ? [{ label: titleCase(label), value: String(score) }] : [];
-    })
-    .slice(0, 6);
-  if (scoredSections.length > 0) {
-    return scoredSections;
-  }
-  return Object.entries(parsed)
-    .filter(([, value]) => typeof value === "string" || typeof value === "number")
-    .slice(0, 6)
-    .map(([label, value]) => ({ label: titleCase(label), value: String(value).slice(0, 140) }));
 }
 
 function keyStoreOverallConclusions(candidate: StoreEvaluationCandidate, resultJson?: string): string[] {
@@ -7676,10 +7834,22 @@ async function extractRenderedPageSnapshot(
           .map(imageUrlFrom))
         : [];
       const reviewMediaRoots = Array.from(document.querySelectorAll(".rating-media-list-image-carousel__item-list-wrapper, [class*='rating-media-list-image-carousel__item-list-wrapper']"));
+      const isUsableReviewMediaElement = (element, url) => {
+        if (!url || !element?.closest?.(".rating-media-list-image-carousel__item-list-wrapper, [class*='rating-media-list-image-carousel__item-list-wrapper']")) return false;
+        if (element.closest("[class*='avatar'], [class*='profile'], [class*='user-avatar']")) return false;
+        if (/avatar|profile|user-avatar|default-avatar/iu.test(String(url))) return false;
+        const visual = element.tagName === "PICTURE" ? element.querySelector("img") || element : element;
+        const rect = visual?.getBoundingClientRect?.();
+        const width = Math.round(rect?.width || visual?.naturalWidth || 0);
+        const height = Math.round(rect?.height || visual?.naturalHeight || 0);
+        return width >= 96 && height >= 96;
+      };
       const reviewMediaImages = unique(reviewMediaRoots.flatMap((mediaRoot) =>
         Array.from(mediaRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
           .filter((element) => !isProductGalleryElement(element))
-          .map(imageUrlFrom)
+          .map((element) => ({ element, url: imageUrlFrom(element) }))
+          .filter((item) => isUsableReviewMediaElement(item.element, item.url))
+          .map((item) => item.url)
       ));
       const reviewMediaVideos = unique(reviewMediaRoots.flatMap((mediaRoot) =>
         Array.from(mediaRoot.querySelectorAll("video"))
@@ -7696,7 +7866,7 @@ async function extractRenderedPageSnapshot(
       };
       const cleanReviewComment = (value) => {
         const rawLines = String(value || "")
-          .replace(/(?:Seller'?s Response|Respons(?:e)? Penjual|Penjual Membalas)\\s*:?[\\s\\S]*$/iu, "")
+          .replace(/(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual)\\s*:?[\\s\\S]*$/iu, "")
           .replace(/\\r\\n?/g, "\\n")
           .split("\\n")
           .map((line) => compact(line))
@@ -7719,10 +7889,12 @@ async function extractRenderedPageSnapshot(
           .filter((line) => !/^\\*{2,}$|^[★\\s]+$/u.test(line));
         const trimmedLines = [];
         for (const line of bodyLines) {
-          if (/^(Seller's Response|Respons Penjual|Penjual Membalas)\\b/iu.test(line)) break;
-          if (/^(Helpful|Membantu)\\s*[\\d.,kkrb]*$/iu.test(line)) continue;
-          if (/^(Report|Laporkan|Like|Share)$/iu.test(line)) continue;
-          trimmedLines.push(line);
+          const cutoffIndex = line.search(/(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual|Report Abuse|Laporkan Penyalahgunaan)\\b/iu);
+          const content = compact(cutoffIndex >= 0 ? line.slice(0, cutoffIndex) : line);
+          if (content && !/^(Helpful|Membantu)\\s*[\\d.,kkrb]*$/iu.test(content) && !/^(Like|Share)$/iu.test(content)) {
+            trimmedLines.push(content);
+          }
+          if (cutoffIndex >= 0) break;
         }
         const output = [
           author,

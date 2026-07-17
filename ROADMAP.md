@@ -105,6 +105,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-17 | Product Detail missing evidence looked unfinished and review media could include avatars | Fixed | Evidence now records collected/not-found outcomes, review media is restricted to review attachments, seller responses are removed, and compact success/failure notices are shown after collection actions. |
 | 2026-07-17 | Part 3 data-only store collection stalled on large Shopee HTML | Fixed | Popular Products, Best Sellers, and Visual Shop Banner extraction skips unnecessary full HTML serialization while Store Home evidence remains reusable. |
 | 2026-07-17 | Multiple project reports required manual one-by-one export | Fixed | Reports now include a category-based bulk wizard for multi-project DOCX/PDF/HTML generation with custom sections and category-named ZIP delivery. |
+| 2026-07-17 | Inspector navigation, review boundaries, and modal theming drifted from the active workflow | Fixed | Portaled dialogs inherit the app theme, the compact inspector header stays visible, outline navigation opens exact parent/child sections, review samples stop before seller responses/`Report Abuse`, and review avatars are excluded from media evidence. |
+| 2026-07-17 | Evaluation could appear pre-scored and Part 3 repeated existing store work | Fixed | AI scoring now runs only after the explicit user action, Product Detail store-home HTML/assets are reused for Key Store collection, and Best Seller collection has a bounded timeout. |
+| 2026-07-17 | Release runtime validation needed current production evidence | Fixed | The clean Windows installer, portable app, packaged Prisma client/engines, SQLite initialization, and read-only production queries were verified without a rebuild loop. |
 
 ## Sprint Overview
 
