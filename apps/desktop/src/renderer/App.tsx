@@ -1774,26 +1774,6 @@ function GuidedBrowserCollector({
       if (homepageStep) {
         nextCollectedSteps[homepageStep.id] = reusableAsset.path;
       }
-      for (const reusableStepId of ["store-products", "store-visual-style"]) {
-        const reusableStep = steps.find((step) => step.id === reusableStepId);
-        if (!reusableStep) continue;
-        try {
-          setCaptureStatus({ message: `Reusing saved ${reusableStep.label}`, state: "working", progress: 35 });
-          const payload = await buildManualEvidencePayload(reusableStep);
-          const result = await apiClient.saveManualEvidence(payload);
-          const reuseFoundData = reusableStep.id === "store-products"
-            ? (result.extractedProductCount ?? 0) > 0
-            : (result.storeBannerCount ?? 0) > 0;
-          if (reuseFoundData) {
-            nextCollectedSteps[reusableStep.id] = result.assetPath;
-          } else {
-            appendLog(setActivityLog, `${reusableStep.label} was not present in the saved store page. Manual collection remains available.`);
-          }
-        } catch (error) {
-          appendLog(setActivityLog, error instanceof Error ? error.message : `Could not reuse ${reusableStep.label}.`);
-        }
-      }
-      await queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] });
     }
     setCollectedSteps(nextCollectedSteps);
     setReviewingEvaluation(false);
@@ -1882,9 +1862,6 @@ function GuidedBrowserCollector({
       : targetSelector;
     const captureStrategy = subAction?.captureStrategy ?? step.captureStrategy ?? "selector";
     const dataOnlyEvidence = isDataOnlyEvidenceStep(step, subAction);
-    const reusableStoreAsset = ["store-products", "store-visual-style"].includes(step.id) && projectDetail.data
-      ? reusableKeyStoreHomepageAsset(projectDetail.data)
-      : undefined;
     setCaptureStatus({
       message: dataOnlyEvidence
         ? "Collecting page data"
@@ -1903,41 +1880,17 @@ function GuidedBrowserCollector({
         : captureMode === "viewport"
           ? await captureViewportScreenshot(webview)
           : await captureFullPageScreenshot(webview);
-    const sourceUrl = reusableStoreAsset?.sourceUrl ?? webview.getURL?.() ?? currentUrl;
+    const sourceUrl = webview.getURL?.() ?? currentUrl;
     setCaptureStatus({
-      message: reusableStoreAsset
-        ? "Reusing saved store HTML"
-        : dataOnlyEvidence ? "Reading rendered product grid" : "Downloading HTML from #main",
+      message: dataOnlyEvidence ? "Downloading store HTML" : "Downloading HTML from #main",
       state: "working",
       progress: 45
     });
-    const extractionTimeoutMs = step.id === "store-best-seller" ? 12_000 : 20_000;
-    const snapshot = reusableStoreAsset
-      ? {
-          html: "",
-          visibleText: "",
-          products: [] as ExtractedPageProduct[],
-          productDetail: {
-            storeName: undefined,
-            storeUrl: undefined,
-            storeType: undefined,
-            activeReviewFilter: undefined,
-            images: [],
-            videos: [],
-            descriptionImages: [],
-            shopVouchers: [],
-            bundleDeals: [],
-            promotionCount: 0,
-            reviews: [],
-            reviewMediaImages: [],
-            reviewMediaVideos: []
-          },
-          storeDecorationImages: []
-        }
-      : await withTimeout(
-          extractRenderedPageSnapshot(webview, extractionSelector, { includeHtml: !dataOnlyEvidence }),
+    const extractionTimeoutMs = dataOnlyEvidence ? 32_000 : 20_000;
+    const snapshot = await withTimeout(
+          extractRenderedPageSnapshot(webview, extractionSelector, { includeHtml: true }),
           extractionTimeoutMs,
-          "The rendered page took too long to read. Scroll through the product grid and try Collect Data again."
+          "The store HTML took too long to hydrate. Keep the target section visible, then try Collect Data again."
         )
       .then((value) => {
         setCaptureStatus({
@@ -2011,8 +1964,8 @@ function GuidedBrowserCollector({
         storeDecorationImages: snapshot.storeDecorationImages,
         extractedText: snapshot.visibleText,
         extractedProductCount: snapshot.products.length,
+        extractionMode: dataOnlyEvidence ? "hydrated-html" : "page-html",
         capturedAt: new Date().toISOString(),
-        reuseAssetId: reusableStoreAsset?.id
       }
     };
   }
@@ -4225,6 +4178,21 @@ function ProjectOutlineNav({
     }
     return [id];
   }
+  function outlineSubtreeIds(id: string): string[] {
+    for (const group of groups) {
+      if (group.id === id) {
+        return [
+          group.id,
+          ...group.children.flatMap((item) => [item.id, ...item.children.map((child) => child.id)])
+        ];
+      }
+      for (const item of group.children) {
+        if (item.id === id) return [item.id, ...item.children.map((child) => child.id)];
+        if (item.children.some((child) => child.id === id)) return [id];
+      }
+    }
+    return [id];
+  }
   function openOutlineTarget(id: string) {
     const path = outlinePath(id);
     sectionExpansion.openSectionPath(path);
@@ -4248,8 +4216,13 @@ function ProjectOutlineNav({
     event.preventDefault();
     event.stopPropagation();
     const willOpen = !sectionExpansion.openSectionIds.has(targetId);
-    sectionExpansion.setSectionOpen(targetId, willOpen);
-    if (!willOpen) return;
+    if (!willOpen) {
+      for (const sectionId of outlineSubtreeIds(targetId)) {
+        sectionExpansion.setSectionOpen(sectionId, false);
+      }
+      return;
+    }
+    sectionExpansion.setSectionOpen(targetId, true);
     window.requestAnimationFrame(() => {
       openOutlineTarget(targetId);
     });
@@ -6329,7 +6302,7 @@ function buildShopeeSteps(
       targetSelector: ".shop-decoration",
       instruction: "Download readable banner and carousel images from shop-decoration. Product-card images are ignored and no screenshot is required.",
       targetUrl: keyStoreUrl,
-      ready: Boolean(keyStoreUrl || storeReady)
+      ready: Boolean(storeReady && (!keyStoreUrl || sameUrlIntent(currentUrl, keyStoreUrl)))
     },
     {
       id: "tiktok-brand-search",
@@ -7773,6 +7746,7 @@ async function extractRenderedPageSnapshot(
       };
       const seen = new Set();
       const products = [];
+      const capturedProductCardHtml = [];
       const collectVisibleProductRows = async () => {
         const scanRoots = [
           productScopeRoot,
@@ -7802,6 +7776,7 @@ async function extractRenderedPageSnapshot(
           const title = meaningfulTitle(text, image?.alt || image?.querySelector?.("img")?.alt);
           if (!title) continue;
           seen.add(key);
+          if (card?.outerHTML) capturedProductCardHtml.push(card.outerHTML);
           const badgeImage = findStoreBadgeImage(card, productImageUrl);
           const badgeImageUrl = imageUrlFrom(badgeImage);
           const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title, badgeImage?.outerHTML].filter(Boolean).join(" "));
@@ -8217,10 +8192,30 @@ async function extractRenderedPageSnapshot(
         reviewMediaVideos: reviewMediaVideos.slice(0, 12)
       };
       const storeDecorationRoot = document.querySelector(".shop-decoration");
+      const observedDecorationMedia = [];
+      const rememberDecorationMedia = () => {
+        if (!storeDecorationRoot) return;
+        for (const element of storeDecorationRoot.querySelectorAll("picture, source[srcset], source[data-srcset], source[scrset], img[srcset], img[data-srcset], img[src], img[data-src]")) {
+          const visual = element.tagName === "SOURCE"
+            ? element.closest("picture")?.querySelector("img") || element.closest("picture") || element
+            : element.tagName === "PICTURE"
+              ? element.querySelector("img") || element
+              : element;
+          const rect = visual.getBoundingClientRect?.();
+          observedDecorationMedia.push({
+            element: visual,
+            url: imageUrlFrom(element),
+            width: Math.round(rect?.width || visual.naturalWidth || 0),
+            height: Math.round(rect?.height || visual.naturalHeight || 0),
+            trustedContext: Boolean(element.closest(".image-carousel, .image-carousel__item-list-wrapper, .image-carousel__item, a"))
+          });
+        }
+      };
       const hydrateStoreDecorationRoot = async () => {
         if (!storeDecorationRoot) return;
         storeDecorationRoot.scrollIntoView({ block: "start", inline: "nearest" });
         await wait(300);
+        rememberDecorationMedia();
         const clickCandidates = Array.from(storeDecorationRoot.querySelectorAll("button, [role='button'], [aria-label], [class*='next'], [class*='arrow'], [class*='carousel']"))
           .filter((element) => {
             const text = compact([
@@ -8231,16 +8226,18 @@ async function extractRenderedPageSnapshot(
             ].filter(Boolean).join(" "));
             const rect = element.getBoundingClientRect?.();
             return /next|selanjutnya|arrow|carousel|slide|right/i.test(text) &&
+              !/prev|previous|sebelumnya|left/i.test(text) &&
               (!rect || (rect.width <= 90 && rect.height <= 90));
           });
-        for (let index = 0; index < Math.min(8, clickCandidates.length || 8); index += 1) {
-          const target = clickCandidates[index % Math.max(1, clickCandidates.length)];
+        for (let index = 0; index < 12 && clickCandidates.length > 0; index += 1) {
+          const target = clickCandidates[index % clickCandidates.length];
           try {
             target?.dispatchEvent?.(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
           } catch {
             // Ignore carousel controls that Shopee blocks from synthetic events.
           }
           await wait(220);
+          rememberDecorationMedia();
         }
       };
       await hydrateStoreDecorationRoot();
@@ -8287,6 +8284,9 @@ async function extractRenderedPageSnapshot(
               .map(decorationMediaCandidate)
               .filter((item) => isUsefulDecorationImage(item.element, item.url, item.width, item.height))
               .map((item) => item.url),
+            ...observedDecorationMedia
+              .filter((item) => item.trustedContext && isUsefulDecorationImage(item.element, item.url, item.width, item.height))
+              .map((item) => item.url),
             ...Array.from(storeDecorationRoot.querySelectorAll("[style*='url(']")).flatMap((element) => {
               const rect = element.getBoundingClientRect?.();
               const width = Math.round(rect?.width || 0);
@@ -8298,7 +8298,12 @@ async function extractRenderedPageSnapshot(
             })
           ])
         : [];
-      const html = includeHtml ? prettyHtml(htmlRoot.outerHTML || document.documentElement?.outerHTML || "") : "";
+      const capturedProductCards = capturedProductCardHtml.length > 0
+        ? \`<section data-mio-captured-product-cards="true">\${capturedProductCardHtml.join("")}</section>\`
+        : "";
+      const html = includeHtml
+        ? prettyHtml(\`\${htmlRoot.outerHTML || document.documentElement?.outerHTML || ""}\${capturedProductCards}\`)
+        : "";
       const visibleTextSource = htmlRoot.innerText || document.body?.innerText || "";
       const visibleText = [document.title || "", location.href, compact(visibleTextSource).slice(0, 24000)]
         .filter(Boolean)

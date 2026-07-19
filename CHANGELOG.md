@@ -4,11 +4,12 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-19
 
-- Synchronized each Project Inspector outline section with its matching report disclosure: opening or closing a parent outline row now opens or closes only that main section, nested outline links open the exact nested content, and the global outline visibility control remains independent.
+- Synchronized each Project Inspector outline section with its matching report disclosure: opening or closing a parent outline row now opens or closes only that main section, closing a parent clears its nested disclosure state, nested outline links open the exact nested content, and the global outline visibility control remains independent.
 - Made Keyword Project cards open their inspector directly and prefetched/cached project detail data so the inspector becomes responsive before navigation while retaining cached results for repeat visits.
 - Reduced Project Inspector rendering work with memoized evidence indexes, collapsed-by-default report sections, deferred heavy section mounting, and lazy evidence images; the navigation outline remains visible and opens exact parent/child sections on demand.
 - Added per-action evidence reset for Product Detail and Key Store collection, including normalized database cleanup and local asset removal before recollection.
-- Reused Product Detail shop-home HTML for Key Store Store Home Page, Popular Products, and Visual Shop Banner evidence while preserving Best Sellers as the required manual store-page collection step.
+- Reused Product Detail shop-home evidence only for the Key Store Store Home Page; Popular Products, Best Sellers, and Visual Shop Banner now each hydrate their dedicated current store page, retain its HTML, and persist newly parsed evidence.
+- Hardened Part 3 store extraction by retaining product-card HTML across Shopee's virtualized grid and accumulating banner URLs across `.shop-decoration` carousel states before localizing the assets.
 - Restricted review-media extraction to customer review attachments, explicitly records empty media as not found, and excludes `NOT FOR SALE` / `FREE GIFT` listings from product persistence and Key Product selection.
 - Standardized collapse, page, and disclosure motion at 0.5 seconds for a faster interface response.
 

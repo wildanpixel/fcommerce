@@ -12,7 +12,7 @@ Release task: Project Inspector performance and synchronized disclosures, guided
 
 This release makes Keyword Project cards directly inspectable and prefetches bounded project detail data. Project evidence indexes are memoized, collapsed report sections defer heavy children, and evidence media loads lazily so large saved projects remain responsive.
 
-Project Inspector disclosure state is now authoritative and shared between the outline and report. Clicking a parent outline row opens its subnavigation and matching main section; clicking it again closes both. Nested links open their exact nested report section, while the global outline hide/show button affects only outline visibility. Product Detail and Key Store actions can be reset and recollected, saved shop-home evidence is reused for Key Store homepage/popular/banner sections, Best Sellers remains the deliberate manual exception, review avatars are excluded from customer media, and `NOT FOR SALE` / `FREE GIFT` listings are rejected from normalized product evidence.
+Project Inspector disclosure state is now authoritative and shared between the outline and report. Clicking a parent outline row opens its subnavigation and matching main section; clicking it again closes both and clears nested disclosure state. Reopening the parent leaves nested sections closed until selected. Nested links open their exact nested report section, while the global outline hide/show button affects only outline visibility. Product Detail and Key Store actions can be reset and recollected. Saved shop-home evidence is reused only for the Key Store Store Home Page; Popular Products, Best Sellers, and Visual Shop Banner each hydrate their dedicated current page, retain durable HTML, preserve virtualized product cards, and accumulate carousel banner URLs before persistence. Review avatars are excluded from customer media, and `NOT FOR SALE` / `FREE GIFT` listings are rejected from normalized product evidence.
 
 ## Release Checklist
 
@@ -28,7 +28,7 @@ Project Inspector disclosure state is now authoritative and shared between the o
 | Package Electron | Passed on the first and only attempt |
 | Generate Windows Installer | Passed |
 | Generate Windows Portable | Passed |
-| Verify packaged Prisma Client | Passed: `@prisma/client` is packaged and `.prisma/client` is present in `app.asar.unpacked` |
+| Verify packaged Prisma Client | Passed: `@prisma/client` and generated `.prisma/client` JavaScript are present in `app.asar`; native engines are present in `app.asar.unpacked` |
 | Verify packaged Prisma engines | Passed: Windows, macOS Intel, and macOS Apple Silicon engines are unpacked |
 | Launch unpacked Windows application | Passed; live responding Electron process tree confirmed |
 | Launch Windows Portable | Passed; live responding Electron process tree confirmed |
@@ -53,9 +53,9 @@ Project Inspector disclosure state is now authoritative and shared between the o
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` | 147.47 MB | `6A92175B46FBDCC9FB8A93450ED9A9853CB1E0684B83E3DC60C8D15D091C2CC4` |
-| `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` | 147.25 MB | `327994398E69F4FEEFC5896BBCC0ACB5EE00A639473818F504BBC483DB53B3F4` |
-| `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` | 191.91 MB | `96EC7386131E1EAA7852A139BA6524A5307E5E18F392027EDA1B4448CFCBCB9F` |
+| `MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` | 147.47 MB | `B4F6DCEB67680D6DB8C197295DD678A220872D84CE99AD278EBB00AD09D041DA` |
+| `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` | 147.25 MB | `0991F111256C91738A072FCDE47F14464874294E90F53EF67047E344AF9AF177` |
+| `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` | 191.91 MB | `8087624EB238B1C689CEC4204F7B6CDAD3600671ED6F868DF1309502A794D95D` |
 
 ## macOS Delivery
 
@@ -68,10 +68,10 @@ The macOS packages are currently unsigned and unnotarized. Installation and Gate
 
 ## Packaged Database Smoke Query
 
-The production SQLite database opened successfully through Prisma. Read-only counts returned 11 projects, 1,858 products, 97 stores, 349 reviews, 1,344 evidence assets, and 13 reports.
+The production SQLite database opened successfully through Prisma. Read-only counts returned 11 projects, 1,821 products, 99 stores, 349 reviews, 1,346 evidence assets, and 13 reports.
 
 ## Known Non-Blocking Notes
 
-- Vite reports an existing renderer chunk-size warning at 581.15 kB; compilation and packaging pass.
+- Vite reports an existing renderer chunk-size warning at 582.18 kB; compilation and packaging pass.
 - Electron Builder uses the default Electron icon because a signed production icon has not yet been configured.
 - macOS binaries cannot be launched on this Windows workstation; both architectures are built and verified by the macOS GitHub Actions matrix.

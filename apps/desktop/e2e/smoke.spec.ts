@@ -148,9 +148,12 @@ test("synchronizes each project outline section with its report disclosure", asy
   await expect(outlineKeywordGeneral.locator("..")).not.toHaveAttribute("open", "");
   await expect(keywordGeneral).toHaveAttribute("data-expanded", "false");
   await expect(keywordGeneral).not.toHaveAttribute("open", "");
+  await expect(relevance).toHaveCount(0);
 
   await outlineKeywordGeneral.click();
   await expect(keywordGeneral).toHaveAttribute("open", "");
+  await expect(relevance).toHaveCount(1);
+  await expect(relevance).not.toHaveAttribute("open", "");
   await page.getByRole("button", { name: "Hide project outline" }).click();
   await expect(page.getByRole("button", { name: "Show project outline" })).toBeVisible();
   await expect(keywordGeneral).toHaveAttribute("open", "");
