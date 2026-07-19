@@ -119,3 +119,41 @@ test("exposes the category-based bulk report workflow", async ({ page }) => {
   await page.getByRole("button", { name: /Next/ }).click();
   await expect(page.getByRole("button", { name: "Generate ZIP" })).toBeVisible();
 });
+
+test("synchronizes each project outline section with its report disclosure", async ({ page }) => {
+  const projectName = `outline-disclosure-${Date.now()}`;
+  await page.goto(e2eApiOverride);
+  await page.getByRole("button", { name: /Create Analysis/ }).click();
+  await page.getByLabel("Desired Keyword").fill(projectName);
+  await page.getByLabel("Product Category").fill("inspector regression");
+  await page.getByRole("button", { name: /Proceed to Browser/ }).click();
+  await page.getByRole("button", { name: "Back to Projects" }).click();
+
+  const keywordGeneral = page.locator("#keyword-general");
+  const relevance = page.locator("#keyword-relevance");
+  const outlineKeywordGeneral = page.locator(".mio-inspector-nav summary").filter({ hasText: /^Keyword General$/ });
+  await expect(page.getByRole("button", { name: "Hide project outline" })).toBeVisible();
+  await expect(keywordGeneral).not.toHaveAttribute("open", "");
+  await expect(outlineKeywordGeneral.locator("..")).not.toHaveAttribute("open", "");
+
+  await outlineKeywordGeneral.click();
+  await expect(keywordGeneral).toHaveAttribute("open", "");
+  await expect(outlineKeywordGeneral.locator("..")).toHaveAttribute("open", "");
+  await expect(relevance).not.toHaveAttribute("open", "");
+
+  await page.locator('.mio-inspector-nav a[href="#keyword-relevance"]').click();
+  await expect(relevance).toHaveAttribute("open", "");
+
+  await outlineKeywordGeneral.click();
+  await expect(outlineKeywordGeneral.locator("..")).not.toHaveAttribute("open", "");
+  await expect(keywordGeneral).toHaveAttribute("data-expanded", "false");
+  await expect(keywordGeneral).not.toHaveAttribute("open", "");
+
+  await outlineKeywordGeneral.click();
+  await expect(keywordGeneral).toHaveAttribute("open", "");
+  await page.getByRole("button", { name: "Hide project outline" }).click();
+  await expect(page.getByRole("button", { name: "Show project outline" })).toBeVisible();
+  await expect(keywordGeneral).toHaveAttribute("open", "");
+  await page.getByRole("button", { name: "Show project outline" }).click();
+  await expect(keywordGeneral).toHaveAttribute("open", "");
+});

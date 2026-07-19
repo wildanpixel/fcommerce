@@ -2,7 +2,7 @@
 
 Official project roadmap.
 
-Last updated: 2026-07-17
+Last updated: 2026-07-19
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Companion document: `IMPLEMENTATION_STATUS.md`
 
@@ -108,6 +108,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | 2026-07-17 | Inspector navigation, review boundaries, and modal theming drifted from the active workflow | Fixed | Portaled dialogs inherit the app theme, the compact inspector header stays visible, outline navigation opens exact parent/child sections, review samples stop before seller responses/`Report Abuse`, and review avatars are excluded from media evidence. |
 | 2026-07-17 | Evaluation could appear pre-scored and Part 3 repeated existing store work | Fixed | AI scoring now runs only after the explicit user action, Product Detail store-home HTML/assets are reused for Key Store collection, and Best Seller collection has a bounded timeout. |
 | 2026-07-17 | Release runtime validation needed current production evidence | Fixed | The clean Windows installer, portable app, packaged Prisma client/engines, SQLite initialization, and read-only production queries were verified without a rebuild loop. |
+| 2026-07-19 | Large Project Inspector views repeated expensive rendering and queries | Fixed | Keyword Project cards now prefetch a bounded cached project detail, inspector evidence indexes are memoized, closed report sections defer their heavy children, and evidence images load lazily. |
+| 2026-07-19 | Collected Product Detail and Key Store evidence could not be corrected cleanly | Fixed | Each guided evidence action now supports reset/recollection with database and local asset cleanup; saved shop-home evidence is reused for Key Store homepage, popular products, and banners while Best Sellers stays manual. |
+| 2026-07-19 | Project Inspector outline and report disclosures could drift out of sync | Fixed | Each parent or nested outline row now controls only its matching report disclosure; a second parent click closes both the subnavigation and main section, while the global outline visibility control remains independent. |
 
 ## Sprint Overview
 

@@ -3,7 +3,7 @@
 Official project management document.
 
 Audit date: 2026-06-27  
-Last updated: 2026-07-17
+Last updated: 2026-07-19
 Current version target: V1.0 Shopee Indonesia desktop intelligence
 Tracking rule: every completed feature must update this document and `ROADMAP.md` in the same commit before the change is pushed.
 
@@ -131,6 +131,9 @@ Release blocker fixes:
 - 2026-07-17: Hardened Project Inspector and guided evidence behavior with theme-aware portaled dialogs, a compact sticky header, collapsed-by-default hierarchy navigation, explicit not-found review media, and seller-response/`Report Abuse` review boundaries.
 - 2026-07-17: Changed Evaluation Phase to require explicit AI scoring, reused Product Detail store-home evidence for Key Store collection, added cumulative media outcomes, and bounded Best Seller data collection to prevent indefinite `#main` download waits.
 - 2026-07-17: Added Single/Bulk report tabs with persisted category ZIP history and revalidated the packaged Windows runtime, SQLite initialization, and Prisma read queries.
+- 2026-07-19: Added project-detail prefetching and bounded React Query caching, memoized inspector evidence indexes, deferred collapsed report sections, lazy evidence media, and direct card-to-inspector navigation for faster large-project inspection.
+- 2026-07-19: Added Product Detail and Key Store per-action reset/recollection, reused saved shop-home HTML for Key Store homepage/popular/banner evidence, retained Best Sellers as the manual exception, and excluded review avatars plus `NOT FOR SALE` / `FREE GIFT` listings from normalized evidence.
+- 2026-07-19: Centralized Project Inspector disclosure state so every parent and nested outline row controls its matching report section in both directions, while hiding or showing the outline panel no longer changes report content.
 - 2026-07-13: Added explicit height inheritance for the Electron `webview` shadow-root iframe and verified the internal iframe style plus fullscreen browser surface height in Playwright.
 - 2026-07-14: Fixed Report Preview positioning by portaling the modal outside animated page content, constraining it to the viewport, and keeping the sticky header and close action reachable.
 - 2026-07-14: Added macOS installation documentation for GitHub Actions artifacts, Apple Silicon/Intel DMG selection, unsigned Gatekeeper opening steps, and local macOS app data folders.

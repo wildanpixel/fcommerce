@@ -1336,7 +1336,7 @@ button:active,
 .mio-capture-status-pill,
 details > div,
 details > section {
-  transition: opacity 1s ease-in-out, transform 1s ease-in-out, background-color 1s ease-in-out, border-color 1s ease-in-out;
+  transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out, background-color 0.5s ease-in-out, border-color 0.5s ease-in-out;
 }
 
 .mio-capture-status-pill {
@@ -1403,10 +1403,10 @@ details > section {
 
 details > summary {
   transition:
-    background 1s ease-in-out,
-    color 1s ease-in-out,
-    border-color 1s ease-in-out,
-    transform 1s ease-in-out;
+    background 0.5s ease-in-out,
+    color 0.5s ease-in-out,
+    border-color 0.5s ease-in-out,
+    transform 0.5s ease-in-out;
 }
 
 details[open] > summary {
@@ -1414,7 +1414,7 @@ details[open] > summary {
 }
 
 details[open] > :not(summary) {
-  animation: mio-collapse-pop 1s ease-in-out;
+  animation: mio-collapse-pop 0.5s ease-in-out;
 }
 
 @supports selector(details::details-content) {
@@ -1427,9 +1427,9 @@ details[open] > :not(summary) {
     opacity: 0;
     overflow: clip;
     transition:
-      block-size 1s ease-in-out,
-      opacity 1s ease-in-out,
-      content-visibility 1s allow-discrete;
+      block-size 0.5s ease-in-out,
+      opacity 0.5s ease-in-out,
+      content-visibility 0.5s allow-discrete;
   }
 
   details[open]::details-content {

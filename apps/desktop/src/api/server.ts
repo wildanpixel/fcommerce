@@ -21,6 +21,7 @@ import type {
   ExtractedPageProduct,
   HtmlSnapshotPayload,
   ManualEvidencePayload,
+  ManualEvidenceResetPayload,
   ManualFileEvidencePayload,
   NewProjectInput,
   PlatformPayload,
@@ -217,6 +218,15 @@ const manualEvidenceSchema = z.object({
   pagePdfDataUrl: z.string().optional(),
   extractedProducts: z.array(extractedPageProductSchema).optional(),
   metadata: z.record(z.unknown()).optional()
+});
+
+const manualEvidenceResetSchema = z.object({
+  projectId: z.string().uuid(),
+  stepId: z.string().min(2),
+  ownerType: evidenceOwnerTypeSchema.optional(),
+  ownerId: z.string().optional(),
+  subActionId: z.string().optional(),
+  kind: manualEvidenceKindSchema.optional()
 });
 
 const htmlSnapshotSchema = z.object({
@@ -598,6 +608,48 @@ export function createApp(): Express {
       extractedProductCount: normalizedEvidence.extractedProductCount,
       storeBannerCount: storeBannerAssetPaths.length
     });
+  }));
+
+  app.post("/api/manual-evidence/reset", asyncRoute(async (request, response) => {
+    const input = manualEvidenceResetSchema.parse(request.body) satisfies ManualEvidenceResetPayload;
+    const detail = await dependencies.projectRepository.getDetail(input.projectId);
+    if (!detail) {
+      response.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const matchingAssets = detail.assets.filter((asset) => {
+      if (input.ownerType && asset.ownerType !== input.ownerType) return false;
+      if (input.ownerId && asset.ownerId !== input.ownerId) return false;
+      if (input.kind && asset.kind !== input.kind) return false;
+      if (asset.metadata.stepId !== input.stepId) return false;
+      if (input.subActionId && asset.metadata.productDetailSubAction !== input.subActionId) return false;
+      return true;
+    });
+    const removablePaths = matchingAssets.flatMap((asset) => [
+      asset.path,
+      typeof asset.metadata.htmlPath === "string" ? asset.metadata.htmlPath : undefined,
+      typeof asset.metadata.textPath === "string" ? asset.metadata.textPath : undefined,
+      typeof asset.metadata.pdfPath === "string" ? asset.metadata.pdfPath : undefined,
+      ...extractStringArray(asset.metadata.storeBannerAssetPaths)
+    ]);
+
+    if (matchingAssets.length > 0) {
+      await prisma.asset.deleteMany({ where: { id: { in: matchingAssets.map((asset) => asset.id) } } });
+      await safeRemoveFiles(removablePaths);
+    }
+    await resetNormalizedEvidence(input);
+    await dependencies.logRepository.write({
+      projectId: input.projectId,
+      level: "INFO",
+      message: `Manual evidence reset: ${input.stepId}${input.subActionId ? ` / ${input.subActionId}` : ""}`,
+      context: {
+        stepId: input.stepId,
+        subActionId: input.subActionId,
+        removedAssetCount: matchingAssets.length
+      }
+    });
+    response.json({ ok: true, removedAssetCount: matchingAssets.length });
   }));
 
   app.post("/api/html-snapshot", asyncRoute(async (request, response) => {
@@ -1535,13 +1587,17 @@ function uniqueExtractedProducts(products: ExtractedPageProduct[]): ExtractedPag
   const unique: ExtractedPageProduct[] = [];
   for (const product of products) {
     const key = normalizeUrl(product.url || product.title);
-    if (!product.title || !product.url || seen.has(key)) {
+    if (!product.title || !product.url || isExcludedCommerceProductTitle(product.title) || seen.has(key)) {
       continue;
     }
     seen.add(key);
     unique.push(product);
   }
   return unique.map((product, index) => ({ ...product, rank: product.rank || index + 1 }));
+}
+
+function isExcludedCommerceProductTitle(title: string): boolean {
+  return /\b(?:NOT\s+FOR\s+SALE|FREE\s+GIFT)\b/iu.test(title);
 }
 
 function toProductDetail(
@@ -1613,6 +1669,78 @@ function toProductDetail(
 function sourcePlacementLabel(product: ExtractedPageProduct, source: string): string {
   const placement = product.sourcePlacement ?? String(product.rank || 1);
   return formatSourcePlacement(placement, source);
+}
+
+async function resetNormalizedEvidence(input: ManualEvidenceResetPayload): Promise<void> {
+  if (input.stepId === "store-products") {
+    await prisma.product.deleteMany({ where: { projectId: input.projectId, source: "Store Products" } });
+    return;
+  }
+  if (input.stepId === "store-best-seller") {
+    await prisma.product.deleteMany({ where: { projectId: input.projectId, source: "Store Best Sellers" } });
+    return;
+  }
+  if (input.ownerType !== "PRODUCT" || !input.ownerId || !input.subActionId) {
+    return;
+  }
+
+  const product = await prisma.product.findFirst({
+    where: { id: input.ownerId, projectId: input.projectId }
+  });
+  if (!product) return;
+  const raw = safeParseJson<Record<string, unknown>>(product.rawJson, {});
+
+  switch (input.subActionId) {
+    case "slides":
+      await prisma.product.update({
+        where: { id: product.id },
+        data: {
+          rawJson: JSON.stringify({
+            ...raw,
+            images: typeof raw.imageUrl === "string" ? [raw.imageUrl] : [],
+            videos: []
+          })
+        }
+      });
+      return;
+    case "description-promotions":
+      await prisma.product.update({
+        where: { id: product.id },
+        data: {
+          description: null,
+          voucherText: null,
+          rawJson: JSON.stringify({
+            ...raw,
+            descriptionImages: [],
+            shopVouchers: [],
+            bundleDeals: [],
+            minimumPurchase: [],
+            promotionCount: 0
+          })
+        }
+      });
+      return;
+    case "positive-reviews":
+      await prisma.review.deleteMany({ where: { productId: product.id, sentiment: "POSITIVE" } });
+      return;
+    case "negative-reviews":
+      await prisma.review.deleteMany({ where: { productId: product.id, sentiment: "NEGATIVE" } });
+      return;
+    case "media-in-user":
+      await prisma.product.update({
+        where: { id: product.id },
+        data: {
+          rawJson: JSON.stringify({
+            ...raw,
+            reviewMediaImages: [],
+            reviewMediaVideos: []
+          })
+        }
+      });
+      return;
+    default:
+      return;
+  }
 }
 
 function formatSourcePlacement(value: string, source?: string | null): string {

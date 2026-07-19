@@ -2,6 +2,16 @@
 
 All notable changes to MarketPlace Keyword Competitor Analysis will be documented in this file.
 
+## Unreleased - 2026-07-19
+
+- Synchronized each Project Inspector outline section with its matching report disclosure: opening or closing a parent outline row now opens or closes only that main section, nested outline links open the exact nested content, and the global outline visibility control remains independent.
+- Made Keyword Project cards open their inspector directly and prefetched/cached project detail data so the inspector becomes responsive before navigation while retaining cached results for repeat visits.
+- Reduced Project Inspector rendering work with memoized evidence indexes, collapsed-by-default report sections, deferred heavy section mounting, and lazy evidence images; the navigation outline remains visible and opens exact parent/child sections on demand.
+- Added per-action evidence reset for Product Detail and Key Store collection, including normalized database cleanup and local asset removal before recollection.
+- Reused Product Detail shop-home HTML for Key Store Store Home Page, Popular Products, and Visual Shop Banner evidence while preserving Best Sellers as the required manual store-page collection step.
+- Restricted review-media extraction to customer review attachments, explicitly records empty media as not found, and excludes `NOT FOR SALE` / `FREE GIFT` listings from product persistence and Key Product selection.
+- Standardized collapse, page, and disclosure motion at 0.5 seconds for a faster interface response.
+
 ## Unreleased - 2026-07-17
 
 - Made portaled dialogs inherit the active app theme, added a compact sticky Project Inspector header, and kept the inspector outline collapsed until the user opens or navigates to a report section.

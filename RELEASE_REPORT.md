@@ -1,18 +1,18 @@
 # MarketPlace Keyword Competitor Analysis - Release Report
 
-Release date: 2026-07-17
+Release date: 2026-07-19
 
 Version: 1.0.0
 
 Local platform: Windows x64
 
-Release task: Guided evidence reliability, exact Project Inspector navigation, explicit AI scoring, reusable Part 3 store evidence, and category bulk reports
+Release task: Project Inspector performance and synchronized disclosures, guided evidence recollection, reusable store evidence, and safe product/media filtering
 
 ## Summary
 
-This release fixes the confirmed post-deletion keyboard-focus regression and records missing Product Detail evidence explicitly instead of leaving ambiguous empty states. Review media is restricted to customer review attachments, review samples stop before seller responses and `Report Abuse`, product rows navigate to their target PDPs, and compact three-second success/not-found notifications follow collection actions.
+This release makes Keyword Project cards directly inspectable and prefetches bounded project detail data. Project evidence indexes are memoized, collapsed report sections defer heavy children, and evidence media loads lazily so large saved projects remain responsive.
 
-Project Inspector now starts collapsed, opens and scrolls the exact parent/child hierarchy selected from its outline, lazy-loads evidence media, uses a compact sticky header, and applies smooth disclosure/title transitions. Evaluation remains unscored until the user explicitly runs AI scoring; Part 3 reuses existing Product Detail store-home HTML/assets and bounds Best Seller collection time. Reports provide separate Single and Bulk tabs plus a four-stage bulk workflow that produces category-named ZIP files with persisted download history.
+Project Inspector disclosure state is now authoritative and shared between the outline and report. Clicking a parent outline row opens its subnavigation and matching main section; clicking it again closes both. Nested links open their exact nested report section, while the global outline hide/show button affects only outline visibility. Product Detail and Key Store actions can be reset and recollected, saved shop-home evidence is reused for Key Store homepage/popular/banner sections, Best Sellers remains the deliberate manual exception, review avatars are excluded from customer media, and `NOT FOR SALE` / `FREE GIFT` listings are rejected from normalized product evidence.
 
 ## Release Checklist
 
@@ -24,11 +24,11 @@ Project Inspector now starts collapsed, opens and scrolls the exact parent/child
 | ESLint | Passed |
 | Unit tests | Passed: 6 files, 19 tests |
 | Clean renderer/Electron build | Passed |
-| Playwright smoke tests | Passed: 4 tests |
+| Playwright smoke tests | Passed: 5 tests, including exact parent/nested outline synchronization and global outline independence |
 | Package Electron | Passed on the first and only attempt |
 | Generate Windows Installer | Passed |
 | Generate Windows Portable | Passed |
-| Verify packaged Prisma Client | Passed: `@prisma/client` and `.prisma/client` are present in `app.asar` |
+| Verify packaged Prisma Client | Passed: `@prisma/client` is packaged and `.prisma/client` is present in `app.asar.unpacked` |
 | Verify packaged Prisma engines | Passed: Windows, macOS Intel, and macOS Apple Silicon engines are unpacked |
 | Launch unpacked Windows application | Passed; live responding Electron process tree confirmed |
 | Launch Windows Portable | Passed; live responding Electron process tree confirmed |
@@ -53,9 +53,9 @@ Project Inspector now starts collapsed, opens and scrolls the exact parent/child
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` | 147.47 MB | `07B1C3085DC81AD1657E0272A64329E5767C2F10B5F45D5797D51FEB196823EF` |
-| `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` | 147.25 MB | `4B697658BAEFD1C981A9C5134973523D3AF6D1F1AAC57F11AF4BA2844984F194` |
-| `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` | 191.91 MB | `0D1174DB649473E32E46B97E9422A0A39F0D8AA43230BC2860A62DE7D3485E1D` |
+| `MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` | 147.47 MB | `6A92175B46FBDCC9FB8A93450ED9A9853CB1E0684B83E3DC60C8D15D091C2CC4` |
+| `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` | 147.25 MB | `327994398E69F4FEEFC5896BBCC0ACB5EE00A639473818F504BBC483DB53B3F4` |
+| `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` | 191.91 MB | `96EC7386131E1EAA7852A139BA6524A5307E5E18F392027EDA1B4448CFCBCB9F` |
 
 ## macOS Delivery
 
@@ -68,10 +68,10 @@ The macOS packages are currently unsigned and unnotarized. Installation and Gate
 
 ## Packaged Database Smoke Query
 
-The production SQLite database opened successfully through Prisma after launch. Read-only counts returned 8 projects, 1,285 products, 72 stores, and 201 reviews.
+The production SQLite database opened successfully through Prisma. Read-only counts returned 11 projects, 1,858 products, 97 stores, 349 reviews, 1,344 evidence assets, and 13 reports.
 
 ## Known Non-Blocking Notes
 
-- Vite reports an existing renderer chunk-size warning at 576.34 kB; compilation and packaging pass.
+- Vite reports an existing renderer chunk-size warning at 581.15 kB; compilation and packaging pass.
 - Electron Builder uses the default Electron icon because a signed production icon has not yet been configured.
 - macOS binaries cannot be launched on this Windows workstation; both architectures are built and verified by the macOS GitHub Actions matrix.

@@ -347,6 +347,20 @@ export type ManualEvidencePayload = {
   metadata?: Record<string, unknown>;
 };
 
+export type ManualEvidenceResetPayload = {
+  projectId: string;
+  stepId: string;
+  ownerType?: "MANUAL_STEP" | "PRODUCT" | "STORE" | "PROJECT";
+  ownerId?: string;
+  subActionId?: string;
+  kind?: ManualEvidenceKind;
+};
+
+export type ManualEvidenceResetResult = {
+  ok: true;
+  removedAssetCount: number;
+};
+
 export type ManualFileEvidencePayload = {
   projectId: string;
   stepId: string;

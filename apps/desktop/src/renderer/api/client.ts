@@ -15,6 +15,8 @@ import type {
   HtmlSnapshotPayload,
   HtmlSnapshotResult,
   ManualEvidencePayload,
+  ManualEvidenceResetPayload,
+  ManualEvidenceResetResult,
   ManualEvidenceResult,
   ManualFileEvidencePayload,
   NewProjectInput,
@@ -110,6 +112,11 @@ export const apiClient = {
     }),
   saveManualEvidence: (payload: ManualEvidencePayload) =>
     request<ManualEvidenceResult>("/manual-evidence", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  resetManualEvidence: (payload: ManualEvidenceResetPayload) =>
+    request<ManualEvidenceResetResult>("/manual-evidence/reset", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

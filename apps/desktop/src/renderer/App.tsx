@@ -1,4 +1,4 @@
-import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent, ReactNode, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent, ReactNode, WheelEvent, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -75,6 +75,20 @@ const TIKTOK_SHOP_URL = "https://www.tiktok.com/shop";
 const APP_DISPLAY_NAME = "MarketPlace Keyword Competitor Analysis";
 const APP_AUTHOR_NAME = "Wildan Ega Pradana";
 const APP_AUTHOR_LINKEDIN = "https://www.linkedin.com/in/wildanegapradana/";
+const PROJECT_DETAIL_STALE_TIME_MS = 5 * 60_000;
+const PROJECT_DETAIL_GC_TIME_MS = 30 * 60_000;
+
+type ReportSectionExpansionState = {
+  openSectionIds: ReadonlySet<string>;
+  setSectionOpen: (id: string, open: boolean) => void;
+  openSectionPath: (ids: string[]) => void;
+};
+
+const ReportSectionExpansionContext = createContext<ReportSectionExpansionState>({
+  openSectionIds: new Set<string>(),
+  setSectionOpen: () => undefined,
+  openSectionPath: () => undefined
+});
 
 type AppLanguage = "id-ID" | "en-US" | "zh-CN";
 
@@ -1364,6 +1378,51 @@ function GuidedBrowserCollector({
     }
   });
 
+  const resetEvidence = useMutation({
+    mutationFn: apiClient.resetManualEvidence,
+    onError: (error) => {
+      setCaptureStatus({ message: "Evidence reset failed", state: "failed", progress: 100 });
+      appendLog(setActivityLog, error instanceof Error ? error.message : "Could not reset the collected evidence.");
+    }
+  });
+
+  async function resetCollectedEvidence(step: CollectionStep, subActionId?: string) {
+    const action = subActionId ? step.subActions?.find((item) => item.id === subActionId) : undefined;
+    const label = action?.label ?? step.label;
+    setCaptureStatus({ message: `Resetting ${label}`, state: "working", progress: 20 });
+    await resetEvidence.mutateAsync({
+      projectId: project.id,
+      stepId: step.id,
+      ownerType: step.ownerType,
+      ownerId: step.ownerId,
+      subActionId,
+      kind: step.kind
+    });
+    const nextCollectedSteps = { ...collectedSteps };
+    delete nextCollectedSteps[stepProgressKey(step, subActionId)];
+    if (subActionId === "shop-homepage" && step.ownerType === "PRODUCT" && step.ownerId) {
+      for (const relatedKey of relatedShopHomepageProgressKeys(step.ownerId, allSteps, projectDetail.data)) {
+        delete nextCollectedSteps[relatedKey];
+      }
+    }
+    setCollectedSteps(nextCollectedSteps);
+    if (subActionId) {
+      selectSubAction(subActionId);
+    }
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
+    ]);
+    persistCollectionState({
+      stepAssetPaths: nextCollectedSteps,
+      completedStepIds: Object.keys(nextCollectedSteps),
+      progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+      currentStepId: step.id
+    });
+    setCaptureStatus({ message: `${label} ready to collect again`, state: "done", progress: 100 });
+    appendLog(setActivityLog, `Reset ${label}.`);
+  }
+
   const attachFileEvidence = useMutation({
     onMutate: (step) => {
       setCaptureStatus({ message: `Attaching ${step.label}`, state: "working", progress: 10 });
@@ -1818,6 +1877,9 @@ function GuidedBrowserCollector({
     }
     const captureMode = subAction?.captureMode ?? step.captureMode ?? "full-page";
     const targetSelector = subAction?.targetSelector ?? step.targetSelector;
+    const extractionSelector = subAction?.id === "shop-homepage" || step.id === "store-homepage"
+      ? ".shop-page__all-products-section"
+      : targetSelector;
     const captureStrategy = subAction?.captureStrategy ?? step.captureStrategy ?? "selector";
     const dataOnlyEvidence = isDataOnlyEvidenceStep(step, subAction);
     const reusableStoreAsset = ["store-products", "store-visual-style"].includes(step.id) && projectDetail.data
@@ -1873,7 +1935,7 @@ function GuidedBrowserCollector({
           storeDecorationImages: []
         }
       : await withTimeout(
-          extractRenderedPageSnapshot(webview, targetSelector, { includeHtml: !dataOnlyEvidence }),
+          extractRenderedPageSnapshot(webview, extractionSelector, { includeHtml: !dataOnlyEvidence }),
           extractionTimeoutMs,
           "The rendered page took too long to read. Scroll through the product grid and try Collect Data again."
         )
@@ -2083,7 +2145,7 @@ function GuidedBrowserCollector({
               initial={{ opacity: 0, y: -8, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.98 }}
-              transition={{ duration: 1, ease: "easeInOut" }}
+              transition={{ duration: 0.5, ease: "easeInOut" }}
             >
               <div className="mb-1 flex items-center gap-2 font-semibold text-white">
                 <AlertTriangle size={16} className="text-signal-amber" />
@@ -2114,6 +2176,7 @@ function GuidedBrowserCollector({
           subActionStates={activeSubActionStates}
           outcomeMessage={captureStatus.message}
           saving={saveEvidence.isPending || Boolean(preparingEvidenceKey)}
+          resetting={resetEvidence.isPending}
           collapseSignal={browserInteractionToken}
           onOpenTarget={(subActionId) => {
             const selectedSubAction = subActionId
@@ -2144,6 +2207,7 @@ function GuidedBrowserCollector({
             }
             void captureAndSaveEvidence(activeStep, selectedSubAction);
           }}
+          onReset={(subActionId) => void resetCollectedEvidence(activeStep, subActionId)}
           onSelectSubAction={selectSubAction}
           onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
           onOpenAndroid={activeStep.id === "tiktok-brand-search" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
@@ -2658,7 +2722,7 @@ function BrowserCaptureStatusPill({
       initial={{ opacity: 0, y: -12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
-      transition={{ duration: 1, ease: "easeInOut" }}
+      transition={{ duration: 0.5, ease: "easeInOut" }}
     >
       <div
         className={[
@@ -2694,9 +2758,11 @@ function FloatingStepController({
   subActionStates,
   outcomeMessage,
   saving,
+  resetting,
   collapseSignal,
   onOpenTarget,
   onCollect,
+  onReset,
   onSelectSubAction,
   onAttachFile,
   onOpenAndroid,
@@ -2714,9 +2780,11 @@ function FloatingStepController({
   subActionStates?: Record<string, "pending" | "collected" | "not-found">;
   outcomeMessage?: string;
   saving: boolean;
+  resetting: boolean;
   collapseSignal: number;
   onOpenTarget: (subActionId?: string) => void;
   onCollect: (subActionId?: string) => void;
+  onReset: (subActionId?: string) => void;
   onSelectSubAction: (id: string) => void;
   onAttachFile?: () => void;
   onOpenAndroid?: () => void;
@@ -2776,7 +2844,7 @@ function FloatingStepController({
           className="mio-floating-collector mio-floating-collector-compact absolute left-4 top-4 z-20 max-w-[430px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
           initial={{ opacity: 0, y: -10, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 1, ease: "easeInOut" }}
+          transition={{ duration: 0.5, ease: "easeInOut" }}
         >
           <div className="flex items-center gap-2">
           <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={() => setCompact(false)} aria-label="Expand collector">
@@ -2814,6 +2882,18 @@ function FloatingStepController({
           >
             {saving ? <span className="mio-spinner" /> : step.mode === "PROCESS" ? <Table2 size={13} /> : <ClipboardCheck size={13} />}
           </button>
+          {(activeSubActionFinished || (!usesSubActionCollectButtons && captured)) && (
+            <button
+              className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
+              type="button"
+              disabled={saving || resetting}
+              onClick={() => onReset(activeSubAction?.id)}
+              aria-label={`Reset ${activeSubAction?.label ?? step.label}`}
+              title={`Reset ${activeSubAction?.label ?? step.label}`}
+            >
+              {resetting ? <span className="mio-spinner" /> : <RefreshCcw size={13} />}
+            </button>
+          )}
           {((usesSubActionCollectButtons && activeSubActionFinished) || (!usesSubActionCollectButtons && captured && step.mode !== "PROCESS")) && (
             <button
               className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
@@ -2839,7 +2919,7 @@ function FloatingStepController({
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 1, ease: "easeInOut" }}
+              transition={{ duration: 0.5, ease: "easeInOut" }}
             >
               {outcomeNotice.state === "collected" ? <CheckCircle2 size={14} /> : <X size={14} />}
               <span>{outcomeNotice.label}</span>
@@ -2855,7 +2935,7 @@ function FloatingStepController({
       className="mio-floating-collector mio-floating-collector-expanded absolute left-4 top-4 z-20 flex w-[320px] flex-col rounded-[18px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl"
       initial={{ opacity: 0, y: -10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 1, ease: "easeInOut" }}
+      transition={{ duration: 0.5, ease: "easeInOut" }}
     >
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -2907,7 +2987,7 @@ function FloatingStepController({
                       {actionState === "collected" ? "collected" : actionState === "not-found" ? "not found" : subActionModeLabel(action)}
                     </span>
                   </div>
-                  <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+                  <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2">
                     <div className="truncate text-[10px] text-ink-500">{action.description}</div>
                     {(!usesSubActionCollectButtons || action.id === "shop-homepage") && (
                       <button
@@ -2937,6 +3017,21 @@ function FloatingStepController({
                         {saving && activeSubAction?.id === action.id ? <span className="mio-spinner" /> : subActionButtonLabel(action, actionCount)}
                       </button>
                     )}
+                    {actionState !== "pending" && (
+                      <button
+                        className="secondary-button mio-round-icon-button h-8 w-8 px-0"
+                        type="button"
+                        disabled={saving || resetting}
+                        onClick={() => {
+                          onSelectSubAction(action.id);
+                          onReset(action.id);
+                        }}
+                        aria-label={`Reset ${action.label}`}
+                        title={`Reset ${action.label}`}
+                      >
+                        {resetting && activeSubAction?.id === action.id ? <span className="mio-spinner" /> : <RefreshCcw size={12} />}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -2960,12 +3055,19 @@ function FloatingStepController({
         )}
       </div>
       {!usesSubActionCollectButtons && (step.ready ? (
-        <button className="primary-button mt-2 h-9" type="button" disabled={saving || activeSubActionMaxed} onClick={() => onCollect(activeSubAction?.id)}>
-          <ClipboardCheck size={16} />
-          {step.mode === "PROCESS"
-            ? captured ? "Review Process Again" : step.id === "evaluation-phase-scoring" ? "Open Evaluation Phase" : "Build Key Product Table"
-            : saving ? "Saving Evidence" : captured ? `Collect Again${activeSubAction ? `: ${activeSubAction.label}` : ""}` : collectLabel ?? (dataOnlyStep ? "Collect Data" : "Collect This Step")}
-        </button>
+        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <button className="primary-button h-9" type="button" disabled={saving || activeSubActionMaxed} onClick={() => onCollect(activeSubAction?.id)}>
+            <ClipboardCheck size={16} />
+            {step.mode === "PROCESS"
+              ? captured ? "Review Process Again" : step.id === "evaluation-phase-scoring" ? "Open Evaluation Phase" : "Build Key Product Table"
+              : saving ? "Saving Evidence" : captured ? `Collect Again${activeSubAction ? `: ${activeSubAction.label}` : ""}` : collectLabel ?? (dataOnlyStep ? "Collect Data" : "Collect This Step")}
+          </button>
+          {captured && (
+            <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" disabled={saving || resetting} onClick={() => onReset(activeSubAction?.id)} aria-label={`Reset ${step.label}`} title={`Reset ${step.label}`}>
+              {resetting ? <span className="mio-spinner" /> : <RefreshCcw size={14} />}
+            </button>
+          )}
+        </div>
       ) : (
         <div className="mt-2 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
           {step.mode === "PROCESS"
@@ -3344,7 +3446,10 @@ function ProjectsView() {
     () => Array.from(new Set(projects.map((project) => project.productCategory).filter((value): value is string => Boolean(value?.trim())))).sort(),
     [projects]
   );
-  const filteredProjects = projects.filter((project) => categoryFilter === "all" || project.productCategory === categoryFilter);
+  const filteredProjects = useMemo(
+    () => projects.filter((project) => categoryFilter === "all" || project.productCategory === categoryFilter),
+    [categoryFilter, projects]
+  );
 
   useEffect(() => {
     if (!projectInspectorRequestId) {
@@ -3359,8 +3464,19 @@ function ProjectsView() {
   const detail = useQuery({
     queryKey: ["project-detail", inspectingProjectId],
     queryFn: () => apiClient.projectDetail(inspectingProjectId),
-    enabled: Boolean(inspectingProjectId)
+    enabled: Boolean(inspectingProjectId),
+    staleTime: PROJECT_DETAIL_STALE_TIME_MS,
+    gcTime: PROJECT_DETAIL_GC_TIME_MS,
+    placeholderData: (previous) => previous
   });
+
+  function prefetchProjectDetail(projectId: string) {
+    void queryClient.prefetchQuery({
+      queryKey: ["project-detail", projectId],
+      queryFn: () => apiClient.projectDetail(projectId),
+      staleTime: PROJECT_DETAIL_STALE_TIME_MS
+    });
+  }
   const deleteProject = useMutation({
     mutationFn: apiClient.deleteProject,
     onSuccess: async () => {
@@ -3517,8 +3633,20 @@ function ProjectsView() {
             return (
               <div
                 key={project.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Inspect ${project.name}`}
+                onPointerEnter={() => prefetchProjectDetail(project.id)}
+                onFocus={() => prefetchProjectDetail(project.id)}
+                onClick={() => setInspectingProjectId(project.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setInspectingProjectId(project.id);
+                  }
+                }}
                 className={[
-                  "mio-project-card w-full rounded-md border border-white/8 bg-white/5 p-4 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10",
+                  "mio-project-card w-full cursor-pointer rounded-md border border-white/8 bg-white/5 p-4 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10",
                   projectViewMode === "list" ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4" : ""
                 ].join(" ")}
               >
@@ -3547,12 +3675,12 @@ function ProjectsView() {
                   </div>
                 </div>
                 <div className={projectViewMode === "list" ? "flex shrink-0 flex-wrap items-center gap-2" : "mt-4 flex flex-wrap items-center gap-2"}>
-                  <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => setInspectingProjectId(project.id)}>
+                  <button className="secondary-button h-9 w-auto px-3" type="button" onClick={(event) => { event.stopPropagation(); setInspectingProjectId(project.id); }}>
                     <Search size={14} />
                     Inspect
                   </button>
                   {!completed && (
-                    <button className="primary-button h-9 w-auto px-3" type="button" onClick={() => startProjectCollection(project)}>
+                    <button className="primary-button h-9 w-auto px-3" type="button" onClick={(event) => { event.stopPropagation(); startProjectCollection(project); }}>
                       <ClipboardCheck size={14} />
                       Continue Collection
                     </button>
@@ -3560,7 +3688,7 @@ function ProjectsView() {
                   <button
                     className="secondary-button mio-danger-round mio-round-icon-button h-10 w-10 rounded-full px-0"
                     type="button"
-                    onClick={() => confirmDeleteProject(project)}
+                    onClick={(event) => { event.stopPropagation(); confirmDeleteProject(project); }}
                     disabled={deleteProject.isPending}
                     aria-label={`Delete ${project.name}`}
                     title={`Delete ${project.name}`}
@@ -3617,7 +3745,7 @@ function ProjectDeleteDialog({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 1, ease: "easeInOut" }}
+      transition={{ duration: 0.5, ease: "easeInOut" }}
       onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
     >
       <motion.div
@@ -3628,7 +3756,7 @@ function ProjectDeleteDialog({
         initial={{ opacity: 0, y: 12, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 12, scale: 0.97 }}
-        transition={{ duration: 1, ease: "easeInOut" }}
+        transition={{ duration: 0.5, ease: "easeInOut" }}
       >
             <h2 id="delete-project-dialog-title" className="text-lg font-semibold">Delete keyword project?</h2>
             <p className="mio-delete-dialog-copy mt-2 text-sm leading-6">
@@ -3674,11 +3802,37 @@ function ProjectInspectionPanel({
   onContinueCollection: () => void;
 }) {
   const queryClient = useQueryClient();
-  const mediaCount = projectMediaCount(detail);
-  const collectionState = projectCollectionState(detail.project);
+  const mediaCount = useMemo(() => projectMediaCount(detail), [detail]);
+  const collectionState = useMemo(() => projectCollectionState(detail.project), [detail.project]);
   const completed = isProjectComplete(detail.project);
-  const outlineItems = projectOutlineItems(detail);
-  const [outlineCollapsed, setOutlineCollapsed] = useState(true);
+  const outlineItems = useMemo(() => projectOutlineItems(detail), [detail]);
+  const [outlineCollapsed, setOutlineCollapsed] = useState(false);
+  const [openReportSectionIds, setOpenReportSectionIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setOutlineCollapsed(false);
+    setOpenReportSectionIds(new Set());
+  }, [detail.project.id]);
+  function setReportSectionOpen(id: string, open: boolean) {
+    setOpenReportSectionIds((current) => {
+      if (current.has(id) === open) return current;
+      const next = new Set(current);
+      if (open) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+  function openReportSectionPath(ids: string[]) {
+    setOpenReportSectionIds((current) => {
+      const next = new Set(current);
+      let changed = false;
+      for (const id of ids) {
+        if (next.has(id)) continue;
+        next.add(id);
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }
   const runAnalysis = useMutation({
     mutationFn: () => apiClient.analyzeProject(detail.project.id),
     onSuccess: async () => {
@@ -3739,21 +3893,29 @@ function ProjectInspectionPanel({
       </div>
       </div>
 
-      <div className={["mio-project-workspace grid gap-5", outlineCollapsed ? "grid-cols-[48px_minmax(0,1fr)]" : "grid-cols-[260px_minmax(0,1fr)]"].join(" ")}>
-        <ProjectOutlineNav
-          title={detail.project.name}
-          items={outlineItems}
-          collapsed={outlineCollapsed}
-          onToggle={() => setOutlineCollapsed((value) => !value)}
-        />
-        <ProjectReportOutline
-          detail={detail}
-          onContinueCollection={onContinueCollection}
-          onRunAnalysis={() => runAnalysis.mutate()}
-          scoring={runAnalysis.isPending}
-          scoringProvider={runAnalysis.data?.provider}
-        />
-      </div>
+      <ReportSectionExpansionContext.Provider
+        value={{
+          openSectionIds: openReportSectionIds,
+          setSectionOpen: setReportSectionOpen,
+          openSectionPath: openReportSectionPath
+        }}
+      >
+        <div className={["mio-project-workspace grid gap-5", outlineCollapsed ? "grid-cols-[48px_minmax(0,1fr)]" : "grid-cols-[260px_minmax(0,1fr)]"].join(" ")}>
+          <ProjectOutlineNav
+            title={detail.project.name}
+            items={outlineItems}
+            collapsed={outlineCollapsed}
+            onToggle={() => setOutlineCollapsed((collapsed) => !collapsed)}
+          />
+          <ProjectReportOutline
+            detail={detail}
+            onContinueCollection={onContinueCollection}
+            onRunAnalysis={() => runAnalysis.mutate()}
+            scoring={runAnalysis.isPending}
+            scoringProvider={runAnalysis.data?.provider}
+          />
+        </div>
+      </ReportSectionExpansionContext.Provider>
     </section>
   );
 }
@@ -3771,9 +3933,27 @@ function ProjectReportOutline({
   scoring: boolean;
   scoringProvider?: string;
 }) {
-  const relevanceProducts = detail.products.filter((product) => product.source === "Relevance");
-  const topSalesProducts = detail.products.filter((product) => product.source === "Top Sales");
-  const keyProducts = selectKeyProductCandidates(detail.products, detail.project.keyword);
+  const relevanceProducts = useMemo(
+    () => detail.products.filter((product) => product.source === "Relevance"),
+    [detail.products]
+  );
+  const topSalesProducts = useMemo(
+    () => detail.products.filter((product) => product.source === "Top Sales"),
+    [detail.products]
+  );
+  const keyProducts = useMemo(
+    () => selectKeyProductCandidates(detail.products, detail.project.keyword),
+    [detail.products, detail.project.keyword]
+  );
+  const reviewsByProduct = useMemo(() => {
+    const grouped = new Map<string, ProjectDetailPayload["reviews"]>();
+    for (const review of detail.reviews) {
+      const reviews = grouped.get(review.productId) ?? [];
+      reviews.push(review);
+      grouped.set(review.productId, reviews);
+    }
+    return grouped;
+  }, [detail.reviews]);
   return (
     <div className="space-y-3">
       <ReportOutlineSection id="keyword-general" title="Keyword General">
@@ -3803,7 +3983,7 @@ function ProjectReportOutline({
             <NestedReportSection key={product.id} id={`product-${product.id}`} title={displayProductTitle(product)}>
               <ProductQualifiedSection
                 product={product}
-                reviews={detail.reviews.filter((review) => review.productId === product.id)}
+                reviews={reviewsByProduct.get(product.id) ?? []}
                 assets={productAssetsForStep(detail, product)}
                 sectionIdPrefix={`product-${product.id}`}
               />
@@ -4033,33 +4213,52 @@ function ProjectOutlineNav({
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const groups = groupProjectOutlineItems(items);
+  const groups = useMemo(() => groupProjectOutlineItems(items), [items]);
+  const sectionExpansion = useContext(ReportSectionExpansionContext);
+  function outlinePath(id: string): string[] {
+    for (const group of groups) {
+      if (group.id === id) return [group.id];
+      for (const item of group.children) {
+        if (item.id === id) return [group.id, item.id];
+        if (item.children.some((child) => child.id === id)) return [group.id, item.id, id];
+      }
+    }
+    return [id];
+  }
   function openOutlineTarget(id: string) {
-    const target = document.getElementById(id);
-    if (!target) return;
-    if (target instanceof HTMLDetailsElement) {
-      target.open = true;
-    }
-    let ancestor = target.parentElement?.closest("details") ?? null;
-    while (ancestor) {
-      ancestor.open = true;
-      ancestor = ancestor.parentElement?.closest("details") ?? null;
-    }
-    window.requestAnimationFrame(() => {
+    const path = outlinePath(id);
+    sectionExpansion.openSectionPath(path);
+    const openPathItem = (index: number, attempts = 0) => {
+      const target = document.getElementById(path[index]);
+      if (!target) {
+        if (attempts < 20) {
+          window.requestAnimationFrame(() => openPathItem(index, attempts + 1));
+        }
+        return;
+      }
+      if (index < path.length - 1) {
+        window.requestAnimationFrame(() => openPathItem(index + 1, 0));
+        return;
+      }
       window.requestAnimationFrame(() => target.scrollIntoView({ behavior: "smooth", block: "start" }));
-    });
+    };
+    openPathItem(0);
   }
   function handleOutlineSummaryClick(event: ReactMouseEvent<HTMLElement>, targetId: string) {
     event.preventDefault();
     event.stopPropagation();
-    const details = event.currentTarget.parentElement;
-    if (!(details instanceof HTMLDetailsElement)) return;
-    const willOpen = !details.open;
-    details.toggleAttribute("open", willOpen);
+    const willOpen = !sectionExpansion.openSectionIds.has(targetId);
+    sectionExpansion.setSectionOpen(targetId, willOpen);
     if (!willOpen) return;
     window.requestAnimationFrame(() => {
       openOutlineTarget(targetId);
     });
+  }
+  function handleOutlineLinkClick(event: ReactMouseEvent<HTMLAnchorElement>, targetId: string) {
+    event.preventDefault();
+    const willOpen = !sectionExpansion.openSectionIds.has(targetId);
+    if (willOpen) openOutlineTarget(targetId);
+    else sectionExpansion.setSectionOpen(targetId, false);
   }
   if (collapsed) {
     return (
@@ -4080,13 +4279,13 @@ function ProjectOutlineNav({
       </div>
       <div className="space-y-1">
         {groups.map((group) => group.children.length > 0 ? (
-          <details key={`${group.id}-${group.label}`} className="mio-outline-group rounded-md">
+          <details key={`${group.id}-${group.label}`} open={sectionExpansion.openSectionIds.has(group.id)} className="mio-outline-group rounded-md">
             <summary onClick={(event) => handleOutlineSummaryClick(event, group.id)} className="cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
               {group.label}
             </summary>
             <div className="mt-1 space-y-1">
               {group.children.map((item) => item.children.length > 0 ? (
-                <details key={`${item.id}-${item.label}`} className="mio-outline-subgroup ml-3 rounded-md">
+                <details key={`${item.id}-${item.label}`} open={sectionExpansion.openSectionIds.has(item.id)} className="mio-outline-subgroup ml-3 rounded-md">
                   <summary onClick={(event) => handleOutlineSummaryClick(event, item.id)} className="cursor-pointer select-none rounded px-2 py-1.5 text-xs font-medium text-ink-300 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
                     {item.label}
                   </summary>
@@ -4095,7 +4294,7 @@ function ProjectOutlineNav({
                       <a
                         key={`${child.id}-${child.label}`}
                         href={`#${child.id}`}
-                        onClick={(event) => { event.preventDefault(); openOutlineTarget(child.id); }}
+                        onClick={(event) => handleOutlineLinkClick(event, child.id)}
                         className="block rounded px-2 py-1.5 pl-5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
                       >
                         {child.label}
@@ -4107,7 +4306,7 @@ function ProjectOutlineNav({
                 <a
                   key={`${item.id}-${item.label}`}
                   href={`#${item.id}`}
-                  onClick={(event) => { event.preventDefault(); openOutlineTarget(item.id); }}
+                  onClick={(event) => handleOutlineLinkClick(event, item.id)}
                   className="ml-3 block rounded px-2 py-1.5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
                 >
                   {item.label}
@@ -4119,7 +4318,7 @@ function ProjectOutlineNav({
           <a
             key={`${group.id}-${group.label}`}
             href={`#${group.id}`}
-            onClick={(event) => { event.preventDefault(); openOutlineTarget(group.id); }}
+            onClick={(event) => handleOutlineLinkClick(event, group.id)}
             className="block rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
           >
             {group.label}
@@ -4156,19 +4355,50 @@ function groupProjectOutlineItems(items: Array<{ id: string; label: string; dept
 }
 
 function ReportOutlineSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  const sectionExpansion = useContext(ReportSectionExpansionContext);
+  const open = sectionExpansion.openSectionIds.has(id);
   return (
-    <details id={id} className="mio-report-section scroll-mt-4 rounded-md border border-white/8 bg-white/5 p-4">
-      <summary className="cursor-pointer select-none text-sm font-semibold text-white">{title}</summary>
-      <div className="mt-4">{children}</div>
+    <details
+      id={id}
+      open={open}
+      data-expanded={open ? "true" : "false"}
+      className="mio-report-section scroll-mt-4 rounded-md border border-white/8 bg-white/5 p-4"
+    >
+      <summary
+        className="cursor-pointer select-none text-sm font-semibold text-white"
+        onClick={(event) => {
+          event.preventDefault();
+          sectionExpansion.setSectionOpen(id, !open);
+        }}
+      >
+        {title}
+      </summary>
+      {open ? <div className="mio-lazy-section-body mt-4">{children}</div> : null}
     </details>
   );
 }
 
 function NestedReportSection({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
+  const sectionExpansion = useContext(ReportSectionExpansionContext);
+  const open = id ? sectionExpansion.openSectionIds.has(id) : false;
   return (
-    <details id={id} className="mb-3 scroll-mt-20 rounded-md border border-white/8 bg-white/[0.04] p-3">
-      <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-[0.08em] text-ink-300">{title}</summary>
-      <div className="mt-3">{children}</div>
+    <details
+      id={id}
+      open={open}
+      data-expanded={open ? "true" : "false"}
+      className="mb-3 scroll-mt-20 rounded-md border border-white/8 bg-white/[0.04] p-3"
+    >
+      <summary
+        className="cursor-pointer select-none text-xs font-semibold uppercase tracking-[0.08em] text-ink-300"
+        onClick={(event) => {
+          if (!id) return;
+          event.preventDefault();
+          sectionExpansion.setSectionOpen(id, !open);
+        }}
+      >
+        {title}
+      </summary>
+      {open ? <div className="mio-lazy-section-body mt-3">{children}</div> : null}
     </details>
   );
 }
@@ -4189,7 +4419,7 @@ function AnimatedProjectTitle({ title }: { title: string }) {
             filter: index % 3 === 0 ? "blur(8px)" : "blur(0px)"
           }}
           animate={{ opacity: 1, x: 0, y: 0, filter: "blur(0px)" }}
-          transition={{ delay: index * 0.12, duration: 1, ease: "easeInOut" }}
+          transition={{ delay: index * 0.08, duration: 0.5, ease: "easeOut" }}
         >
           {word}{index < words.length - 1 ? "\u00a0" : ""}
         </motion.span>
@@ -6299,7 +6529,7 @@ function selectKeyProductCandidates(products: ProjectProductEvidence[], keyword 
   const merged = new Map<string, ProjectProductEvidence>();
   for (const rawProduct of products.filter(isQualifiedProductSource)) {
     const product = normalizeProductSelectionSignals(rawProduct);
-    if (!isRelevantProductCandidate(product, keyword)) {
+    if (isExcludedCommerceProductTitle(product.title) || !isRelevantProductCandidate(product, keyword)) {
       continue;
     }
     const key = normalizeProductKey(product);
@@ -6334,6 +6564,10 @@ function selectKeyProductCandidates(products: ProjectProductEvidence[], keyword 
       ...product,
       selectionReason: selectionReasonForDisplay(product, candidates, keyword)
     }));
+}
+
+function isExcludedCommerceProductTitle(title: string): boolean {
+  return /\b(?:NOT\s+FOR\s+SALE|FREE\s+GIFT)\b/iu.test(title);
 }
 
 function isQualifiedProductSource(product: ProjectProductEvidence): boolean {
@@ -7836,13 +8070,21 @@ async function extractRenderedPageSnapshot(
       const reviewMediaRoots = Array.from(document.querySelectorAll(".rating-media-list-image-carousel__item-list-wrapper, [class*='rating-media-list-image-carousel__item-list-wrapper']"));
       const isUsableReviewMediaElement = (element, url) => {
         if (!url || !element?.closest?.(".rating-media-list-image-carousel__item-list-wrapper, [class*='rating-media-list-image-carousel__item-list-wrapper']")) return false;
-        if (element.closest("[class*='avatar'], [class*='profile'], [class*='user-avatar']")) return false;
-        if (/avatar|profile|user-avatar|default-avatar/iu.test(String(url))) return false;
+        const reviewRow = element.closest(".shopee-product-rating, [class*='product-rating'], [class*='comment-list'] > div");
+        if (!reviewRow) return false;
+        if (element.closest("[class*='avatar'], [class*='profile'], [class*='user-avatar'], [class*='author'], [class*='account']")) return false;
+        const identityText = compact([
+          element.getAttribute?.("alt"),
+          element.getAttribute?.("aria-label"),
+          element.getAttribute?.("class"),
+          element.parentElement?.getAttribute?.("class")
+        ].filter(Boolean).join(" "));
+        if (/avatar|profile|user[-\\s]?avatar|default[-\\s]?avatar|customer[-\\s]?avatar|author|account/iu.test(String(url) + " " + identityText)) return false;
         const visual = element.tagName === "PICTURE" ? element.querySelector("img") || element : element;
         const rect = visual?.getBoundingClientRect?.();
         const width = Math.round(rect?.width || visual?.naturalWidth || 0);
         const height = Math.round(rect?.height || visual?.naturalHeight || 0);
-        return width >= 96 && height >= 96;
+        return width >= 80 && height >= 80;
       };
       const reviewMediaImages = unique(reviewMediaRoots.flatMap((mediaRoot) =>
         Array.from(mediaRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
@@ -7853,8 +8095,9 @@ async function extractRenderedPageSnapshot(
       ));
       const reviewMediaVideos = unique(reviewMediaRoots.flatMap((mediaRoot) =>
         Array.from(mediaRoot.querySelectorAll("video"))
-          .filter((element) => !isProductGalleryElement(element))
+          .filter((element) => !isProductGalleryElement(element) && Boolean(element.closest(".shopee-product-rating, [class*='product-rating'], [class*='comment-list'] > div")))
           .map((video) => absoluteUrl(video.currentSrc || video.src || video.getAttribute("src") || ""))
+          .filter(Boolean)
       ));
       const looksLikeReviewRow = (element) => {
         const text = textFrom(element);
