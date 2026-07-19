@@ -29,6 +29,7 @@ export class ConsultingHtmlReportRenderer implements HtmlReportRenderer {
         "reviewEvidence"
       ) ? productDossiers(data, enabled) : "",
       include("keyStoreHomePage", "keyStoreProducts", "keyStoreBestSellers", "keyStoreVisualStyle", "storeOverview", "storeDossiers", "visualStyle") ? keyStoreReport(data, enabled) : "",
+      include("intelligence", "aiRecommendations") ? aiRecommendations(data) : "",
       include("tiktokEvidence", "crossPlatformEvidence") ? crossPlatformEvidence(data) : "",
       documentEnd()
     ];
@@ -1023,7 +1024,7 @@ function crossPlatformEvidence(data: ReportData): string {
   </details>`;
 }
 
-function _aiRecommendations(data: ReportData): string {
+function aiRecommendations(data: ReportData): string {
   const analyses = data.analyses.map((analysis) => safeJson<AiAnalysisJson | null>(analysis.resultJson, null)).filter(Boolean);
   return `<details class="page report-section" open>
     <summary>AI Recommendations</summary>
@@ -1044,6 +1045,22 @@ function _aiRecommendations(data: ReportData): string {
             ${_score("Position", analysis.competitivePosition.score)}
             ${_score("Trust", analysis.customerTrust.score)}
           </div>
+          <h3>Executive Summary</h3>
+          <p>${escapeHtml(analysis.executiveSummary || "No executive summary was generated for this saved analysis.")}</p>
+          ${analysis.swot ? `<h3>SWOT</h3>
+          <div class="grid two">
+            ${analysisList("Strengths", analysis.swot.strengths)}
+            ${analysisList("Weaknesses", analysis.swot.weaknesses)}
+            ${analysisList("Opportunities", analysis.swot.opportunities)}
+            ${analysisList("Threats", analysis.swot.threats)}
+          </div>` : ""}
+          <h3>Market Intelligence</h3>
+          <div class="grid two">
+            ${analysisSummary("Pricing Analysis", analysis.pricingAnalysis)}
+            ${analysisSummary("Store Analysis", analysis.storeAnalysis)}
+            ${analysisSummary("Competitor Analysis", analysis.competitorAnalysis)}
+            ${analysisSummary("Visual Analysis", analysis.visualAnalysis)}
+          </div>
           <h3>Recommendations</h3>
           <table><tbody>${analysis.recommendations
             .map(
@@ -1056,6 +1073,18 @@ function _aiRecommendations(data: ReportData): string {
       .join("")}
     </div>
   </details>`;
+}
+
+function analysisList(label: string, items: string[] | undefined): string {
+  return `<div class="analysis"><h3>${escapeHtml(label)}</h3><ul>${(items ?? [])
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("") || "<li>No signal generated.</li>"}</ul></div>`;
+}
+
+function analysisSummary(label: string, value: { summary: string; signals: string[] } | undefined): string {
+  return `<div class="analysis"><h3>${escapeHtml(label)}</h3><p>${escapeHtml(value?.summary || "No analysis generated.")}</p><ul>${(value?.signals ?? [])
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("")}</ul></div>`;
 }
 
 function snapshotProductTable(products: ReportData["products"]): string {

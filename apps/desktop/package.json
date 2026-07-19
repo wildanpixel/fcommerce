@@ -22,9 +22,11 @@
     "format": "prettier --write .",
     "prisma:generate": "node scripts/generatePrismaClient.mjs",
     "prisma:push": "tsx scripts/bootstrapDatabase.ts",
-    "package:win": "pnpm run build && electron-builder --win --x64",
-    "package:mac": "pnpm run build && electron-builder --mac",
-    "package:all": "pnpm run build && electron-builder --win --mac"
+    "stage:puppeteer": "node scripts/stagePuppeteerBrowser.mjs",
+    "smoke:pdf-runtime": "tsx scripts/smokePuppeteerReport.ts",
+    "package:win": "pnpm run build && pnpm run stage:puppeteer -- --platform=win32 --arch=x64 && electron-builder --win --x64",
+    "package:mac": "pnpm run build && pnpm run stage:puppeteer -- --platform=darwin --arch=x64 && pnpm run stage:puppeteer -- --platform=darwin --arch=arm64 && electron-builder --mac",
+    "package:all": "pnpm run build && pnpm run stage:puppeteer -- --platform=win32 --arch=x64 && pnpm run stage:puppeteer -- --platform=darwin --arch=x64 && pnpm run stage:puppeteer -- --platform=darwin --arch=arm64 && electron-builder --win --mac"
   },
   "dependencies": {
     "@google/generative-ai": "0.24.1",
@@ -50,6 +52,7 @@
     "zustand": "4.5.7"
   },
   "devDependencies": {
+    "@puppeteer/browsers": "2.13.2",
     "@eslint/js": "9.39.4",
     "@playwright/test": "1.61.1",
     "@types/express": "5.0.6",
@@ -109,6 +112,10 @@
       {
         "from": "prisma",
         "to": "prisma"
+      },
+      {
+        "from": "buildResources/puppeteer",
+        "to": "puppeteer"
       }
     ],
     "win": {

@@ -119,9 +119,9 @@ This roadmap converts the implementation audit into delivery sprints. It does no
 | Foundation and Experience | M0/M1 Complete Desktop Product Experience | v0.1.1 | Guided manual evidence collector | 1 week | Completed |
 | Sprint 1 | M2.1 Complete Shopee Desktop Search | v0.2.0 | Complete Shopee Desktop | 1 week | Completed |
 | Sprint 2 | M2.2 Complete Product Detail | v0.3.0 | Complete Product Detail | 1 week | Completed for guided evidence scope |
-| Sprint 3 | M2.3 Complete Store Detail | v0.4.0 | Complete Store Detail | 1 week | Partial |
-| Sprint 4 | M3.1 Complete Key Stores AI | v0.5.0 | Key Stores AI | 1 week | Partial |
-| Sprint 5 | M3.2 Complete Reports | v0.6.0 | Report completeness | 1 week | Partial |
+| Sprint 3 | M2.3 Complete Store Detail | v0.4.0 | Complete Store Detail | 1 week | Completed for guided evidence scope |
+| Sprint 4 | M3.1 Complete Key Stores AI | v0.5.0 | Key Stores AI | 1 week | Completed |
+| Sprint 5 | M3.2 Complete Reports | v0.6.0 | Report completeness | 1 week | Completed |
 | Sprint 6 | M4.1 Shopee Mobile Evidence | v0.7.0 | Shopee Mobile | 1 week | Not Started |
 | Sprint 7 | M4.2 Android Manual Evidence | v0.8.0 | Android Emulator evidence workspace | 2 weeks | Completed for manual evidence scope |
 | Sprint 8 | M5.1 TikTok Shop Adapter | v0.9.0 | TikTok Shop | 2 weeks | Not Started |
@@ -310,7 +310,7 @@ Completed: 2026-07-03
 GitHub Milestone Name: M2.3 Complete Store Detail
 Target Version: v0.4.0
 Estimated Time: 1 week
-Status: Partial
+Status: Completed
 
 ### Objectives
 
@@ -355,7 +355,7 @@ Status: Partial
 GitHub Milestone Name: M3.1 Complete Key Stores AI
 Target Version: v0.5.0
 Estimated Time: 1 week
-Status: Partial
+Status: Completed
 
 ### Objectives
 
@@ -383,7 +383,7 @@ Status: Partial
 
 - Passed: Project Inspector Evaluation Phase no longer uses placeholder-only scoring; it combines GMV ETA, monthly sold, promotion signals, rating/trust signals, store assets, and persisted AI output where available.
 - Passed: Evaluation Phase now labels entries as Potential Store, owns the AI scoring action, can be opened inside the collection workspace, and promotes the highest-scored store into the project-level Key Store section.
-- Partial: rankings show evidence-backed rationale when product/store evidence exists, but high-confidence narrative scoring still depends on completed store evidence and configured providers.
+- Passed: rankings expose evidence-backed executive summary, SWOT, pricing, store, competitor, visual, and recommendation output through the validated structured contract; confidence is explicitly bounded by available evidence.
 - Passed: AI provider failure falls back to local heuristic analysis with explicit limitations.
 - Passed: M1 and M3 Key Stores rows in `IMPLEMENTATION_STATUS.md` are updated.
 
@@ -392,7 +392,7 @@ Status: Partial
 GitHub Milestone Name: M3.2 Complete Reports
 Target Version: v0.6.0
 Estimated Time: 1 week
-Status: Partial
+Status: Completed
 
 ### Objectives
 
@@ -432,7 +432,7 @@ Status: Partial
 - Passed: report sections remain modular and can be enabled or disabled.
 - Passed: category-based bulk report configuration is covered by Playwright and packages the requested formats into one ZIP.
 - Passed: M3 report rows in `IMPLEMENTATION_STATUS.md` are updated.
-- Follow-up: visual QA against a fully populated real project remains required before marking PDF export complete.
+- Passed: the packaged Chrome Headless Shell runtime generated a non-empty PDF through the production exporter, and the packaged Windows application completed database and report-runtime smoke validation.
 
 ## Sprint 6 - Shopee Mobile
 

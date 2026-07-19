@@ -4235,7 +4235,7 @@ function ProjectOutlineNav({
   }
   if (collapsed) {
     return (
-      <nav className="mio-inspector-nav sticky top-4 self-start rounded-md border border-white/8 bg-white/5 p-2 text-sm">
+      <nav className="mio-inspector-nav sticky top-20 self-start rounded-md border border-white/8 bg-white/5 p-2 text-sm">
         <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label="Show project outline" title="Show project outline">
           <PanelLeftOpen size={15} />
         </button>
@@ -4243,7 +4243,7 @@ function ProjectOutlineNav({
     );
   }
   return (
-    <nav className="mio-inspector-nav sticky top-4 max-h-[calc(100vh-96px)] self-start overflow-auto rounded-md border border-white/8 bg-white/5 p-3 text-sm">
+    <nav className="mio-inspector-nav sticky top-20 max-h-[calc(100vh-96px)] self-start overflow-auto rounded-md border border-white/8 bg-white/5 p-3 text-sm">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="line-clamp-2 font-semibold text-white">{title}</div>
         <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label="Hide project outline" title="Hide project outline">
@@ -8042,9 +8042,17 @@ async function extractRenderedPageSnapshot(
         ? unique(Array.from(descriptionRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))
           .map(imageUrlFrom))
         : [];
-      const reviewMediaRoots = Array.from(document.querySelectorAll(".rating-media-list-image-carousel__item-list-wrapper, [class*='rating-media-list-image-carousel__item-list-wrapper']"));
+      const reviewMediaRootSelector = [
+        ".rating-media-list-image-carousel__item-list-wrapper",
+        "[class*='rating-media-list-image-carousel__item-list-wrapper']",
+        "[class*='rating-media-list']",
+        "[class*='rating-media']",
+        "[class*='review-media']",
+        "[class*='comment-media']"
+      ].join(", ");
+      const reviewMediaRoots = Array.from(document.querySelectorAll(reviewMediaRootSelector));
       const isUsableReviewMediaElement = (element, url) => {
-        if (!url || !element?.closest?.(".rating-media-list-image-carousel__item-list-wrapper, [class*='rating-media-list-image-carousel__item-list-wrapper']")) return false;
+        if (!url || !element?.closest?.(reviewMediaRootSelector)) return false;
         const reviewRow = element.closest(".shopee-product-rating, [class*='product-rating'], [class*='comment-list'] > div");
         if (!reviewRow) return false;
         if (element.closest("[class*='avatar'], [class*='profile'], [class*='user-avatar'], [class*='author'], [class*='account']")) return false;
@@ -8055,11 +8063,15 @@ async function extractRenderedPageSnapshot(
           element.parentElement?.getAttribute?.("class")
         ].filter(Boolean).join(" "));
         if (/avatar|profile|user[-\\s]?avatar|default[-\\s]?avatar|customer[-\\s]?avatar|author|account/iu.test(String(url) + " " + identityText)) return false;
-        const visual = element.tagName === "PICTURE" ? element.querySelector("img") || element : element;
+        const visual = element.tagName === "SOURCE"
+          ? element.closest("picture")?.querySelector("img") || element.parentElement?.querySelector("img") || element
+          : element.tagName === "PICTURE"
+            ? element.querySelector("img") || element
+            : element;
         const rect = visual?.getBoundingClientRect?.();
         const width = Math.round(rect?.width || visual?.naturalWidth || 0);
         const height = Math.round(rect?.height || visual?.naturalHeight || 0);
-        return width >= 80 && height >= 80;
+        return width >= 48 && height >= 48;
       };
       const reviewMediaImages = unique(reviewMediaRoots.flatMap((mediaRoot) =>
         Array.from(mediaRoot.querySelectorAll("picture, source[srcset], img[srcset], img[src]"))

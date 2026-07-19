@@ -180,6 +180,29 @@ export type AiAnalysisJson = {
     score: number;
     observations: string[];
   };
+  executiveSummary: string;
+  swot: {
+    strengths: string[];
+    weaknesses: string[];
+    opportunities: string[];
+    threats: string[];
+  };
+  pricingAnalysis: {
+    summary: string;
+    signals: string[];
+  };
+  storeAnalysis: {
+    summary: string;
+    signals: string[];
+  };
+  competitorAnalysis: {
+    summary: string;
+    signals: string[];
+  };
+  visualAnalysis: {
+    summary: string;
+    signals: string[];
+  };
   painPoints: string[];
   strengths: string[];
   weaknesses: string[];

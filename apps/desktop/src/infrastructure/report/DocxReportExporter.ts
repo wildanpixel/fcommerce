@@ -16,6 +16,7 @@ import {
   type ParagraphChild
 } from "docx";
 import sharp from "sharp";
+import type { AiAnalysisJson } from "../../domain/models.js";
 import type { ReportData } from "../../application/services/ReportService.js";
 import type { ReportGenerationPayload } from "../../shared/contracts.js";
 import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../../shared/reportSections.js";
@@ -77,6 +78,9 @@ export class ConsultingDocxReportExporter {
     if (include(sections, "keyStoreHomePage", "keyStoreProducts", "keyStoreBestSellers", "keyStoreVisualStyle", "storeOverview", "storeDossiers", "visualStyle")) {
       children.push(...await keyStoreSection(data, sections));
     }
+    if (include(sections, "intelligence", "aiRecommendations")) {
+      children.push(...intelligenceSection(data));
+    }
     if (include(sections, "tiktokEvidence", "crossPlatformEvidence")) {
       children.push(...await tiktokSection(data));
     }
@@ -114,6 +118,53 @@ export class ConsultingDocxReportExporter {
 
     return Packer.toBuffer(doc);
   }
+}
+
+function intelligenceSection(data: ReportData): DocxChild[] {
+  const analyses = data.analyses
+    .map((analysis) => safeJson<AiAnalysisJson | null>(analysis.resultJson, null))
+    .filter((analysis): analysis is AiAnalysisJson => Boolean(analysis));
+  const children: DocxChild[] = [sectionHeading("Intelligence and Recommendations")];
+  if (analyses.length === 0) {
+    return [...children, paragraph("No structured intelligence analysis has been generated yet.", { color: MUTED })];
+  }
+  for (const analysis of analyses) {
+    children.push(
+      subHeading(`${analysis.provider} analysis`),
+      tinyHeading("Executive Summary"),
+      paragraph(analysis.executiveSummary || "No executive summary was generated.", { preserveLines: true })
+    );
+    if (analysis.swot) {
+      children.push(
+        tinyHeading("SWOT"),
+        simpleTable([
+          ["Strengths", analysis.swot.strengths.join("\n") || "-"],
+          ["Weaknesses", analysis.swot.weaknesses.join("\n") || "-"],
+          ["Opportunities", analysis.swot.opportunities.join("\n") || "-"],
+          ["Threats", analysis.swot.threats.join("\n") || "-"]
+        ], [24, 76])
+      );
+    }
+    children.push(
+      intelligenceSummaryTable(analysis),
+      tinyHeading("Recommendations"),
+      tableWithHeader(
+        ["Priority", "Action", "Rationale"],
+        analysis.recommendations.map((item) => [item.priority, item.action, item.rationale])
+      ),
+      paragraph(`Limitations: ${analysis.automationLimitations.join("; ") || "None reported"}`, { color: MUTED })
+    );
+  }
+  return [...children, spacer()];
+}
+
+function intelligenceSummaryTable(analysis: AiAnalysisJson): Table {
+  return simpleTable([
+    ["Pricing Analysis", analysis.pricingAnalysis?.summary ?? "No analysis generated."],
+    ["Store Analysis", analysis.storeAnalysis?.summary ?? "No analysis generated."],
+    ["Competitor Analysis", analysis.competitorAnalysis?.summary ?? "No analysis generated."],
+    ["Visual Analysis", analysis.visualAnalysis?.summary ?? "No analysis generated."]
+  ], [24, 76]);
 }
 
 function enabledSectionIds(sections: ReportSectionConfig[]): Set<ReportSectionConfig["id"]> {

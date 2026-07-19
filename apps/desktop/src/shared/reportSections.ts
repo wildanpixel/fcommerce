@@ -12,6 +12,7 @@ export const REPORT_SECTION_ORDER = [
   "keyStoreProducts",
   "keyStoreBestSellers",
   "keyStoreVisualStyle",
+  "intelligence",
   "tiktokEvidence"
 ] as const;
 
@@ -116,6 +117,12 @@ export const DEFAULT_REPORT_SECTIONS: ReportSectionConfig[] = [
     label: "Key Store - Visual Shop Banner",
     enabled: true,
     requiredEvidence: ["shopDecorationBanners"]
+  },
+  {
+    id: "intelligence",
+    label: "Intelligence and Recommendations",
+    enabled: true,
+    requiredEvidence: ["structuredAnalysisJson"]
   },
   {
     id: "tiktokEvidence",

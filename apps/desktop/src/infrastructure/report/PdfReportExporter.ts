@@ -1,3 +1,4 @@
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,9 +12,11 @@ export class PuppeteerPdfExporter implements PdfExporter {
     const tempDir = await mkdtemp(join(tmpdir(), "mios-report-"));
     const htmlPath = join(tempDir, "report.html");
     await writeFile(htmlPath, html, "utf8");
+    const executablePath = resolvePuppeteerExecutable();
 
     const browser = await puppeteer.launch({
       headless: true,
+      executablePath,
       args: ["--allow-file-access-from-files"]
     });
     try {
@@ -40,6 +43,54 @@ export class PuppeteerPdfExporter implements PdfExporter {
       await rm(tempDir, { force: true, recursive: true });
     }
   }
+}
+
+export function resolvePuppeteerExecutable(options?: {
+  resourcesPath?: string;
+  fallback?: () => string;
+}): string {
+  const configured = process.env.MIO_PUPPETEER_EXECUTABLE_PATH;
+  if (configured && existsSync(configured)) {
+    return configured;
+  }
+
+  const resourcesPath = options?.resourcesPath ?? process.resourcesPath;
+  const packagedRoot = join(resourcesPath, "puppeteer", `${process.platform}-${process.arch}`);
+  const packagedExecutable = findBrowserExecutable(packagedRoot);
+  if (packagedExecutable) {
+    return packagedExecutable;
+  }
+
+  return (options?.fallback ?? (() => puppeteer.executablePath()))();
+}
+
+function findBrowserExecutable(root: string): string | undefined {
+  if (!existsSync(root)) {
+    return undefined;
+  }
+  const executableNames = new Set([
+    "chrome-headless-shell.exe",
+    "chrome-headless-shell",
+    "Google Chrome for Testing",
+    "chrome"
+  ]);
+  const pending = [root];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) {
+      continue;
+    }
+    for (const name of readdirSync(current)) {
+      const candidate = join(current, name);
+      const stats = statSync(candidate);
+      if (stats.isDirectory()) {
+        pending.push(candidate);
+      } else if (executableNames.has(name)) {
+        return candidate;
+      }
+    }
+  }
+  return undefined;
 }
 
 async function waitForImages(page: Page): Promise<void> {

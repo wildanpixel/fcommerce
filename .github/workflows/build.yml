@@ -45,6 +45,9 @@ jobs:
       - name: Build React and Electron code
         run: pnpm build
 
+      - name: Stage Puppeteer browser
+        run: pnpm --filter @marketplace-intelligence-os/desktop stage:puppeteer -- --platform=win32 --arch=x64
+
       - name: Package Windows
         run: pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64
 
@@ -106,6 +109,9 @@ jobs:
 
       - name: Build React and Electron code
         run: pnpm build
+
+      - name: Stage Puppeteer browser
+        run: pnpm --filter @marketplace-intelligence-os/desktop stage:puppeteer -- --platform=darwin --arch=${{ matrix.arch }}
 
       - name: Package macOS
         run: pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --mac --${{ matrix.arch }}

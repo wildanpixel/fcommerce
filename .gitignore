@@ -25,6 +25,7 @@ blob-report/
 **/playwright-report/
 **/test-results/
 **/blob-report/
+apps/desktop/buildResources/puppeteer/
 
 # Local app data and generated evidence
 data/

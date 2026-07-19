@@ -6,13 +6,15 @@ Version: 1.0.0
 
 Local platform: Windows x64
 
-Release task: Project Inspector performance and synchronized disclosures, guided evidence recollection, reusable store evidence, and safe product/media filtering
+Release task: Complete M2 guided Shopee evidence, M3 structured intelligence, customer review media extraction, and self-contained packaged PDF export
 
 ## Summary
 
-This release makes Keyword Project cards directly inspectable and prefetches bounded project detail data. Project evidence indexes are memoized, collapsed report sections defer heavy children, and evidence media loads lazily so large saved projects remain responsive.
+This release completes M2 for the guided Shopee Desktop scope and M3 Intelligence. Review media collection now recognizes customer-attached images and videos across Shopee review-media containers while excluding profile avatars and account imagery. Missing media remains an explicit not-found outcome.
 
-Project Inspector disclosure state is now authoritative and shared between the outline and report. Clicking a parent outline row opens its subnavigation and matching main section; clicking it again closes both and clears nested disclosure state. Reopening the parent leaves nested sections closed until selected. Nested links open their exact nested report section, while the global outline hide/show button affects only outline visibility. Product Detail and Key Store actions can be reset and recollected. Saved shop-home evidence is reused only for the Key Store Store Home Page; Popular Products, Best Sellers, and Visual Shop Banner each hydrate their dedicated current page, retain durable HTML, preserve virtualized product cards, and accumulate carousel banner URLs before persistence. Review avatars are excluded from customer media, and `NOT FOR SALE` / `FREE GIFT` listings are rejected from normalized product evidence.
+The analysis contract now includes executive summary, SWOT, pricing, store, competitor, visual, recommendation, and Key Store results. OpenAI and Gemini use the same validated structured schema, while the deterministic local provider supplies the complete contract when credentials are unavailable. HTML and DOCX reports render the intelligence module from persisted analysis data.
+
+Windows packaging now stages Chrome Headless Shell 148.0.7778.97 as an Electron extra resource. The PDF exporter resolves that packaged executable before falling back to the development Puppeteer cache, so installer and portable report export are self-contained.
 
 ## Release Checklist
 
@@ -22,20 +24,20 @@ Project Inspector disclosure state is now authoritative and shared between the o
 | Generate Prisma Client | Passed |
 | TypeScript | Passed |
 | ESLint | Passed |
-| Unit tests | Passed: 6 files, 19 tests |
+| Unit tests | Passed: 8 files, 23 tests |
 | Clean renderer/Electron build | Passed |
-| Playwright smoke tests | Passed: 5 tests, including exact parent/nested outline synchronization and global outline independence |
+| Playwright smoke tests | Passed: 5 tests |
+| Stage Puppeteer browser | Passed: Chrome Headless Shell 148.0.7778.97 for win32 x64 |
 | Package Electron | Passed on the first and only attempt |
 | Generate Windows Installer | Passed |
 | Generate Windows Portable | Passed |
-| Verify packaged Prisma Client | Passed: `@prisma/client` and generated `.prisma/client` JavaScript are present in `app.asar`; native engines are present in `app.asar.unpacked` |
-| Verify packaged Prisma engines | Passed: Windows, macOS Intel, and macOS Apple Silicon engines are unpacked |
-| Launch unpacked Windows application | Passed; live responding Electron process tree confirmed |
-| Launch Windows Portable | Passed; live responding Electron process tree confirmed |
-| Verify SQLite initialization | Passed: production database present at the platform app-data location |
-| Verify Prisma queries | Passed: Project, Product, Store, and Review counts executed successfully |
-| Generate macOS Intel App / DMG | Configured as a dedicated GitHub Actions `x64` job |
-| Generate macOS Apple Silicon App / DMG | Configured as a dedicated GitHub Actions `arm64` job |
+| Verify packaged Puppeteer executable | Passed in `win-unpacked/resources/puppeteer/win32-x64` |
+| Generate PDF with packaged browser | Passed: non-empty 17,741-byte PDF |
+| Launch unpacked Windows application | Passed; `/api/health` returned version 1.0.0 |
+| Launch Windows Portable | Passed; `/api/health` returned version 1.0.0 |
+| Verify SQLite initialization and Prisma queries | Passed: dashboard query returned 11 projects and 1 report |
+| Generate macOS Intel App / DMG | Configured as a dedicated GitHub Actions `x64` job with matching browser staging |
+| Generate macOS Apple Silicon App / DMG | Configured as a dedicated GitHub Actions `arm64` job with matching browser staging |
 | Update changelog/status/roadmap | Completed |
 
 ## Validation Commands
@@ -45,7 +47,9 @@ Project Inspector disclosure state is now authoritative and shared between the o
 - `pnpm lint`
 - `pnpm test`
 - `pnpm build`
-- `pnpm exec playwright test e2e/smoke.spec.ts`
+- `pnpm --filter @marketplace-intelligence-os/desktop exec playwright test`
+- `pnpm --filter @marketplace-intelligence-os/desktop stage:puppeteer -- --platform=win32 --arch=x64`
+- `pnpm --filter @marketplace-intelligence-os/desktop smoke:pdf-runtime`
 - `pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64`
 - `git diff --check`
 
@@ -53,9 +57,9 @@ Project Inspector disclosure state is now authoritative and shared between the o
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` | 147.47 MB | `B4F6DCEB67680D6DB8C197295DD678A220872D84CE99AD278EBB00AD09D041DA` |
-| `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` | 147.25 MB | `0991F111256C91738A072FCDE47F14464874294E90F53EF67047E344AF9AF177` |
-| `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` | 191.91 MB | `8087624EB238B1C689CEC4204F7B6CDAD3600671ED6F868DF1309502A794D95D` |
+| `MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` | 236,075,906 bytes | `561EBE5BFBD4F7CB5EBF8EAE4E3AE790101E8B69F9EA8E4FA6FC744D13DE9050` |
+| `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` | 235,845,519 bytes | `674F90B39FB2A7CEE7FBEC0259922B0E2582606225871FF8BF86CF7EC89F0030` |
+| `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` | 201,233,920 bytes | `6446799881667DD3716621E374F5AB002668D0A87EF166C01FE6D6CCE180A871` |
 
 ## macOS Delivery
 
@@ -64,14 +68,12 @@ GitHub Actions publishes separate downloadable packages from the same source com
 - `marketplace-intelligence-os-macos-intel` for Intel Macs (`x64`).
 - `marketplace-intelligence-os-macos-apple-silicon` for M1/M2/M3/M4 Macs (`arm64`).
 
-The macOS packages are currently unsigned and unnotarized. Installation and Gatekeeper instructions are documented in `docs/MACOS_INSTALLATION.md`.
-
-## Packaged Database Smoke Query
-
-The production SQLite database opened successfully through Prisma. Read-only counts returned 11 projects, 1,821 products, 99 stores, 349 reviews, 1,346 evidence assets, and 13 reports.
+Each macOS job stages a matching Chrome Headless Shell runtime before Electron packaging. The macOS packages remain unsigned and unnotarized; installation and Gatekeeper instructions are documented in `docs/MACOS_INSTALLATION.md`.
 
 ## Known Non-Blocking Notes
 
-- Vite reports an existing renderer chunk-size warning at 582.18 kB; compilation and packaging pass.
+- Shopee login, captcha, verification, and source-markup changes remain user-controlled operational constraints; they are not bypassed.
+- Analysis confidence depends on the evidence available to the local guided session.
+- Vite reports an existing renderer chunk-size warning at approximately 583 kB; compilation and packaging pass.
 - Electron Builder uses the default Electron icon because a signed production icon has not yet been configured.
-- macOS binaries cannot be launched on this Windows workstation; both architectures are built and verified by the macOS GitHub Actions matrix.
+- macOS binaries cannot be launched on this Windows workstation; Intel and Apple Silicon packages are built by the GitHub Actions macOS matrix.

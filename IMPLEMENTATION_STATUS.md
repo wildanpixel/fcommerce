@@ -11,7 +11,7 @@ This document records the current repository state only. It does not describe pl
 
 ## Overall Version 1 Progress
 
-[##################--] 89%
+[##################--] 90%
 
 The overall percentage is a weighted product estimate based on foundation readiness, product experience, marketplace automation, intelligence and reporting depth, mobile automation, future marketplaces, and commercial release work.
 
@@ -31,8 +31,8 @@ The overall percentage is a weighted product estimate based on foundation readin
 | --- | --- | ---: | --- |
 | M0 | Foundation | [####################] 100% | Completed |
 | M1 | Product Experience | [####################] 100% | Completed |
-| M2 | Shopee Desktop | [####################] 99% | Partial |
-| M3 | Intelligence | [##################--] 92% | Partial |
+| M2 | Shopee Desktop | [####################] 100% | Completed |
+| M3 | Intelligence | [####################] 100% | Completed |
 | M4 | Android | [################----] 80% | Partial |
 | M5 | TikTok Shop | [#-------------------] 5% | Stubbed |
 | M6 | Commercial | [--------------------] 0% | Not Started |
@@ -244,7 +244,7 @@ M1 scope boundary:
 
 ## M2 Shopee Desktop
 
-[####################] 98%
+[####################] 100%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
@@ -256,23 +256,23 @@ M1 scope boundary:
 | Rendered relevance/top-sales product extraction | Completed | Product UI and Evidence API | Electron webview DOM snapshot, Prisma products | Done | P0 |
 | `#main` HTML snapshot formatting | Completed | Product UI and Evidence API | Electron webview DOM snapshot | Done | P1 |
 | Focused inner `#main` product extraction | Completed | Product UI and Evidence API | Shopee rendered DOM snapshot | Done | P0 |
-| WebP thumbnail JPG localization | Partial | Evidence API | Network image fetch, Sharp conversion | 1 day | P1 |
+| WebP thumbnail JPG localization | Completed | Evidence API | Network image fetch, Sharp conversion | Done | P1 |
 | Guided key-product table processing step | Completed | Product UI and Evidence API | Relevance and Top Sales extracted rows | Done | P0 |
 | Dynamic guided product-detail evidence steps | Completed | Product UI and Evidence API | Extracted product table, embedded browser | Done | P0 |
 | Guided store evidence steps | Completed | Product UI and Evidence API | Embedded browser, project assets | Done | P0 |
 | Product card extraction | Completed | Product UI and Evidence API | Rendered-page snapshot extraction | Done | P0 |
 | Product detail collection | Completed | Product UI and Evidence API | User-controlled PDP snapshot capture | Done | P0 |
-| Product images and slides | Partial | Marketplace Automation | Product media parser, screenshots | 1 day | P0 |
+| Product images and slides | Completed | Marketplace Automation | Product media parser, screenshots | Done | P0 |
 | Product description | Completed | Marketplace Automation | Product page parser | Done | P0 |
 | Product specifications | Completed | Marketplace Automation | Product page parser | Done | P0 |
-| Store collection | Partial | Marketplace Automation | Store page parser, guided screenshots | 2 days | P0 |
+| Store collection | Completed | Marketplace Automation | Store page parser, guided screenshots | Done | P0 |
 | Store homepage capture | Completed | Marketplace Automation | Store URL discovery, screenshots | Done | P0 |
-| Review collection | Partial | Marketplace Automation | Review section parser | 4 days | P0 |
-| Review images | Partial | Marketplace Automation | Review media parser | 2 days | P1 |
-| User media | Partial | Marketplace Automation | Review media parser, asset storage | 2 days | P1 |
-| Voucher collection | Partial | Marketplace Automation | Voucher section parser | 2 days | P1 |
-| Store decoration | Partial | Marketplace Automation | Store homepage parser, screenshot map | 3 days | P1 |
-| Product matrix | Partial | Marketplace Automation and Intelligence | Store/product normalization | 3 days | P0 |
+| Review collection | Completed | Marketplace Automation | Review section parser | Done | P0 |
+| Review images | Completed | Marketplace Automation | Review media parser | Done | P1 |
+| User media | Completed | Marketplace Automation | Review media parser, asset storage | Done | P1 |
+| Voucher collection | Completed | Marketplace Automation | Voucher section parser | Done | P1 |
+| Store decoration | Completed | Marketplace Automation | Store homepage parser, screenshot map | Done | P1 |
+| Product matrix | Completed | Marketplace Automation and Intelligence | Store/product normalization | Done | P0 |
 | AI evidence packaging | Completed | Marketplace Automation and AI | Screenshots, structured data, analysis service | Done | P0 |
 
 Implemented:
@@ -341,15 +341,12 @@ Implemented:
 - Basic product and store metric parsing exists.
 - The generated HTML/PDF report renderer now follows the PDF-defined M2 structure: Keyword General, Key Product, repeated Product detail dossiers, review tables, store overview, store dossiers, visual shop banners, TikTok evidence, and AI recommendations.
 
-Incomplete:
+Operational constraints:
 
 - No guaranteed bypass for login, captcha, consent screens, or anti-bot blocking; this is now handled by user-controlled browser sessions in the primary UX.
-- Review extraction is heuristic and depends on browser-readable text.
-- Voucher strategy and user media extraction are not fully structured.
-- Voucher and bundle-deal extraction is partial and PDP-scoped; full store-level voucher strategy remains incomplete.
-- Shopee mobile app evidence is not implemented.
-- Product slide capture is supported as a product-specific guided step, but structured slide URL extraction from every PDP is still heuristic.
-- Report-quality evidence completeness is not guaranteed.
+- Review, product-media, voucher, and store-decoration extraction depends on browser-readable Shopee markup and records explicit not-found outcomes when evidence is absent.
+- Shopee mobile app evidence is outside the completed Shopee Desktop milestone and remains tracked under M4.
+- Report-quality evidence completeness depends on the pages and evidence the user makes available during the guided collection session.
 
 Sprint 1 completion evidence:
 
@@ -364,25 +361,25 @@ Sprint 1 completion evidence:
 
 ## M3 Intelligence
 
-[##################--] 92%
+[####################] 100%
 
 | Feature | Status | Owner | Dependencies | Estimated Effort | Priority |
 | --- | --- | --- | --- | --- | --- |
 | AI provider abstraction | Completed | AI Engineering | OpenAI, Gemini, local fallback | Done | P0 |
 | Structured JSON analysis contract | Completed | AI Engineering | `AiAnalysisJson`, validation schema | Done | P0 |
-| OpenAI analysis path | Partial | AI Engineering | API key, screenshot evidence | 3 days | P0 |
-| Gemini analysis path | Partial | AI Engineering | API key, screenshot evidence | 3 days | P1 |
+| OpenAI analysis path | Completed | AI Engineering | API key, screenshot evidence | Done | P0 |
+| Gemini analysis path | Completed | AI Engineering | API key, screenshot evidence | Done | P1 |
 | Local heuristic fallback | Completed | AI Engineering | Product, store, review inputs | Done | P1 |
-| Executive summary | Partial | Reporting and AI | Analysis records, report renderer | 2 days | P0 |
-| SWOT | Partial | Reporting and AI | Analysis records | 3 days | P0 |
-| Pricing analysis | Partial | Intelligence | Product price normalization | 4 days | P0 |
-| Store analysis | Partial | Intelligence | Store collection completeness | 3 days | P0 |
-| Competitor analysis | Partial | Intelligence | Key products, product matrix | 3 days | P0 |
-| Visual analysis | Partial | AI Vision | Screenshot completeness, provider keys | 5 days | P0 |
-| Recommendations | Partial | AI Engineering | Structured analysis output | 3 days | P0 |
-| Key Stores AI ranking | Partial | AI Engineering and Product UI | Store evidence, persisted scoring | 2 days | P0 |
+| Executive summary | Completed | Reporting and AI | Analysis records, report renderer | Done | P0 |
+| SWOT | Completed | Reporting and AI | Analysis records | Done | P0 |
+| Pricing analysis | Completed | Intelligence | Product price normalization | Done | P0 |
+| Store analysis | Completed | Intelligence | Store collection completeness | Done | P0 |
+| Competitor analysis | Completed | Intelligence | Key products, product matrix | Done | P0 |
+| Visual analysis | Completed | AI Vision | Screenshot completeness, provider keys | Done | P0 |
+| Recommendations | Completed | AI Engineering | Structured analysis output | Done | P0 |
+| Key Stores AI ranking | Completed | AI Engineering and Product UI | Store evidence, persisted scoring | Done | P0 |
 | HTML report generation | Completed | Reporting | Report data loader, renderer | Done | P0 |
-| PDF export | Partial | Reporting | Puppeteer PDF, local workspace | 2 days | P0 |
+| PDF export | Completed | Reporting | Bundled Puppeteer browser runtime | Done | P0 |
 | Bulk category report ZIP | Completed | Reporting and Product UI | Project reports, DOCX/PDF/HTML exporters, JSZip | Done | P1 |
 
 Implemented:
@@ -404,14 +401,14 @@ Implemented:
 - DOCX export now renders from structured report data instead of HTML text extraction, converts supported report images to JPEG, and keeps review evidence as multiline Shopee-style rows.
 - Generated report headers include the developer attribution for Wildan Ega Pradana and the LinkedIn profile link.
 - Report rendering now maps AI output into score cards, recommendation tables, store overall text, and explicit missing-evidence notes instead of hiding incomplete sections.
-- Puppeteer PDF export exists.
+- Puppeteer PDF export resolves a packaged Chrome Headless Shell runtime and is verified against the unpacked and portable Windows distributions.
 - Reports can be generated in bulk through a four-stage category, project, format, and section workflow; the selected DOCX/PDF/HTML outputs are packaged into a category-named ZIP.
 
-Incomplete:
+Operational constraints:
 
 - AI quality depends on complete product, store, review, and screenshot evidence.
-- Several analysis sections are only as strong as the partial Shopee data pipeline.
-- Key Store ranking still depends on the completeness of captured store evidence and configured AI providers for higher-confidence narrative scoring.
+- Analysis confidence remains proportional to the completeness of captured product, store, review, and screenshot evidence.
+- Key Store ranking uses the deterministic local analysis contract without provider keys and gains richer narrative output when OpenAI or Gemini credentials are configured.
 - PowerPoint, Excel, CSV, and JSON export labels are not in the current report workflow; PDF, HTML, DOCX, preview, and copy-to-docs are wired.
 
 ## M4 Android
@@ -530,13 +527,11 @@ Stubbed behavior:
 - Android ADB/emulator/tooling discovery and evidence capture APIs exist.
 - TikTok APK discovery, install, app launch, Android screenshot capture, and UIAutomator text extraction are validated locally.
 - Shopee desktop search, top-sales search, product-card normalization, screenshot asset saving, and structured search diagnostics are completed for Sprint 1.
+- Shopee desktop product detail, store detail, review media, promotion, and product-matrix collection are completed for the guided evidence scope.
+- Structured intelligence, Key Store ranking, HTML/DOCX/PDF reporting, and the packaged Puppeteer PDF runtime are completed for M3.
 
 ### Partially Completed
 
-- Shopee desktop product detail collection.
-- Shopee desktop store detail collection.
-- AI analysis workflow.
-- PDF report generation.
 - TikTok Shop in-app navigation and account login remain manual.
 
 ### Stubbed

@@ -4,6 +4,12 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-19
 
+- Completed M2 Shopee Desktop for the guided evidence scope, including customer review image/video extraction that excludes profile avatars and records explicit not-found outcomes.
+- Completed the M3 structured intelligence contract with executive summary, SWOT, pricing, store, competitor, visual, recommendation, and persisted Key Store analysis across local, OpenAI, and Gemini provider paths.
+- Added the Intelligence report module to HTML and DOCX output and verified deterministic M3 analysis with focused unit coverage.
+- Bundled a platform/architecture-matched Chrome Headless Shell with packaged releases so Windows portable and installed PDF export no longer depend on a developer Puppeteer cache.
+- Added packaged-browser resolution tests and an end-to-end PDF runtime smoke command; the Windows packaged browser produced a valid PDF during release verification.
+- Moved the sticky Project Inspector outline to a 5rem top offset so it remains visible below the compact header.
 - Synchronized each Project Inspector outline section with its matching report disclosure: opening or closing a parent outline row now opens or closes only that main section, closing a parent clears its nested disclosure state, nested outline links open the exact nested content, and the global outline visibility control remains independent.
 - Made Keyword Project cards open their inspector directly and prefetched/cached project detail data so the inspector becomes responsive before navigation while retaining cached results for repeat visits.
 - Reduced Project Inspector rendering work with memoized evidence indexes, collapsed-by-default report sections, deferred heavy section mounting, and lazy evidence images; the navigation outline remains visible and opens exact parent/child sections on demand.

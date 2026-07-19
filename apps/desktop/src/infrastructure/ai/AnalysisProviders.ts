@@ -36,6 +36,17 @@ const analysisSchema: z.ZodType<AiAnalysisJson> = z.object({
     score: z.number().min(0).max(100),
     observations: z.array(z.string())
   }),
+  executiveSummary: z.string(),
+  swot: z.object({
+    strengths: z.array(z.string()),
+    weaknesses: z.array(z.string()),
+    opportunities: z.array(z.string()),
+    threats: z.array(z.string())
+  }),
+  pricingAnalysis: z.object({ summary: z.string(), signals: z.array(z.string()) }),
+  storeAnalysis: z.object({ summary: z.string(), signals: z.array(z.string()) }),
+  competitorAnalysis: z.object({ summary: z.string(), signals: z.array(z.string()) }),
+  visualAnalysis: z.object({ summary: z.string(), signals: z.array(z.string()) }),
   painPoints: z.array(z.string()),
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
@@ -79,7 +90,7 @@ export class CompositeAIAnalysisService implements AIAnalysisService {
   }
 }
 
-class LocalHeuristicAnalysisService {
+export class LocalHeuristicAnalysisService {
   analyze(input: AnalysisInput, limitations: string[] = []): AiAnalysisJson {
     const positiveReviews = input.reviews.filter((review) => review.sentiment === "POSITIVE").length;
     const negativeReviews = input.reviews.filter((review) => review.sentiment === "NEGATIVE").length;
@@ -90,6 +101,20 @@ class LocalHeuristicAnalysisService {
       positiveReviews + negativeReviews > 0
         ? Math.round((positiveReviews / (positiveReviews + negativeReviews)) * 100)
         : 55;
+    const prices = input.products
+      .map((product) => product.price.average ?? product.price.min ?? product.price.max)
+      .filter(isNumber)
+      .sort((left, right) => left - right);
+    const medianPrice = prices.length > 0 ? prices[Math.floor(prices.length / 2)] : undefined;
+    const monthlyLeaders = [...input.products]
+      .filter((product) => isNumber(product.monthlySold))
+      .sort((left, right) => (right.monthlySold ?? 0) - (left.monthlySold ?? 0))
+      .slice(0, 3)
+      .map((product) => product.title);
+    const leadingStore = input.stores
+      .slice()
+      .sort((left, right) => (right.followers ?? 0) - (left.followers ?? 0))[0];
+    const evidenceSummary = `${input.products.length} products, ${input.stores.length} stores, ${input.reviews.length} review signals, and ${input.screenshotPaths.length} screenshots were evaluated for "${input.keyword}".`;
 
     return {
       schemaVersion: "1.0",
@@ -130,6 +155,65 @@ class LocalHeuristicAnalysisService {
         observations: [
           `${positiveReviews} positive review signal(s) and ${negativeReviews} negative review signal(s) were detected.`,
           "Store rating and mall/star/official badges are retained in product data when visible."
+        ]
+      },
+      executiveSummary: `${evidenceSummary} The strongest opportunity is to combine current sales momentum with credible store presentation, complete promotion evidence, and consistent product visuals.`,
+      swot: {
+        strengths: [
+          `${monthlyLeaders.length || input.products.length} commercially relevant product signal(s) provide a basis for competitor comparison.`,
+          `${positiveReviews} positive review signal(s) support customer-trust analysis.`
+        ],
+        weaknesses: [
+          negativeReviews > 0
+            ? `${negativeReviews} negative review signal(s) expose product or service friction.`
+            : "Negative review evidence is limited, which reduces downside visibility.",
+          "Marketplace page changes and verification screens can reduce extraction confidence."
+        ],
+        opportunities: [
+          medianPrice
+            ? `The median observed price is approximately IDR ${Math.round(medianPrice).toLocaleString("id-ID")}, creating a practical benchmark for positioning.`
+            : "Collect complete price evidence to establish a defensible market benchmark.",
+          "Use the highest-momentum products as references for offer structure, merchandising, and creative testing."
+        ],
+        threats: [
+          "High-volume competitors can defend share through aggressive vouchers and bundle promotions.",
+          "Anti-bot and login barriers can make public evidence incomplete at the time of collection."
+        ]
+      },
+      pricingAnalysis: {
+        summary: medianPrice
+          ? `Observed prices center around IDR ${Math.round(medianPrice).toLocaleString("id-ID")}; pricing should be evaluated together with monthly sales and historical demand.`
+          : "The available evidence does not contain enough verified prices for a reliable benchmark.",
+        signals: [
+          `${prices.length} product price(s) were available for comparison.`,
+          "High price is treated as commercially attractive only when current and historical sales are also strong."
+        ]
+      },
+      storeAnalysis: {
+        summary: leadingStore
+          ? `${leadingStore.name} has the strongest visible follower signal among the collected stores and should be reviewed alongside homepage, voucher, and product-matrix evidence.`
+          : "No complete store profile was available for a definitive store leader.",
+        signals: [
+          `${storesWithVouchers} store(s) exposed voucher signals.`,
+          `${input.stores.length} store profile(s) were included in the comparison.`
+        ]
+      },
+      competitorAnalysis: {
+        summary: monthlyLeaders.length > 0
+          ? `Current momentum is concentrated in ${monthlyLeaders.join(", ")}.`
+          : "Monthly-sales evidence is incomplete, so competitor momentum should be interpreted cautiously.",
+        signals: [
+          `${input.products.length} product listing(s) were compared.`,
+          `${monthlyLeaders.length} monthly-sales leader(s) had verifiable current-sales data.`
+        ]
+      },
+      visualAnalysis: {
+        summary: input.screenshotPaths.length > 0
+          ? `${input.screenshotPaths.length} screenshot(s) support visual-quality and merchandising analysis.`
+          : "No screenshots were available, so visual conclusions use structured evidence only.",
+        signals: [
+          "Product clarity, brand consistency, hierarchy, and promotion visibility are the primary visual criteria.",
+          "Provider vision analysis can deepen these findings when an OpenAI or Gemini key is configured."
         ]
       },
       painPoints: [
@@ -262,6 +346,17 @@ function schemaExample(): AiAnalysisJson {
     voucherStrategy: { score: 70, observations: ["observation"] },
     competitivePosition: { score: 70, observations: ["observation"] },
     customerTrust: { score: 70, observations: ["observation"] },
+    executiveSummary: "executive summary",
+    swot: {
+      strengths: ["strength"],
+      weaknesses: ["weakness"],
+      opportunities: ["opportunity"],
+      threats: ["threat"]
+    },
+    pricingAnalysis: { summary: "pricing summary", signals: ["pricing signal"] },
+    storeAnalysis: { summary: "store summary", signals: ["store signal"] },
+    competitorAnalysis: { summary: "competitor summary", signals: ["competitor signal"] },
+    visualAnalysis: { summary: "visual summary", signals: ["visual signal"] },
     painPoints: ["pain point"],
     strengths: ["strength"],
     weaknesses: ["weakness"],
