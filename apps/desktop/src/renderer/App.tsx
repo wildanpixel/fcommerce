@@ -69,9 +69,19 @@ import type {
 } from "../shared/contracts.js";
 import { SHOPEE_SHOP_TYPE_FILTERS } from "../shared/contracts.js";
 import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../shared/reportSections.js";
+import {
+  isValidStoreType,
+  normalizeStoreType as normalizeStoreTypeValue,
+  STORE_TYPE_IMAGES,
+  storeTypeFromBadgeContext,
+  storeTypeImage,
+  storeTypeLabel as storeTypeDisplayLabel,
+  type StoreType
+} from "../shared/storeTypes.js";
 import { apiClient } from "./api/client.js";
 import {
   buildStoreCollectionCandidates,
+  extractShopeeShopId,
   stableStoreCandidateId,
   storeCategoriesUrl,
   storeDetailsUrl,
@@ -138,6 +148,7 @@ type CollectionSubAction = {
   id: string;
   label: string;
   mode: "screenshot" | "download" | "collect" | "sync" | "background";
+  kind?: ManualEvidenceKind;
   description: string;
   collectLabel?: string;
   captureMode?: "viewport" | "full-page";
@@ -146,6 +157,7 @@ type CollectionSubAction = {
   guidance?: string;
   targetUrl?: string;
   preferredViewMode?: PlatformViewMode;
+  metadata?: Record<string, unknown>;
 };
 
 type CollectionStep = {
@@ -216,7 +228,7 @@ const COLLECTION_STAGES: CollectionStage[] = ["KEYWORD_GENERAL", "PRODUCT_DETAIL
 type RenderedProductDetailSnapshot = {
   storeName?: string;
   storeUrl?: string;
-  storeType?: string;
+  storeType?: StoreType;
   rating?: number;
   ratingText?: string;
   reviewText?: string;
@@ -1267,20 +1279,6 @@ function GuidedBrowserCollector({
     setExpandedPortalRoot(document.querySelector<HTMLElement>(".mio-app"));
   }, []);
 
-  const runAnalysis = useMutation({
-    mutationFn: () => apiClient.analyzeProject(project.id),
-    onSuccess: async (result) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
-      ]);
-      appendLog(setActivityLog, `AI scoring saved with ${result.provider}.`);
-    },
-    onError: (error) => {
-      appendLog(setActivityLog, error instanceof Error ? error.message : "AI scoring could not be completed.");
-    }
-  });
-
   const allSteps = useMemo(
     () => buildCollectionSteps(project, platform, currentUrl, viewMode, projectDetail.data, storeCollectionCandidates),
     [currentUrl, platform, project, projectDetail.data, storeCollectionCandidates, viewMode]
@@ -1288,7 +1286,15 @@ function GuidedBrowserCollector({
   const steps = useMemo(() => allSteps.filter((step) => step.stage === activeStage), [activeStage, allSteps]);
   const activeStep = steps[activeStepIndex] ?? steps[0] ?? allSteps[0];
   const activeSubAction = activeStep?.subActions?.find((action) => action.id === activeSubActionId) ?? activeStep?.subActions?.[0];
-  const activeSubActionReady = activeSubAction?.id === "shop-homepage" ? isShopeeStorePage(currentUrl) : activeStep?.ready;
+  const activeSubActionReady = activeSubAction?.id === "shop-homepage" || activeSubAction?.id === "store-homepage"
+    ? isShopeeStorePage(currentUrl)
+    : activeSubAction?.id === "store-details"
+      ? Boolean(extractShopeeShopId(currentUrl))
+      : activeSubAction?.id === "store-tiktok"
+        ? isTikTokPage(currentUrl)
+        : activeSubAction?.targetUrl
+          ? sameUrlIntent(currentUrl, activeSubAction.targetUrl)
+          : activeStep?.ready;
   const activeTargetUrl = activeSubAction?.targetUrl ?? activeStep?.targetUrl;
   const activeSubActionCounts = useMemo(
     () => activeStep ? collectionSubActionCounts(activeStep, projectDetail.data) : {},
@@ -1306,7 +1312,7 @@ function GuidedBrowserCollector({
       }
     : activeStep;
   const qualifiedProductPool = useMemo(
-    () => selectKeyProductCandidates(projectDetail.data?.products ?? [], project.keyword, 20),
+    () => selectKeyProductCandidates(projectDetail.data?.products ?? [], project.keyword, 120),
     [project.keyword, projectDetail.data?.products]
   );
   const selectedKeyProducts = useMemo(() => {
@@ -1374,6 +1380,25 @@ function GuidedBrowserCollector({
     // Candidate bootstrapping must run only when the candidate list is initially empty.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKeyProducts, storeCollectionCandidates.length]);
+
+  useEffect(() => {
+    if (activeStage !== "EVALUATION_KEY_STORE" || !activeStep?.ownerId) {
+      return;
+    }
+    const shopId = extractShopeeShopId(currentUrl);
+    const currentCandidate = storeCollectionCandidates.find((candidate) => candidate.id === activeStep.ownerId);
+    if (!shopId || !currentCandidate || currentCandidate.shopId === shopId) {
+      return;
+    }
+    const nextCandidates = storeCollectionCandidates.map((candidate) =>
+      candidate.id === activeStep.ownerId ? { ...candidate, shopId } : candidate
+    );
+    setStoreCollectionCandidates(nextCandidates);
+    persistCollectionState({ storeCollectionCandidates: nextCandidates });
+    appendLog(setActivityLog, `Detected Shopee shop ID ${shopId} for ${currentCandidate.storeName}.`);
+    // Persist only when navigation reveals a new shop ID.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStage, activeStep?.ownerId, currentUrl, storeCollectionCandidates]);
 
   useEffect(() => {
     if (!isManualActionState) {
@@ -1675,9 +1700,13 @@ function GuidedBrowserCollector({
     const firstIncompleteIndex = stageSteps.findIndex((step) => !isCollectionStepComplete(step, collectedSteps));
     const nextIndex = firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0;
     setActiveStage(stage);
+    const nextViewMode = stage === "EVALUATION_KEY_STORE" ? "mobile" : viewMode;
+    if (stage === "EVALUATION_KEY_STORE") {
+      setViewMode("mobile");
+    }
     setActiveStepIndex(nextIndex);
     setReviewingKeyProducts(false);
-    const showEvaluation = stage === "EVALUATION_KEY_STORE" && (stageSteps[nextIndex]?.id === "evaluation-phase-scoring" || !stageSteps.some((step) => step.id === "evaluation-phase-scoring" && isCollectionStepComplete(step, collectedSteps)));
+    const showEvaluation = stage === "EVALUATION_KEY_STORE";
     setReviewingEvaluation(showEvaluation);
     if (showEvaluation) {
       setExpanded(false);
@@ -1687,7 +1716,7 @@ function GuidedBrowserCollector({
       stageLabel: collectionStageLabel(stage),
       currentStepId: stageSteps[nextIndex]?.id,
       browserUrl: currentUrl,
-      viewMode
+      viewMode: nextViewMode
     });
   }
 
@@ -1705,14 +1734,14 @@ function GuidedBrowserCollector({
       return;
     }
     const actions = activeStep.subActions ?? [];
-    if (activeStep.stage === "PRODUCT_DETAILS" && actions.length > 0) {
+    if (actions.length > 0) {
       const currentActionIndex = Math.max(0, actions.findIndex((action) => action.id === activeSubAction?.id));
       const nextPendingAction = actions
         .slice(currentActionIndex + 1)
         .find((action) => (activeSubActionStates[action.id] ?? "pending") === "pending");
       if (nextPendingAction) {
         selectSubAction(nextPendingAction.id);
-        if (nextPendingAction.id === "shop-homepage" && (nextPendingAction.targetUrl ?? activeStep.targetUrl)) {
+        if (nextPendingAction.targetUrl ?? activeStep.targetUrl) {
           navigateTo(nextPendingAction.targetUrl ?? activeStep.targetUrl!);
         }
         return;
@@ -1896,6 +1925,7 @@ function GuidedBrowserCollector({
       setReviewingEvaluation(enteringEvaluation);
       if (enteringEvaluation) {
         setExpanded(false);
+        setViewMode("mobile");
       }
       persistCollectionState({
         ...stateOverrides,
@@ -1905,11 +1935,12 @@ function GuidedBrowserCollector({
         stepAssetPaths: nextCollectedSteps,
         completedStepIds: Object.keys(nextCollectedSteps),
         progressPercent: collectionProgress(allSteps, nextCollectedSteps),
-        currentStepId: allSteps.find((step) => step.stage === nextStage)?.id
+        currentStepId: allSteps.find((step) => step.stage === nextStage)?.id,
+        viewMode: enteringEvaluation ? "mobile" : viewMode
       });
       appendLog(setActivityLog, `${collectionStageLabel(activeStage)} completed. Continue with ${collectionStageLabel(nextStage)}.`);
       if (activeStage === "PRODUCT_DETAILS" && enteringEvaluation) {
-        appendLog(setActivityLog, "Opened Evaluation Phase automatically. Review Potential Stores, then continue Key Store collection.");
+        appendLog(setActivityLog, "Opened Key Store Page List automatically. Review the stores, then start collection.");
       }
       return;
     }
@@ -1935,7 +1966,7 @@ function GuidedBrowserCollector({
   function openEvaluationReview() {
     setExpanded(false);
     setReviewingEvaluation(true);
-    appendLog(setActivityLog, "Opened Evaluation Phase in the collection workspace. Score Potential Stores before collecting Key Store evidence.");
+    appendLog(setActivityLog, "Opened Key Store Page List in the collection workspace.");
   }
 
   function removeQualifiedProduct(productId: string) {
@@ -1949,6 +1980,24 @@ function GuidedBrowserCollector({
         return current;
       }
       return [...current, productId];
+    });
+    setQualifiedProductsApproved(false);
+  }
+
+  function excludeQualifiedProducts(productIds: string[]) {
+    const excluded = new Set(productIds);
+    setQualifiedProductIds((current) => current.filter((id) => !excluded.has(id)));
+    setQualifiedProductsApproved(false);
+  }
+
+  function addQualifiedProducts(productIds: string[]) {
+    setQualifiedProductIds((current) => {
+      const remainingSlots = Math.max(0, 20 - current.length);
+      const additions = productIds.filter((id) => !current.includes(id)).slice(0, remainingSlots);
+      if (additions.length < productIds.filter((id) => !current.includes(id)).length) {
+        setCaptureStatus({ message: "Maximum 20 qualified products", state: "failed", progress: 100 });
+      }
+      return [...current, ...additions];
     });
     setQualifiedProductsApproved(false);
   }
@@ -2003,25 +2052,25 @@ function GuidedBrowserCollector({
     setViewMode("mobile");
     const nextAllSteps = buildCollectionSteps(project, platform, currentUrl, "mobile", detail, candidates);
     const stageSteps = nextAllSteps.filter((step) => step.stage === "EVALUATION_KEY_STORE");
-    const processStep = stageSteps.find((step) => step.id === "evaluation-phase-scoring");
-    const nextCollectedSteps: Record<string, string> = processStep
-      ? { ...collectedSteps, [processStep.id]: "processed:evaluation-phase-scoring" }
-      : collectedSteps;
+    const nextCollectedSteps: Record<string, string> = { ...collectedSteps };
     let reusedHomepageCount = 0;
     for (const candidate of candidates) {
-      const homepageStep = stageSteps.find((step) => step.id === `${candidate.id}-homepage`);
+      const storeStep = stageSteps.find((step) => step.ownerId === candidate.id);
       const reusableAsset = reusableKeyStoreHomepageAsset(detail, candidate.storeUrl);
-      if (homepageStep && reusableAsset) {
-        nextCollectedSteps[homepageStep.id] = reusableAsset.path;
+      if (storeStep && reusableAsset) {
+        nextCollectedSteps[stepProgressKey(storeStep, "store-homepage")] = reusableAsset.path;
         reusedHomepageCount += 1;
       }
     }
     setCollectedSteps(nextCollectedSteps);
     setReviewingEvaluation(false);
-    const nextIndex = Math.max(0, stageSteps.findIndex((step) => step.id !== "evaluation-phase-scoring" && !isCollectionStepComplete(step, nextCollectedSteps)));
+    const nextIndex = Math.max(0, stageSteps.findIndex((step) => !isCollectionStepComplete(step, nextCollectedSteps)));
     setActiveStepIndex(nextIndex);
-    if (stageSteps[nextIndex]?.targetUrl) {
-      navigateTo(stageSteps[nextIndex].targetUrl);
+    const nextStep = stageSteps[nextIndex];
+    const nextAction = nextStep?.subActions?.find((action) => !nextCollectedSteps[stepProgressKey(nextStep, action.id)]);
+    setActiveSubActionId(nextAction?.id);
+    if (nextAction?.targetUrl ?? nextStep?.targetUrl) {
+      navigateTo(nextAction?.targetUrl ?? nextStep!.targetUrl!);
     }
     persistCollectionState({
       stage: "EVALUATION_KEY_STORE",
@@ -2030,7 +2079,7 @@ function GuidedBrowserCollector({
       stepAssetPaths: nextCollectedSteps,
       completedStepIds: Object.keys(nextCollectedSteps),
       progressPercent: collectionProgress(nextAllSteps, nextCollectedSteps),
-      currentStepId: stageSteps[nextIndex]?.id ?? processStep?.id
+      currentStepId: stageSteps[nextIndex]?.id
     });
     const nextStepLabel = stageSteps[nextIndex]?.label ?? "Store evidence";
     setCaptureStatus({
@@ -2131,8 +2180,10 @@ function GuidedBrowserCollector({
     const snapshot = await withTimeout(
           extractRenderedPageSnapshot(webview, extractionSelector, {
             includeHtml: true,
-            requestedStoreRating: typeof step.metadata?.requestedRating === "number"
-              ? step.metadata.requestedRating
+            requestedStoreRating: typeof subAction?.metadata?.requestedRating === "number"
+              ? subAction.metadata.requestedRating
+              : typeof step.metadata?.requestedRating === "number"
+                ? step.metadata.requestedRating
               : undefined
           }),
           extractionTimeoutMs,
@@ -2195,6 +2246,7 @@ function GuidedBrowserCollector({
       extractedProducts: snapshot.products,
       metadata: {
         ...step.metadata,
+        ...subAction?.metadata,
         section: step.section,
         keyword: project.keyword,
         productCategory,
@@ -2372,6 +2424,7 @@ function GuidedBrowserCollector({
         </AnimatePresence>
         <FloatingStepController
           step={controllerStep}
+          viewMode={viewMode}
           activeSubActionId={activeSubAction?.id}
           stepNumber={activeStepIndex + 1}
           stepTotal={steps.length}
@@ -2404,11 +2457,7 @@ function GuidedBrowserCollector({
               selectSubAction(selectedSubAction.id);
             }
             if (activeStep.mode === "PROCESS") {
-              if (activeStep.id === "evaluation-phase-scoring") {
-                openEvaluationReview();
-              } else {
-                openKeyProductTableReview();
-              }
+              openKeyProductTableReview();
               return;
             }
             void captureAndSaveEvidence(activeStep, selectedSubAction);
@@ -2433,6 +2482,8 @@ function GuidedBrowserCollector({
       onBackToBrowser={() => setReviewingKeyProducts(false)}
       onRemoveProduct={removeQualifiedProduct}
       onAddProduct={addQualifiedProduct}
+      onExcludeProducts={excludeQualifiedProducts}
+      onAddProducts={addQualifiedProducts}
       onApprove={approveQualifiedProducts}
       onNext={startProductDetailCollection}
     />
@@ -2443,9 +2494,6 @@ function GuidedBrowserCollector({
       detail={projectDetail.data}
       candidates={storeCollectionCandidates}
       onBackToBrowser={() => setReviewingEvaluation(false)}
-      onRunAnalysis={() => runAnalysis.mutate()}
-      scoring={runAnalysis.isPending}
-      scoringProvider={runAnalysis.data?.provider}
       onCandidatesChange={updateStoreCollectionCandidates}
       onStartKeyStoreCollection={startKeyStoreCollection}
     />
@@ -2665,25 +2713,6 @@ function CollectionStepPreview({
     );
   }
 
-  if (step.id === "evaluation-phase-scoring") {
-    const candidates = storeEvaluationCandidates(detail);
-    return (
-      <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-        <div className="mb-2 font-semibold text-white">Preview: Evaluation Phase</div>
-        <div>{candidates.length} Potential Store{candidates.length === 1 ? "" : "s"} ready for GMV, sold/month, and promotion scoring.</div>
-        <div className="mt-2 space-y-1">
-          {candidates.slice(0, 3).map((candidate, index) => (
-            <div key={candidate.key} className="flex items-center justify-between gap-3 rounded border border-white/8 bg-white/[0.04] px-2 py-1">
-              <span className="truncate">{index + 1}. {candidate.name}</span>
-              <span className="shrink-0 text-signal-blue">{candidate.score}</span>
-            </div>
-          ))}
-          {candidates.length === 0 && <div className="text-ink-500">Capture Product Detail Qualified evidence first.</div>}
-        </div>
-      </div>
-    );
-  }
-
   const product = step.ownerType === "PRODUCT" && step.ownerId
     ? detail.products.find((item) => item.id === step.ownerId)
     : undefined;
@@ -2871,23 +2900,18 @@ function EvaluationCollectionPanel({
   detail,
   candidates,
   onBackToBrowser,
-  onRunAnalysis,
-  scoring,
-  scoringProvider,
   onCandidatesChange,
   onStartKeyStoreCollection
 }: {
   detail?: ProjectDetailPayload;
   candidates: StoreCollectionCandidate[];
   onBackToBrowser: () => void;
-  onRunAnalysis: () => void;
-  scoring: boolean;
-  scoringProvider?: string;
   onCandidatesChange: (candidates: StoreCollectionCandidate[]) => void;
   onStartKeyStoreCollection: () => void;
 }) {
   const [manualStoreName, setManualStoreName] = useState("");
   const [manualStoreUrl, setManualStoreUrl] = useState("");
+  const [addingStore, setAddingStore] = useState(false);
 
   function addManualStore() {
     const storeName = manualStoreName.trim();
@@ -2917,16 +2941,13 @@ function EvaluationCollectionPanel({
     ]);
     setManualStoreName("");
     setManualStoreUrl("");
-  }
-
-  function updateCandidate(candidateId: string, patch: Partial<StoreCollectionCandidate>) {
-    onCandidatesChange(candidates.map((candidate) => candidate.id === candidateId ? { ...candidate, ...patch } : candidate));
+    setAddingStore(false);
   }
 
   return (
     <Panel
-      title="Evaluation Phase"
-      icon={Brain}
+      title="Key Store Page List"
+      icon={Store}
       action={
         <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onBackToBrowser}>
           <ChevronLeft size={15} />
@@ -2935,19 +2956,17 @@ function EvaluationCollectionPanel({
       }
     >
       <div className="mb-4 rounded-md border border-signal-blue/20 bg-signal-blue/10 p-4 text-sm leading-6 text-ink-300">
-        Review every distinct store declared by Product Qualified. All listed stores will be collected; AI scoring runs after store evidence is complete.
+        Every distinct store from Product Qualified is listed once. Review the list, add another Shopee store when needed, then collect each store page independently.
       </div>
       {!detail ? (
         <EmptyState label="Loading project evidence..." />
-      ) : candidates.length === 0 ? (
-        <EmptyState label="No Potential Store is available yet. Sync PDP store names or add a store manually." />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {candidates.map((candidate) => (
             <article className="rounded-md border border-white/10 bg-ink-900/45 p-4" key={candidate.id}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-500">Potential Store</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-500">Key Store Page</div>
                   <div className="mt-1 truncate font-semibold text-ink-100">{candidate.storeName}</div>
                   <a className="mt-1 block truncate text-xs text-signal-blue" href={candidate.storeUrl} target="_blank" rel="noreferrer">
                     {candidate.storeUrl}
@@ -2963,56 +2982,44 @@ function EvaluationCollectionPanel({
                   <Trash2 size={15} />
                 </button>
               </div>
-              <div className="mt-4 grid gap-2 text-xs text-ink-300">
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded border border-white/10 px-3 py-2">
-                  <span>Collect Popular Products</span>
-                  <input
-                    type="checkbox"
-                    checked={candidate.includePopularProducts}
-                    onChange={(event) => updateCandidate(candidate.id, { includePopularProducts: event.target.checked })}
-                  />
-                </label>
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded border border-white/10 px-3 py-2">
-                  <span>Collect Visual Shop Banner</span>
-                  <input
-                    type="checkbox"
-                    checked={candidate.includeShopBanner}
-                    onChange={(event) => updateCandidate(candidate.id, { includeShopBanner: event.target.checked })}
-                  />
-                </label>
-              </div>
             </article>
           ))}
-        </div>
-      )}
-      <div className="mt-4 rounded-md border border-white/10 bg-ink-950/25 p-4">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-ink-500">Add desired store</div>
-        <div className="grid gap-2 md:grid-cols-[minmax(140px,0.65fr)_minmax(220px,1.35fr)_auto]">
-          <input className="form-input" value={manualStoreName} onChange={(event) => setManualStoreName(event.target.value)} placeholder="Store name" />
-          <input className="form-input" value={manualStoreUrl} onChange={(event) => setManualStoreUrl(event.target.value)} placeholder="https://shopee.co.id/store-name" />
-          <button className="secondary-button h-10 w-auto px-4" type="button" onClick={addManualStore} disabled={!manualStoreName.trim() || !manualStoreUrl.trim()}>
-            <Plus size={15} />
-            Add Store
+          <button
+            className="flex min-h-28 items-center justify-center gap-2 rounded-md border border-dashed border-signal-blue/35 bg-signal-blue/5 p-4 text-sm font-semibold text-signal-blue transition-colors hover:bg-signal-blue/10"
+            type="button"
+            onClick={() => setAddingStore(true)}
+          >
+            <Plus size={18} />
+            Add Store Page
           </button>
         </div>
-      </div>
+      )}
+      {addingStore && (
+        <div className="mt-4 rounded-md border border-white/10 bg-ink-950/25 p-4">
+          <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-ink-500">Add store page</div>
+          <div className="grid gap-2 md:grid-cols-[minmax(140px,0.65fr)_minmax(220px,1.35fr)_auto_auto]">
+            <input className="form-input" value={manualStoreName} onChange={(event) => setManualStoreName(event.target.value)} placeholder="Store name" />
+            <input className="form-input" value={manualStoreUrl} onChange={(event) => setManualStoreUrl(event.target.value)} placeholder="https://shopee.co.id/store-name" />
+            <button className="primary-button h-10 w-auto px-4" type="button" onClick={addManualStore} disabled={!manualStoreName.trim() || !manualStoreUrl.trim()}>
+              <Plus size={15} />
+              Add
+            </button>
+            <button className="secondary-button h-10 w-auto px-4" type="button" onClick={() => setAddingStore(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-5 text-ink-500">
           {candidates.length > 0
-            ? `${candidates.length} Potential Store${candidates.length === 1 ? "" : "s"} will be collected independently.`
-            : "Add at least one Potential Store to continue."}
+            ? `${candidates.length} Key Store Page${candidates.length === 1 ? "" : "s"} will be collected independently.`
+            : "Add at least one Key Store Page to continue."}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button className="secondary-button h-10 w-auto px-4" type="button" onClick={onRunAnalysis} disabled={scoring || !detail}>
-            <Brain size={16} />
-            {scoring ? "Scoring..." : "Run AI Scoring"}
-            {scoringProvider ? ` (${scoringProvider})` : ""}
-          </button>
-          <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartKeyStoreCollection} disabled={candidates.length === 0}>
+        <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartKeyStoreCollection} disabled={candidates.length === 0}>
           <Store size={16} />
-            Start Store Collection
-          </button>
-        </div>
+          Start Store Collection
+        </button>
       </div>
     </Panel>
   );
@@ -3060,6 +3067,7 @@ function BrowserCaptureStatusPill({
 
 function FloatingStepController({
   step,
+  viewMode,
   activeSubActionId,
   stepNumber,
   stepTotal,
@@ -3082,6 +3090,7 @@ function FloatingStepController({
   onNext
 }: {
   step: CollectionStep;
+  viewMode: "desktop" | "mobile";
   activeSubActionId?: string;
   stepNumber: number;
   stepTotal: number;
@@ -3129,6 +3138,11 @@ function FloatingStepController({
     }
   }, [collapseSignal]);
   useEffect(() => {
+    if (viewMode === "mobile") {
+      setCompact(true);
+    }
+  }, [viewMode]);
+  useEffect(() => {
     const signature = `${activeSubAction?.id ?? ""}:${activeSubActionState}:${outcomeMessage ?? ""}`;
     if (!activeSubAction?.id || activeSubActionState === "pending" || outcomeRef.current.signature === signature) {
       return;
@@ -3153,7 +3167,10 @@ function FloatingStepController({
     return (
       <>
         <motion.div
-          className="mio-floating-collector mio-floating-collector-compact absolute left-4 top-4 z-20 max-w-[430px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
+          className={[
+            "mio-floating-collector mio-floating-collector-compact absolute top-2 z-20 rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl",
+            viewMode === "mobile" ? "left-2 right-2" : "left-4 max-w-[430px]"
+          ].join(" ")}
           initial={{ opacity: 0, y: -10, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.5, ease: "easeInOut" }}
@@ -3167,11 +3184,22 @@ function FloatingStepController({
               Step {stepNumber}/{stepTotal}
             </div>
             <div className="truncate text-xs font-medium text-white">{step.label}</div>
-            {activeSubAction && <div className="truncate text-[10px] text-ink-400">{activeSubAction.label}</div>}
+            {activeSubAction && viewMode !== "mobile" && <div className="truncate text-[10px] text-ink-400">{activeSubAction.label}</div>}
           </div>
           <span className={["shrink-0 rounded-full px-2 py-1 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
             {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "wait"}
           </span>
+          {viewMode === "mobile" && (
+            <button
+              className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
+              type="button"
+              onClick={onPrevious}
+              aria-label="Previous step"
+              title="Previous step"
+            >
+              <ChevronLeft size={13} />
+            </button>
+          )}
           {(!usesSubActionCollectButtons || activeSubAction?.id === "shop-homepage") && (
             <button
               className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
@@ -3206,10 +3234,11 @@ function FloatingStepController({
               {resetting ? <span className="mio-spinner" /> : <RefreshCcw size={13} />}
             </button>
           )}
-          {((usesSubActionCollectButtons && activeSubActionFinished) || (!usesSubActionCollectButtons && captured && step.mode !== "PROCESS")) && (
+          {(viewMode === "mobile" || (usesSubActionCollectButtons && activeSubActionFinished) || (!usesSubActionCollectButtons && captured && step.mode !== "PROCESS")) && (
             <button
               className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
               type="button"
+              disabled={viewMode === "mobile" && !activeSubActionFinished && !captured}
               onClick={advanceCollector}
               aria-label={nextSubAction ? `Continue to ${nextSubAction.label}` : "Continue to next product"}
               title={nextSubAction ? `Continue to ${nextSubAction.label}` : "Continue to next product"}
@@ -3244,7 +3273,10 @@ function FloatingStepController({
 
   return (
     <motion.div
-      className="mio-floating-collector mio-floating-collector-expanded absolute left-4 top-4 z-20 flex w-[320px] flex-col rounded-[18px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl"
+      className={[
+        "mio-floating-collector mio-floating-collector-expanded absolute top-2 z-20 flex w-[320px] max-w-[calc(100%-1rem)] flex-col rounded-[18px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl",
+        viewMode === "mobile" ? "left-2" : "left-4"
+      ].join(" ")}
       initial={{ opacity: 0, y: -10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.5, ease: "easeInOut" }}
@@ -3371,7 +3403,7 @@ function FloatingStepController({
           <button className="primary-button h-9" type="button" disabled={saving || activeSubActionMaxed} onClick={() => onCollect(activeSubAction?.id)}>
             <ClipboardCheck size={16} />
             {step.mode === "PROCESS"
-              ? captured ? "Review Process Again" : step.id === "evaluation-phase-scoring" ? "Open Evaluation Phase" : "Build Key Product Table"
+              ? captured ? "Review Process Again" : "Build Key Product Table"
               : saving ? "Saving Evidence" : captured ? `Collect Again${activeSubAction ? `: ${activeSubAction.label}` : ""}` : collectLabel ?? (dataOnlyStep ? "Collect Data" : "Collect This Step")}
           </button>
           {captured && (
@@ -3444,6 +3476,9 @@ function subActionButtonLabel(action: CollectionSubAction, collectedCount = 0): 
 }
 
 function subActionEvidenceKind(step: CollectionStep, action?: CollectionSubAction): ManualEvidenceKind {
+  if (action?.kind) {
+    return action.kind;
+  }
   if (!action) {
     return step.kind;
   }
@@ -3469,7 +3504,8 @@ function isDataOnlyEvidenceStep(step: CollectionStep, action?: CollectionSubActi
   if (action?.mode === "screenshot") {
     return false;
   }
-  return step.metadata?.dataOnly === true ||
+  return action?.metadata?.dataOnly === true ||
+    step.metadata?.dataOnly === true ||
     ["STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER"].includes(step.kind);
 }
 
@@ -4114,7 +4150,6 @@ function ProjectInspectionPanel({
   onDelete: () => void;
   onContinueCollection: () => void;
 }) {
-  const queryClient = useQueryClient();
   const mediaCount = useMemo(() => projectMediaCount(detail), [detail]);
   const collectionState = useMemo(() => projectCollectionState(detail.project), [detail.project]);
   const completed = isProjectComplete(detail.project);
@@ -4146,12 +4181,6 @@ function ProjectInspectionPanel({
       return changed ? next : current;
     });
   }
-  const runAnalysis = useMutation({
-    mutationFn: () => apiClient.analyzeProject(detail.project.id),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["project-detail", detail.project.id] });
-    }
-  });
   return (
     <section className="mio-project-inspector-page space-y-6">
       <header className="mio-project-sticky-header">
@@ -4223,9 +4252,6 @@ function ProjectInspectionPanel({
           <ProjectReportOutline
             detail={detail}
             onContinueCollection={onContinueCollection}
-            onRunAnalysis={() => runAnalysis.mutate()}
-            scoring={runAnalysis.isPending}
-            scoringProvider={runAnalysis.data?.provider}
           />
         </div>
       </ReportSectionExpansionContext.Provider>
@@ -4235,17 +4261,12 @@ function ProjectInspectionPanel({
 
 function ProjectReportOutline({
   detail,
-  onContinueCollection,
-  onRunAnalysis,
-  scoring,
-  scoringProvider
+  onContinueCollection
 }: {
   detail: ProjectDetailPayload;
   onContinueCollection: () => void;
-  onRunAnalysis: () => void;
-  scoring: boolean;
-  scoringProvider?: string;
 }) {
+  const searchFilters = projectCollectionState(detail.project).searchFilters;
   const relevanceProducts = useMemo(
     () => detail.products.filter((product) => product.source === "Relevance"),
     [detail.products]
@@ -4270,6 +4291,26 @@ function ProjectReportOutline({
   return (
     <div className="space-y-3">
       <ReportOutlineSection id="keyword-general" title="Keyword General">
+        <div className="mb-3 grid gap-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs sm:grid-cols-2">
+          <InfoLine
+            label="Shop Type Filters"
+            value={
+              searchFilters?.shopTypes.length
+                ? searchFilters.shopTypes
+                    .map((id) => SHOPEE_SHOP_TYPE_OPTIONS.find((option) => option.id === id)?.label ?? id)
+                    .join(", ")
+                : "All shop types"
+            }
+          />
+          <InfoLine
+            label="Price Range"
+            value={
+              searchFilters?.priceMin !== undefined || searchFilters?.priceMax !== undefined
+                ? `${searchFilters.priceMin !== undefined ? formatCurrency(searchFilters.priceMin) : "No minimum"} - ${searchFilters.priceMax !== undefined ? formatCurrency(searchFilters.priceMax) : "No maximum"}`
+                : "All prices"
+            }
+          />
+        </div>
         <NestedReportSection id="keyword-relevance" title="Relevance">
           <AssetList assets={detail.assets.filter((asset) => asset.kind === "SEARCH_RESULT")} />
           <ProductCardGrid products={relevanceProducts} />
@@ -4306,21 +4347,8 @@ function ProjectReportOutline({
         </div>
       </ReportOutlineSection>
 
-      <ReportOutlineSection id="evaluation-phase" title="Evaluation Phase">
-        <EvaluationCards
-          detail={detail}
-          onRunAnalysis={onRunAnalysis}
-          scoring={scoring}
-          scoringProvider={scoringProvider}
-        />
-      </ReportOutlineSection>
-
-      <ReportOutlineSection id="key-store" title="Key Store">
+      <ReportOutlineSection id="key-store-pages" title="Key Store Page List">
         <KeyStorePanel detail={detail} onContinueCollection={onContinueCollection} />
-      </ReportOutlineSection>
-
-      <ReportOutlineSection id="tiktok-evidence" title="TikTok Evidence">
-        <AssetList assets={detail.assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT")} />
       </ReportOutlineSection>
     </div>
   );
@@ -4328,6 +4356,10 @@ function ProjectReportOutline({
 
 function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; label: string; depth: number }> {
   const keyProducts = selectKeyProductCandidates(detail.products, detail.project.keyword);
+  const storeCandidates = buildStoreCollectionCandidates(
+    selectKeyProductCandidates(detail.products, detail.project.keyword, 20),
+    projectCollectionState(detail.project).storeCollectionCandidates ?? []
+  );
   return [
     { id: "keyword-general", label: "Keyword General", depth: 0 },
     { id: "keyword-relevance", label: "Relevance", depth: 1 },
@@ -4344,102 +4376,21 @@ function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; 
       { id: `product-${product.id}-media`, label: "Media in user", depth: 2 },
       { id: `product-${product.id}-shop-home`, label: "Shop homepage", depth: 2 }
     ]),
-    { id: "evaluation-phase", label: "Evaluation Phase", depth: 0 },
-    { id: "key-store", label: "Key Store", depth: 0 },
-    { id: "key-store-overall", label: "Overall", depth: 1 },
-    { id: "key-store-data", label: "Store Data", depth: 1 },
-    { id: "key-store-ratings", label: "Store Ratings", depth: 1 },
-    { id: "key-store-categories", label: "Store Categories", depth: 1 },
-    { id: "key-store-home", label: "Store Home Page", depth: 1 },
-    { id: "key-store-popular", label: "Popular Products", depth: 1 },
-    { id: "key-store-best-sellers", label: "Best Sellers", depth: 1 },
-    { id: "key-store-visual", label: "Visual Shop Banner", depth: 1 },
-    { id: "tiktok-evidence", label: "TikTok Evidence", depth: 0 }
+    { id: "key-store-pages", label: "Key Store Page List", depth: 0 },
+    ...storeCandidates.flatMap((candidate, index) => [
+      { id: `store-${candidate.id}`, label: candidate.storeName || `Store ${index + 1}`, depth: 1 },
+      { id: `store-${candidate.id}-overall`, label: "Overall", depth: 2 },
+      { id: `store-${candidate.id}-home`, label: "Store Home Page", depth: 2 },
+      { id: `store-${candidate.id}-data`, label: "Store Data", depth: 2 },
+      { id: `store-${candidate.id}-rating-negative`, label: "1 Star Store Ratings", depth: 2 },
+      { id: `store-${candidate.id}-rating-positive`, label: "5 Star Store Ratings", depth: 2 },
+      { id: `store-${candidate.id}-categories`, label: "Store Categories", depth: 2 },
+      { id: `store-${candidate.id}-popular`, label: "Popular Products", depth: 2 },
+      { id: `store-${candidate.id}-best-sellers`, label: "Store Best Sellers", depth: 2 },
+      { id: `store-${candidate.id}-visual`, label: "Visual Shop Banner", depth: 2 },
+      { id: `store-${candidate.id}-tiktok`, label: "TikTok Evidence", depth: 2 }
+    ])
   ];
-}
-
-function EvaluationCards({
-  detail,
-  onRunAnalysis,
-  scoring,
-  scoringProvider
-}: {
-  detail: ProjectDetailPayload;
-  onRunAnalysis: () => void;
-  scoring: boolean;
-  scoringProvider?: string;
-}) {
-  const candidates = storeEvaluationCandidates(detail);
-  const hasScoring = detail.analyses.length > 0;
-  if (candidates.length === 0) {
-    return (
-      <div className="space-y-3">
-        <EvaluationActionBar onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
-        <EmptyState label="No store candidates yet. Capture Key Product data and Product Detail Qualified evidence first." />
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-3">
-      <EvaluationActionBar onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {candidates.map((candidate, index) => (
-          <button key={candidate.key} type="button" className="rounded-md border border-white/8 bg-white/5 p-3 text-left hover:bg-white/8" onClick={() => candidate.url && void apiClient.openUrl(candidate.url)}>
-            <div className="aspect-video overflow-hidden rounded bg-white/10">
-              {candidate.thumbnail ? <img src={imageSource(candidate.thumbnail)} alt={candidate.name} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Potential Store {index + 1}</div>
-                <div className="mt-1 line-clamp-1 text-sm font-semibold text-white">{candidate.name}</div>
-              </div>
-              <div className="rounded-full border border-signal-blue/25 bg-signal-blue/10 px-2 py-1 text-xs font-semibold text-signal-blue">
-                {hasScoring ? candidate.score : "Not scored"}
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-400">
-              <InfoLine label="Store Type" value={candidate.type} />
-              <InfoLine label="Products" value={candidate.productCount.toString()} />
-              <InfoLine label="GMV ETA" value={formatCurrency(candidate.gmvEstimate)} />
-              <InfoLine label="Sold / Month" value={formatOptionalNumber(candidate.monthlySoldEstimate)} />
-              <InfoLine label="Promotion" value={`${candidate.promotionCount} signals`} />
-              <InfoLine label="Evidence" value={candidate.hasStoreEvidence ? "Store evidence" : "Product evidence"} />
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EvaluationActionBar({
-  onRunAnalysis,
-  scoring,
-  scoringProvider
-}: {
-  onRunAnalysis: () => void;
-  scoring: boolean;
-  scoringProvider?: string;
-}) {
-  return (
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 p-3">
-      <div>
-        <div className="text-sm font-semibold text-white">AI Scoring</div>
-        <div className="mt-1 text-xs text-ink-500">Score Potential Stores from GMV/month, sold/month, and active promotions.</div>
-      </div>
-      <div className="flex items-center gap-2">
-        {scoringProvider && (
-          <span className="rounded-full border border-signal-green/25 bg-signal-green/10 px-3 py-1 text-xs text-signal-green">
-            Saved with {scoringProvider}
-          </span>
-        )}
-        <button className="primary-button h-9 w-auto px-3" type="button" onClick={onRunAnalysis} disabled={scoring}>
-          <Brain size={15} />
-          {scoring ? "Scoring" : "Run AI Scoring"}
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function KeyStorePanel({
@@ -4454,18 +4405,16 @@ function KeyStorePanel({
     projectCollectionState(detail.project).storeCollectionCandidates ?? []
   );
   if (candidates.length === 0) {
-    return <EmptyState label="No store candidates yet. Approve qualified products or add a store in Evaluation Phase first." />;
+    return <EmptyState label="No store pages yet. Approve qualified products or add a store page first." />;
   }
-  const evaluations = storeEvaluationCandidates(detail);
-  const latestAnalysis = [...detail.analyses].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 p-3">
         <div>
-          <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Store Collection</div>
-          <div className="mt-1 text-base font-semibold text-white">{candidates.length} candidate stores</div>
-          <div className="mt-1 text-xs text-ink-400">Each qualified store keeps its own profile, ratings, category, product, banner, and TikTok evidence.</div>
+          <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Key Store Page List</div>
+          <div className="mt-1 text-base font-semibold text-white">{candidates.length} store pages</div>
+          <div className="mt-1 text-xs text-ink-400">Each store keeps its own homepage, profile, ratings, categories, products, banner, and TikTok evidence.</div>
         </div>
         <button className="primary-button h-9 w-auto px-3" type="button" onClick={onContinueCollection}>
           <ClipboardCheck size={15} />
@@ -4473,31 +4422,24 @@ function KeyStorePanel({
         </button>
       </div>
 
-      <NestedReportSection id="key-store-overall" title="Overall">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const evaluation = evaluations.find((item) => collectionCandidateMatchesEvaluation(candidate, item));
-            const store = findCollectedStore(detail, candidate);
-            const sentences = evaluation
-              ? keyStoreOverallConclusions(evaluation, latestAnalysis?.resultJson)
-              : collectedStoreConclusions(candidate, store);
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+      {candidates.map((candidate) => {
+        const store = findCollectedStore(detail, candidate);
+        const ratings = store?.ratingSamples ?? [];
+        const popularProducts = storeProductsForCandidate(detail, candidate, "Store Products");
+        const fallbackProducts = selectKeyProductCandidates(detail.products, detail.project.keyword, 20)
+          .filter((product) => productMatchesCollectionCandidate(product, candidate));
+        return (
+          <NestedReportSection key={candidate.id} id={`store-${candidate.id}`} title={candidate.storeName}>
+            <div className="space-y-3">
+              <NestedReportSection id={`store-${candidate.id}-overall`} title="Overall">
                 <div className="space-y-2 text-sm leading-6 text-ink-300">
-                  {sentences.map((sentence) => <p key={sentence}>{sentence}</p>)}
+                  {collectedStoreConclusions(candidate, store).map((sentence) => <p key={sentence}>{sentence}</p>)}
                 </div>
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-data" title="Store Data">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const store = findCollectedStore(detail, candidate);
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-home`} title="Store Home Page">
+                <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_HOME")} limit={12} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-data`} title="Store Data">
                 {store ? (
                   <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                     <InfoLine label="Followers" value={formatOptionalNumber(store.followers)} />
@@ -4506,142 +4448,72 @@ function KeyStorePanel({
                     <InfoLine label="Rating" value={store.rating ? `${store.rating}${store.ratingCount ? ` (${formatOptionalNumber(store.ratingCount)})` : ""}` : "-"} />
                     <InfoLine label="Chat response" value={store.chatResponse ?? "-"} />
                     <InfoLine label="Joined" value={store.joinedDate ?? "-"} />
-                    <div className="sm:col-span-2">
-                      <InfoLine label="Description" value={store.description ?? "-"} />
-                    </div>
+                    <div className="sm:col-span-2"><InfoLine label="Description" value={store.description ?? "-"} /></div>
                   </div>
                 ) : <EmptyState label="Store details have not been collected." />}
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-ratings" title="Store Ratings">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const samples = findCollectedStore(detail, candidate)?.ratingSamples ?? [];
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-                {samples.length > 0 ? (
-                  <div className="space-y-2">
-                    {samples.map((sample, index) => (
-                      <div key={`${candidate.id}-${sample.rating}-${index}`} className="rounded-md border border-white/8 bg-white/5 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <span className="font-semibold text-white">{sample.reviewer || "Shopee buyer"}</span>
-                          <span className="text-ink-400">{sample.rating} star{sample.capturedAt ? ` · ${sample.capturedAt}` : ""}</span>
-                        </div>
-                        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-ink-300">{sample.comment}</p>
-                        {sample.mediaUrls.length > 0 && (
-                          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-                            {sample.mediaUrls.map((url) => (
-                              <img key={url} src={imageSource(url)} alt={`${sample.reviewer} rating evidence`} loading="lazy" decoding="async" className="aspect-square w-full rounded object-cover" />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : <EmptyState label="No proof-backed store ratings collected." />}
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-categories" title="Store Categories">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const categories = findCollectedStore(detail, candidate)?.categories ?? [];
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-                {categories.length > 0 ? (
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-rating-negative`} title="1 Star Store Ratings">
+                <StoreRatingSamples candidate={candidate} samples={ratings.filter((sample) => sample.rating === 1)} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-rating-positive`} title="5 Star Store Ratings">
+                <StoreRatingSamples candidate={candidate} samples={ratings.filter((sample) => sample.rating === 5)} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-categories`} title="Store Categories">
+                {store?.categories?.length ? (
                   <div className="flex flex-wrap gap-2">
-                    {categories.map((category) => <span key={category} className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-ink-300">{category}</span>)}
+                    {store.categories.map((category) => <span key={category} className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-ink-300">{category}</span>)}
                   </div>
                 ) : <EmptyState label="No store categories collected." />}
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-home" title="Store Home Page">
-        <div className="space-y-3">
-          {candidates.map((candidate) => (
-            <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-              <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_HOME")} limit={12} />
-            </StoreEvidenceGroup>
-          ))}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-popular" title="Popular Products">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const collected = storeProductsForCandidate(detail, candidate, "Store Products");
-            const fallback = selectKeyProductCandidates(detail.products, detail.project.keyword, 20)
-              .filter((product) => productMatchesCollectionCandidate(product, candidate));
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-                <ProductCardGrid products={collected.length > 0 ? collected : fallback} limit={80} />
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-best-sellers" title="Best Sellers">
-        <div className="space-y-3">
-          {candidates.map((candidate) => (
-            <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-              <ProductCardGrid products={storeProductsForCandidate(detail, candidate, "Store Best Sellers")} limit={80} />
-            </StoreEvidenceGroup>
-          ))}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-visual" title="Visual Shop Banner">
-        <div className="space-y-3">
-          {candidates.map((candidate) => (
-            <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-              <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_BANNER")} limit={80} />
-            </StoreEvidenceGroup>
-          ))}
-        </div>
-      </NestedReportSection>
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-popular`} title="Popular Products">
+                <ProductCardGrid products={popularProducts.length > 0 ? popularProducts : fallbackProducts} limit={80} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-best-sellers`} title="Store Best Sellers">
+                <ProductCardGrid products={storeProductsForCandidate(detail, candidate, "Store Best Sellers")} limit={80} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-visual`} title="Visual Shop Banner">
+                <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_BANNER")} limit={80} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-tiktok`} title="TikTok Evidence">
+                <AssetList assets={storeSocialAssetsForCandidate(detail, candidate)} limit={12} />
+              </NestedReportSection>
+            </div>
+          </NestedReportSection>
+        );
+      })}
     </div>
   );
 }
 
-function StoreEvidenceGroup({
+function StoreRatingSamples({
   candidate,
-  children
+  samples
 }: {
   candidate: StoreCollectionCandidate;
-  children: ReactNode;
+  samples: NonNullable<ProjectDetailPayload["stores"][number]["ratingSamples"]>;
 }) {
+  if (samples.length === 0) {
+    return <EmptyState label="No proof-backed store ratings collected." />;
+  }
   return (
-    <div className="rounded-md border border-white/8 bg-white/5 p-3">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="font-semibold text-white">{candidate.storeName}</div>
-          {candidate.shopId && <div className="mt-0.5 text-xs text-ink-500">Shop ID {candidate.shopId}</div>}
+    <div className="space-y-2">
+      {samples.map((sample, index) => (
+        <div key={`${candidate.id}-${sample.rating}-${index}`} className="rounded-md border border-white/8 bg-white/5 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="font-semibold text-white">{sample.reviewer || "Shopee buyer"}</span>
+            <span className="text-ink-400">{sample.rating} star{sample.capturedAt ? ` · ${sample.capturedAt}` : ""}</span>
+          </div>
+          <p className="mt-2 whitespace-pre-line text-sm leading-6 text-ink-300">{sample.comment}</p>
+          {sample.mediaUrls.length > 0 && (
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              {sample.mediaUrls.map((url) => (
+                <img key={url} src={imageSource(url)} alt={`${sample.reviewer} rating evidence`} loading="lazy" decoding="async" className="aspect-square w-full rounded object-cover" />
+              ))}
+            </div>
+          )}
         </div>
-        <button className="secondary-button h-8 max-w-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(candidate.storeUrl)}>
-          <ExternalLink size={13} />
-          <span className="truncate">Open Store</span>
-        </button>
-      </div>
-      {children}
+      ))}
     </div>
-  );
-}
-
-function collectionCandidateMatchesEvaluation(candidate: StoreCollectionCandidate, evaluation: StoreEvaluationCandidate): boolean {
-  return Boolean(
-    (candidate.storeUrl && evaluation.url && sameStoreIntent(candidate.storeUrl, evaluation.url)) ||
-    normalizeComparableStoreName(candidate.storeName) === normalizeComparableStoreName(evaluation.name)
   );
 }
 
@@ -4658,7 +4530,7 @@ function collectedStoreConclusions(
   store: ProjectDetailPayload["stores"][number] | undefined
 ): string[] {
   if (!store) {
-    return [`${candidate.storeName} is queued for structured store collection. Complete its store data, ratings, categories, product matrix, and visual evidence before AI scoring.`];
+    return [`${candidate.storeName} is queued for structured store collection. Complete its store data, ratings, categories, product matrix, and visual evidence.`];
   }
   const performance = [
     store.rating ? `rating ${store.rating}${store.ratingCount ? ` from ${formatOptionalNumber(store.ratingCount)} ratings` : ""}` : undefined,
@@ -4670,7 +4542,7 @@ function collectedStoreConclusions(
     `${store.name} is included as a qualified-store candidate${performance ? ` with ${performance}` : ""}.`,
     store.description
       ? store.description
-      : "Its final overall assessment will be generated from the collected profile, ratings, categories, products, promotions, and visual evidence."
+      : "This summary is based on the collected profile, ratings, categories, products, promotions, and visual evidence."
   ];
 }
 
@@ -4695,6 +4567,20 @@ function storeAssetsForCandidate(
     (
       asset.ownerId === candidate.id ||
       Boolean(asset.sourceUrl && candidate.storeUrl && sameStoreIntent(asset.sourceUrl, candidate.storeUrl))
+    )
+  );
+}
+
+function storeSocialAssetsForCandidate(
+  detail: ProjectDetailPayload,
+  candidate: StoreCollectionCandidate
+) {
+  const candidateName = normalizeComparableStoreName(candidate.storeName);
+  return detail.assets.filter((asset) =>
+    asset.kind === "SOCIAL_ACCOUNT" &&
+    (
+      asset.ownerId === candidate.id ||
+      Boolean(candidateName && normalizeComparableStoreName(asset.label).includes(candidateName))
     )
   );
 }
@@ -5042,10 +4928,14 @@ function ProductViewToggle({ value, onChange }: { value: "cards" | "list"; onCha
 
 function ProductInfoTable({
   products,
-  onRemoveProduct
+  onRemoveProduct,
+  checkedProductIds,
+  onToggleProduct
 }: {
   products: ProjectProductEvidence[];
   onRemoveProduct?: (productId: string) => void;
+  checkedProductIds?: string[];
+  onToggleProduct?: (productId: string) => void;
 }) {
   if (products.length === 0) {
     return <EmptyState label="Product info table is empty. Capture Relevance and Top Sales pages first." />;
@@ -5055,6 +4945,7 @@ function ProductInfoTable({
       <table className="min-w-[1160px] text-left text-xs">
         <thead className="bg-white/8 text-ink-500">
           <tr>
+            {onToggleProduct && <th className="w-10 px-3 py-2">Select</th>}
             <th className="px-3 py-2">No</th>
             <th className="px-3 py-2">Source</th>
             <th className="px-3 py-2">Reason</th>
@@ -5073,6 +4964,16 @@ function ProductInfoTable({
         <tbody>
           {products.map((product, index) => (
             <tr key={product.id} className="border-t border-white/8">
+              {onToggleProduct && (
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={checkedProductIds?.includes(product.id) ?? false}
+                    onChange={() => onToggleProduct(product.id)}
+                    aria-label={`Select ${displayProductTitle(product)}`}
+                  />
+                </td>
+              )}
               <td className="px-3 py-2">{index + 1}</td>
               <td className="px-3 py-2">{productSourcePlacement(product)}</td>
               <td className="px-3 py-2">{selectionReasonForDisplay(product, products)}</td>
@@ -5081,10 +4982,10 @@ function ProductInfoTable({
               <td className="px-3 py-2">{product.monthlySoldText ?? formatOptionalNumber(product.monthlySold)}</td>
               <td className="px-3 py-2">{product.storeName ?? "-"}</td>
               <td className="px-3 py-2">
-                {product.storeBadgeImageUrl ? (
+                {storeTypeImage(product.storeType) ? (
                   <img
                     className="h-5 w-auto max-w-[72px] object-contain"
-                    src={product.storeBadgeImageUrl}
+                    src={storeTypeImage(product.storeType) ?? undefined}
                     alt={storeTypeLabel(product)}
                     loading="lazy"
                   />
@@ -5125,6 +5026,8 @@ function KeyProductTableReview({
   onBackToBrowser,
   onRemoveProduct,
   onAddProduct,
+  onExcludeProducts,
+  onAddProducts,
   onApprove,
   onNext
 }: {
@@ -5135,10 +5038,15 @@ function KeyProductTableReview({
   onBackToBrowser: () => void;
   onRemoveProduct: (productId: string) => void;
   onAddProduct: (productId: string) => void;
+  onExcludeProducts: (productIds: string[]) => void;
+  onAddProducts: (productIds: string[]) => void;
   onApprove: () => void;
   onNext: () => void;
 }) {
   const [productToAdd, setProductToAdd] = useState("");
+  const [selectedQualifiedIds, setSelectedQualifiedIds] = useState<string[]>([]);
+  const [selectedAvailableIds, setSelectedAvailableIds] = useState<string[]>([]);
+  const toggleId = (ids: string[], id: string) => ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id];
   return (
     <Panel
       title="Key Product Table"
@@ -5154,6 +5062,20 @@ function KeyProductTableReview({
         Product Qualified starts with Top Sales evidence, then uses Relevance evidence to enrich and rank commercially valid products.
         GIMMICK, NOT FOR SALE, FREE GIFT, irrelevant, and duplicate rows are excluded. Review up to 20 products before approval.
         Showing {products.length} selected product{products.length === 1 ? "" : "s"} from {totalProducts} extracted row{totalProducts === 1 ? "" : "s"}.
+      </div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <strong className="text-sm text-ink-200">{products.length} / 20 selected</strong>
+        <button
+          className="secondary-button h-9 w-auto px-3"
+          type="button"
+          disabled={selectedQualifiedIds.length === 0}
+          onClick={() => {
+            onExcludeProducts(selectedQualifiedIds);
+            setSelectedQualifiedIds([]);
+          }}
+        >
+          Exclude selected
+        </button>
       </div>
       <div className="mb-4 flex flex-wrap items-end gap-2">
         <label className="min-w-[280px] flex-1 text-xs font-medium text-ink-400">
@@ -5186,7 +5108,46 @@ function KeyProductTableReview({
         </button>
         <span className="pb-3 text-xs text-ink-500">{products.length}/20</span>
       </div>
-      <ProductInfoTable products={products} onRemoveProduct={onRemoveProduct} />
+      <ProductInfoTable
+        products={products}
+        onRemoveProduct={onRemoveProduct}
+        checkedProductIds={selectedQualifiedIds}
+        onToggleProduct={(id) => setSelectedQualifiedIds((current) => toggleId(current, id))}
+      />
+      {availableProducts.length > 0 && (
+        <div className="mt-4 rounded-md border border-white/8 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <strong className="text-sm text-ink-200">Available products</strong>
+            <button
+              className="secondary-button h-9 w-auto px-3"
+              type="button"
+              disabled={selectedAvailableIds.length === 0 || products.length >= 20}
+              onClick={() => {
+                onAddProducts(selectedAvailableIds);
+                setSelectedAvailableIds([]);
+              }}
+            >
+              Add selected
+            </button>
+          </div>
+          <div className="grid max-h-64 gap-2 overflow-auto md:grid-cols-2">
+            {availableProducts.map((product) => (
+              <label key={product.id} className="flex cursor-pointer items-start gap-2 rounded-md border border-white/8 p-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={selectedAvailableIds.includes(product.id)}
+                  onChange={() => setSelectedAvailableIds((current) => toggleId(current, product.id))}
+                />
+                <span>
+                  <span className="block font-medium text-ink-200">{displayProductTitle(product)}</span>
+                  <span className="text-ink-500">{productSourcePlacement(product)} · {storeTypeLabel(product)}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {products.length >= 20 && <p className="mt-2 text-xs text-signal-red">Maximum 20 qualified products reached.</p>}
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-5 text-ink-500">
           Store Name, Total Sold, review detail, slides, description, and shop homepage are enriched during Product Detail Qualified collection.
@@ -6224,7 +6185,7 @@ function collectionStageLabel(stage: CollectionStage): string {
     case "PRODUCT_DETAILS":
       return "Part 2 - Product Details";
     case "EVALUATION_KEY_STORE":
-      return "Part 3 - Evaluation and Key Store";
+      return "Part 3 - Key Store Pages";
     case "KEYWORD_GENERAL":
     default:
       return "Part 1 - Keyword General";
@@ -6361,10 +6322,12 @@ function isCollectionStepComplete(step: CollectionStep, stepAssetPaths: Record<s
   if (stepAssetPaths[step.id]) {
     return true;
   }
-  if (step.stage !== "PRODUCT_DETAILS" || !step.subActions?.length) {
+  if (!step.subActions?.length) {
     return false;
   }
-  return step.subActions.every((action) => Boolean(stepAssetPaths[stepProgressKey(step, action.id)]));
+  return step.subActions
+    .filter((action) => action.metadata?.optional !== true)
+    .every((action) => Boolean(stepAssetPaths[stepProgressKey(step, action.id)]));
 }
 
 function relatedShopHomepageProgressKeys(
@@ -6613,49 +6576,18 @@ function buildShopeeSteps(
     }
   ];
 
-  const evaluationStep: CollectionStep = {
-    id: "evaluation-phase-scoring",
-    stage: "EVALUATION_KEY_STORE",
-    section: "Evaluation Phase",
-    label: "Prepare Potential Stores",
-    kind: "STORE_HOME",
-    mode: "PROCESS",
-    instruction: "Review the distinct stores declared by qualified products, add any manual store, and choose optional evidence before starting collection.",
-    subActions: [
-      {
-        id: "potential-stores",
-        label: "Potential Store cards",
-        mode: "sync",
-        description: "Deduplicate qualified products by store and show one card per store."
-      },
-      {
-        id: "ai-scoring",
-        label: "AI Scoring",
-        mode: "sync",
-        description: "Run scoring after store details, ratings, categories, products, and visual evidence are collected."
-      },
-      {
-        id: "store-collection",
-        label: "Store collection",
-        mode: "background",
-        description: "Collect evidence for every listed store instead of locking collection to one winner."
-      }
-    ],
-    ready: candidateStores.length > 0
-  };
-  const storeSteps: CollectionStep[] = [
-    evaluationStep,
-    ...candidateStores.flatMap((candidate) => buildShopeeStoreCollectionSteps(candidate, currentUrl, storeReady))
-  ];
+  const storeSteps = candidateStores.map((candidate) =>
+    buildShopeeStoreCollectionStep(candidate, currentUrl, storeReady)
+  );
 
   return [...discoverySteps, ...genericProductSteps, ...productSteps, ...storeSteps];
 }
 
-function buildShopeeStoreCollectionSteps(
+function buildShopeeStoreCollectionStep(
   candidate: StoreCollectionCandidate,
   currentUrl: string,
   storeReady: boolean
-): CollectionStep[] {
+): CollectionStep {
   const homepageUrl = storeHomepageUrl(candidate);
   const commonMetadata = {
     storeCandidateId: candidate.id,
@@ -6663,25 +6595,23 @@ function buildShopeeStoreCollectionSteps(
     shopId: candidate.shopId,
     canonicalStoreUrl: homepageUrl
   };
-  const step = (
-    suffix: string,
+  const action = (
+    id: string,
     label: string,
+    mode: CollectionSubAction["mode"],
     kind: ManualEvidenceKind,
     targetUrl: string,
     storeEvidenceType: string,
-    instruction: string,
-    options: Partial<CollectionStep> = {}
-  ): CollectionStep => ({
-    id: `${candidate.id}-${suffix}`,
-    stage: "EVALUATION_KEY_STORE",
-    section: candidate.storeName,
+    description: string,
+    options: Partial<CollectionSubAction> = {}
+  ): CollectionSubAction => ({
+    id,
     label,
+    mode,
     kind,
-    ownerType: "STORE",
-    ownerId: candidate.id,
     targetUrl,
-    instruction,
-    ready: storeReady && sameUrlIntent(currentUrl, targetUrl),
+    description,
+    preferredViewMode: "mobile",
     ...options,
     metadata: {
       ...commonMetadata,
@@ -6689,95 +6619,137 @@ function buildShopeeStoreCollectionSteps(
       ...(options.metadata ?? {})
     }
   });
-  const steps: CollectionStep[] = [
-    step(
-      "homepage",
-      `${candidate.storeName}: Store Home Page`,
+  const actions: CollectionSubAction[] = [
+    action(
+      "store-homepage",
+      "Store Home Page",
+      "screenshot",
       "STORE_HOME",
       homepageUrl,
       "homepage",
       "Capture the store homepage as evidence for this store.",
-      { captureMode: "full-page", captureStrategy: "top-through-selector", targetSelector: ".shop-decoration" }
+      {
+        collectLabel: "Capture Store Page",
+        captureMode: "full-page",
+        captureStrategy: "top-through-selector",
+        targetSelector: ".shop-decoration"
+      }
     ),
-    step(
-      "details",
-      `${candidate.storeName}: Store Data`,
+    action(
+      "store-details",
+      "Store Data",
+      "collect",
       "STORE_HOME",
       storeDetailsUrl(candidate),
       "details",
       "Collect followers, following, rating, chat response, product count, joined date, and description from Shop Details.",
-      { metadata: { dataOnly: true } }
+      {
+        collectLabel: "Collect Store Data",
+        guidance: candidate.shopId
+          ? "Collect the visible Shop Details page."
+          : "On the store homepage, click the store header or store name. Wait for a URL like /shop/{shopId}/details?shopid={shopId}, then collect Store Data.",
+        metadata: { dataOnly: true }
+      }
     ),
-    step(
-      "rating-negative",
-      `${candidate.storeName}: 1-star Store Ratings`,
+    action(
+      "store-rating-negative",
+      "1 Star Store Ratings",
+      "collect",
       "REVIEW_SECTION",
       storeRatingsUrl(candidate, 1),
       "rating-1",
       "Collect up to five 1-star store ratings that include both review text and customer image or video proof.",
-      { metadata: { dataOnly: true, requestedRating: 1 } }
+      { collectLabel: "Collect 1 Star", metadata: { dataOnly: true, requestedRating: 1 } }
     ),
-    step(
-      "rating-positive",
-      `${candidate.storeName}: 5-star Store Ratings`,
+    action(
+      "store-rating-positive",
+      "5 Star Store Ratings",
+      "collect",
       "REVIEW_SECTION",
       storeRatingsUrl(candidate, 5),
       "rating-5",
       "Collect up to five 5-star store ratings that include both review text and customer image or video proof.",
-      { metadata: { dataOnly: true, requestedRating: 5 } }
+      { collectLabel: "Collect 5 Star", metadata: { dataOnly: true, requestedRating: 5 } }
     ),
-    step(
-      "categories",
-      `${candidate.storeName}: Store Categories`,
+    action(
+      "store-categories",
+      "Store Categories",
+      "collect",
       "STORE_HOME",
       storeCategoriesUrl(candidate),
       "categories",
       "Collect the visible store category names and product counts.",
-      { metadata: { dataOnly: true } }
+      { collectLabel: "Collect Categories", metadata: { dataOnly: true } }
     )
   ];
-  if (candidate.includePopularProducts) {
-    steps.push(step(
-      "popular",
-      `${candidate.storeName}: Popular Products`,
-      "STORE_FEATURED_PRODUCTS",
-      storeProductsUrl(candidate, "pop"),
-      "popular-products",
-      "Collect the full first page of store products sorted by Popular.",
-      { targetSelector: ".shop-page__all-products-section", metadata: { dataOnly: true } }
-    ));
-  }
-  steps.push(step(
-    "best-seller",
-    `${candidate.storeName}: Best Sellers`,
+  actions.push(action(
+    "store-popular",
+    "Popular Products (Optional)",
+    "collect",
+    "STORE_FEATURED_PRODUCTS",
+    storeProductsUrl(candidate, "pop"),
+    "popular-products",
+    "Optionally collect the full first page of store products sorted by Popular.",
+    {
+      collectLabel: "Add Popular Products",
+      targetSelector: ".shop-page__all-products-section",
+      metadata: { dataOnly: true, optional: true }
+    }
+  ));
+  actions.push(action(
+    "store-best-seller",
+    "Store Best Sellers",
+    "collect",
     "STORE_BEST_SELLER",
     storeProductsUrl(candidate, "sales"),
     "best-sellers",
     "Collect the full first page of store products sorted by Top Sales.",
-    { targetSelector: ".shop-page__all-products-section", metadata: { dataOnly: true } }
+    {
+      collectLabel: "Collect Best Sellers",
+      targetSelector: ".shop-page__all-products-section",
+      metadata: { dataOnly: true }
+    }
   ));
-  if (candidate.includeShopBanner) {
-    steps.push(step(
-      "banner",
-      `${candidate.storeName}: Visual Shop Banner`,
-      "STORE_BANNER",
-      homepageUrl,
-      "banner",
-      "Download banner and carousel images from shop-decoration while excluding product-card images.",
-      { targetSelector: ".shop-decoration", metadata: { dataOnly: true } }
-    ));
-  }
+  actions.push(action(
+    "store-banner",
+    "Visual Shop Banner (Optional)",
+    "download",
+    "STORE_BANNER",
+    homepageUrl,
+    "banner",
+    "Optionally download banner and carousel images from shop-decoration while excluding product-card images.",
+    {
+      collectLabel: "Add Shop Banners",
+      targetSelector: ".shop-decoration",
+      metadata: { dataOnly: true, optional: true }
+    }
+  ));
   const tiktokTarget = `https://www.tiktok.com/search?q=${encodeURIComponent(candidate.storeName)}`;
-  steps.push(step(
-    "tiktok",
-    `${candidate.storeName}: TikTok Evidence`,
+  actions.push(action(
+    "store-tiktok",
+    "TikTok Evidence",
+    "screenshot",
     "SOCIAL_ACCOUNT",
     tiktokTarget,
     "tiktok",
     `Open TikTok search for ${candidate.storeName}, then capture or attach cross-platform evidence.`,
-    { ready: sameUrlIntent(currentUrl, tiktokTarget) || isTikTokPage(currentUrl) }
+    { collectLabel: "Capture TikTok" }
   ));
-  return steps;
+  return {
+    id: `${candidate.id}-store`,
+    stage: "EVALUATION_KEY_STORE",
+    section: "Key Store Page List",
+    label: candidate.storeName,
+    kind: "STORE_HOME",
+    ownerType: "STORE",
+    ownerId: candidate.id,
+    targetUrl: actions[0]?.targetUrl,
+    instruction: `Collect store evidence for ${candidate.storeName}.`,
+    substeps: actions.map((item) => item.label),
+    subActions: actions,
+    ready: storeReady && sameUrlIntent(currentUrl, homepageUrl),
+    metadata: commonMetadata
+  };
 }
 
 function buildTikTokSteps(project: ProjectSummary, currentUrl: string): CollectionStep[] {
@@ -6957,7 +6929,9 @@ function selectKeyProductCandidates(
       merged.set(key, mergeProductSignals(product, current));
     }
   }
-  const candidates = Array.from(merged.values()).filter((product) => product.title && product.productUrl);
+  const candidates = Array.from(merged.values()).filter(
+    (product) => product.title && product.productUrl && isValidStoreType(product.storeType)
+  );
   return candidates
     .filter((product) => selectionDiagnostics(product, candidates, keyword).classification !== "Not Recommended")
     .sort((left, right) => {
@@ -7049,7 +7023,7 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
     rating: mergeRatingValue(base, preferred),
     storeName: preferred.storeName ?? base.storeName,
     storeUrl: preferred.storeUrl ?? base.storeUrl,
-    storeBadgeImageUrl: preferred.storeBadgeImageUrl ?? base.storeBadgeImageUrl,
+    storeBadgeImageUrl: storeTypeImage(mergeStoreType(base, preferred)) ?? undefined,
     imageUrl: preferred.imageUrl ?? base.imageUrl,
     images: preferred.images.length > 0 ? preferred.images : base.images,
     videos: preferred.videos.length > 0 ? preferred.videos : base.videos,
@@ -7063,20 +7037,8 @@ function hasPdpDetailSignal(product: ProjectProductEvidence): boolean {
   return Boolean(product.storeName || product.reviewText || product.description || product.images.length || product.videos.length);
 }
 
-function officialStoreTypeFromProductName(product?: ProjectProductEvidence): "Mall ORI" | undefined {
-  return /\bofficial\s+(?:store|shop)\b|\btoko\s+resmi\b|\bgerai\s+resmi\b/iu.test(product?.storeName ?? "") ? "Mall ORI" : undefined;
-}
-
-function mergeStoreType(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): string | undefined {
-  const officialType = officialStoreTypeFromProductName(preferred) ?? officialStoreTypeFromProductName(base);
-  if (officialType) {
-    return officialType;
-  }
-  const values = [preferred.storeType, base?.storeType].filter((value): value is string => Boolean(value));
-  return values.find((value) => value === "Mall ORI") ??
-    values.find((value) => value === "Star+") ??
-    values.find((value) => value === "Star") ??
-    values[0];
+function mergeStoreType(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): StoreType | undefined {
+  return normalizeStoreTypeValue(preferred.storeType) ?? normalizeStoreTypeValue(base?.storeType) ?? undefined;
 }
 
 function mergeRatingText(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): string | undefined {
@@ -7128,31 +7090,27 @@ function selectionTier(classification: ProductSelectionClassification): number {
 }
 
 function selectionReasonForDisplay(product: ProjectProductEvidence, pool: ProjectProductEvidence[], keyword = ""): string {
-  if (product.selectionReason && /final score\s+\d+\/100/iu.test(product.selectionReason)) {
-    return product.selectionReason;
-  }
   const diagnostics = selectionDiagnostics(product, pool, keyword);
   const priority = diagnostics.classification;
-  const existing = mergeReasonLabels(product.selectionReason);
   if (priority === "Priority") {
-    return `Priority - high price, high sold/month, high total sold, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Premium-priced product with strong monthly and historical demand (${diagnostics.finalScore}/100).`;
   }
   if (priority === "High") {
-    return `High - low price with high sold/month and high total sold, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Accessible price supported by strong monthly and historical demand (${diagnostics.finalScore}/100).`;
   }
   if (priority === "Average - Emerging Product") {
-    return `Average - Emerging Product, high sold/month with growing historical sales, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Emerging product with strong current momentum and developing historical sales (${diagnostics.finalScore}/100).`;
   }
   if (priority === "Average - Established but Slowing") {
-    return `Average - Established but Slowing, historical sales are stronger than current demand, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Established premium product whose historical sales exceed recent demand (${diagnostics.finalScore}/100).`;
   }
   if (priority === "Not Recommended") {
-    return `Not recommended - low sold/month and low total sold${existing ? ` / ${existing}` : ""}`;
+    return "Not recommended because current and historical demand are both weak.";
   }
   if (priority === "Platform recommended") {
-    return `Platform recommended - relevant search placement with supporting sales signal, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Relevant marketplace placement supported by sales and visual quality (${diagnostics.finalScore}/100).`;
   }
-  return existing || "platform recommended";
+  return "Selected for keyword relevance and commercial potential.";
 }
 
 function isPlatformRecommendedProduct(product: ProjectProductEvidence): boolean {
@@ -7553,14 +7511,7 @@ function inferredProductTypeLabel(title: string): string {
 }
 
 function storeTypeLabel(product: ProjectProductEvidence): string {
-  if (product.storeType && /^(Mall ORI|Star\+|Star)$/u.test(product.storeType)) {
-    return product.storeType;
-  }
-  const officialType = officialStoreTypeFromProductName(product);
-  if (officialType) {
-    return officialType;
-  }
-  return "-";
+  return storeTypeDisplayLabel(product.storeType);
 }
 
 function productRatingText(product: ProjectProductEvidence): string {
@@ -7827,6 +7778,7 @@ async function extractRenderedPageSnapshot(
     storeDecorationImages: string[];
   }>(`
     (async () => {
+      const storeTypeImages = ${JSON.stringify(STORE_TYPE_IMAGES)};
       const requestedStoreRating = ${Number.isFinite(options.requestedStoreRating)
         ? Math.max(1, Math.min(5, Number(options.requestedStoreRating)))
         : "undefined"};
@@ -7969,57 +7921,19 @@ async function extractRenderedPageSnapshot(
           .join(" ");
         return firstUseful || "marketplace product";
       };
-      const inferStoreType = (text, imageUrl, outerHtml) => {
-        const value = compact([text, imageUrl, outerHtml].filter(Boolean).join(" ")).toLowerCase();
-        if (/star\\s*\\+|starplus|star-plus/u.test(value)) return "Star+";
-        if (/mall\\s*ori|mallori|mall-ori/u.test(value)) return "Mall ORI";
-        if (/shopee\\s*mall|mall/u.test(value)) return "Mall ORI";
-        if (/(^|[^a-z])star([^a-z]|$)/u.test(value)) return "Star";
+      const inferStoreType = (text, imageUrl) => {
+        const url = String(imageUrl || "").toLowerCase();
+        if (url.includes("id-11134258-7r98o-lyam4dmlnqcoba")) return "star";
+        if (url.includes("id-11134258-7r98r-lyalscj1g30l0b")) return "star_plus";
+        if (url.includes("id-11134258-7r98z-lykpu80ygbvs76")) return "shopee_mall";
+        if (url) return undefined;
+        const value = compact(text).toLowerCase();
+        if (/^(star\\s*\\+|starplus|star-plus)$/u.test(value)) return "star_plus";
+        if (/^(mall\\s*ori|shopee\\s*mall)$/u.test(value)) return "shopee_mall";
+        if (/^star$/u.test(value)) return "star";
         return undefined;
       };
-      const classifyBadgeImageByPixels = async (imageElement) => {
-        if (!imageElement) return undefined;
-        const rect = imageElement.getBoundingClientRect?.();
-        const width = Math.max(1, Math.round(rect?.width || imageElement.naturalWidth || 0));
-        const height = Math.max(1, Math.round(rect?.height || imageElement.naturalHeight || 0));
-        if (width < 8 || height < 6 || width > 120 || height > 50) return undefined;
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.min(width, 120);
-          canvas.height = Math.min(height, 50);
-          const context = canvas.getContext("2d", { willReadFrequently: true });
-          if (!context) return undefined;
-          context.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
-          const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
-          let red = 0;
-          let orange = 0;
-          let bright = 0;
-          for (let index = 0; index < data.length; index += 4) {
-            const r = data[index];
-            const g = data[index + 1];
-            const b = data[index + 2];
-            const a = data[index + 3];
-            if (a < 120) continue;
-            if (r > 150 || g > 100 || b > 100) bright += 1;
-            if (r > 170 && g < 95 && b < 95) red += 1;
-            if (r > 180 && g >= 65 && g < 170 && b < 95) orange += 1;
-          }
-          const denominator = Math.max(bright, 1);
-          const ratio = width / Math.max(height, 1);
-          if (red / denominator > 0.12) {
-            if (ratio > 2.45) return "Mall ORI";
-            if (orange / denominator > 0.04 || width <= 46) return "Star";
-            return "Star";
-          }
-          if (orange / denominator > 0.10) {
-            return width / height > 2.15 ? "Star+" : "Star";
-          }
-        } catch {
-          return undefined;
-        }
-        return undefined;
-      };
-      const findStoreBadgeImage = (card, productImageUrl) => {
+      const findStoreBadgeImage = (card, productImageUrl, titleElement) => {
         const dataRoots = [
           card.querySelector('div.p-2.flex-1.flex.flex-col.justify-between'),
           card.querySelector('div[class*="p-2"][class*="flex-1"][class*="flex-col"]'),
@@ -8034,23 +7948,20 @@ async function extractRenderedPageSnapshot(
             const rect = imageCandidate.getBoundingClientRect?.();
             const width = Math.round(rect?.width || imageCandidate.naturalWidth || 0);
             const height = Math.round(rect?.height || imageCandidate.naturalHeight || 0);
+            if (titleElement && !(imageCandidate.compareDocumentPosition(titleElement) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+              continue;
+            }
             const descriptor = compact([
               imageCandidate.alt,
               imageCandidate.title,
-              imageCandidate.getAttribute("aria-label"),
-              imageCandidate.getAttribute("src"),
-              imageCandidate.getAttribute("srcset"),
-              imageCandidate.outerHTML
+              imageCandidate.getAttribute("aria-label")
             ].filter(Boolean).join(" "));
-            const explicit = inferStoreType(descriptor, candidateUrl, imageCandidate.outerHTML);
-            const smallBadgeShape = width >= 8 && height >= 6 && width <= 120 && height <= 50;
-            const score =
-              (explicit ? 100 : 0) +
-              (smallBadgeShape ? 50 : 0) +
-              (width > height ? 10 : 0) -
-              (width > 160 || height > 80 ? 100 : 0);
-            if (score > 0) {
-              candidates.push({ image: imageCandidate, score });
+            const explicit = inferStoreType(descriptor, candidateUrl);
+            if (explicit) {
+              const distance = titleElement
+                ? Math.abs((titleElement.getBoundingClientRect?.().top || 0) - (rect?.top || 0))
+                : 0;
+              candidates.push({ image: imageCandidate, storeType: explicit, score: 1000 - distance });
             }
           }
         }
@@ -8218,10 +8129,12 @@ async function extractRenderedPageSnapshot(
           if (!title) continue;
           seen.add(key);
           if (card?.outerHTML) capturedProductCardHtml.push(card.outerHTML);
-          const badgeImage = findStoreBadgeImage(card, productImageUrl);
+          const titleElement = Array.from(dataRoot.querySelectorAll("div, span"))
+            .find((element) => compact(element.textContent || "") === title);
+          const badgeImage = findStoreBadgeImage(card, productImageUrl, titleElement || anchor);
           const badgeImageUrl = imageUrlFrom(badgeImage);
           const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title, badgeImage?.outerHTML].filter(Boolean).join(" "));
-          const storeType = inferStoreType(badgeText, badgeImageUrl, badgeImage?.outerHTML) || await classifyBadgeImageByPixels(badgeImage);
+          const storeType = inferStoreType(badgeText, badgeImageUrl);
           const priceText = extractPriceText(text);
           const soldText = extractSoldText(text);
           const ratingText = extractRatingFromRoot(dataRoot, text, soldText);
@@ -8240,11 +8153,11 @@ async function extractRenderedPageSnapshot(
             soldText,
             productType: inferProductType(title),
             storeType,
-            storeBadgeImageUrl: badgeImageUrl,
+            storeBadgeImageUrl: storeType ? storeTypeImages[storeType] : undefined,
             sourcePlacement: String(products.length + 1),
-            mallStatus: storeType === "Mall ORI",
+            mallStatus: storeType === "shopee_mall",
             officialStatus: /official|resmi/i.test(cardText),
-            starSeller: storeType === "Star" || storeType === "Star+",
+            starSeller: storeType === "star" || storeType === "star_plus",
             rawText: compact(cardText).slice(0, 1200)
           });
         }
@@ -8336,8 +8249,6 @@ async function extractRenderedPageSnapshot(
           !/^(mall\\s*ori|star\\+?|official|resmi)$/iu.test(lowered) &&
           !/^\\d+(?:[.,]\\d+)?\\s*(rb|k|jt|juta|%|months?|bulan)?/iu.test(lowered);
       };
-      const officialStoreTypeFromName = (value) =>
-        /\\bofficial\\s+(?:store|shop)\\b|\\btoko\\s+resmi\\b|\\bgerai\\s+resmi\\b/iu.test(compact(value)) ? "Mall ORI" : undefined;
       const storeNameLinesFrom = (element) => String(element?.innerText || element?.textContent || "")
         .split(/\\n|\\|/u)
         .map(compact)
@@ -8402,10 +8313,12 @@ async function extractRenderedPageSnapshot(
         titleElement?.closest?.("div")
       ].filter(Boolean);
       const pdpBadgeImage = pdpBadgeRoots
-        .map((root) => findStoreBadgeImage(root, undefined))
+        .map((root) => findStoreBadgeImage(root, undefined, titleElement))
         .find(Boolean);
-      const compactBadgeStoreType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
-      const storeType = compactBadgeStoreType || officialStoreTypeFromName(storeName);
+      const storeType = inferStoreType(
+        compact([pdpBadgeImage?.alt, pdpBadgeImage?.title, pdpBadgeImage?.getAttribute?.("aria-label")].filter(Boolean).join(" ")),
+        imageUrlFrom(pdpBadgeImage)
+      );
       const pdpSoldText = extractSoldText(productPageText);
       const pdpRatingText = extractRatingFromRoot(productPageRoot, productPageText, pdpSoldText);
       const pdpReviewText = extractReviewText(productPageText);

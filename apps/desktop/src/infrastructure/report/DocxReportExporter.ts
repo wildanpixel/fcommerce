@@ -176,8 +176,13 @@ function include(sections: Set<ReportSectionConfig["id"]>, ...ids: ReportSection
 }
 
 async function keywordGeneralSection(data: ReportData): Promise<DocxChild[]> {
+  const filters = projectSearchFilters(data);
   const children: DocxChild[] = [
     sectionHeading("Keyword General"),
+    simpleTable([
+      ["Shop Type Filters", filters.shopTypes],
+      ["Price Range", filters.priceRange]
+    ], [30, 70]),
     subHeading("Relevance"),
     ...await assetImageBlocks(data.assets.filter((asset) => asset.kind === "SEARCH_RESULT").slice(0, 2), "Relevance screenshot", { captions: false }),
     await snapshotProductTable(data.products.filter((product) => product.source === "Relevance").slice(0, 40)),
@@ -262,9 +267,9 @@ async function keyStoreSection(data: ReportData, sections: Set<ReportSectionConf
   const showBestSellers = legacy || sections.has("keyStoreBestSellers");
   const showVisualStyle = legacy || sections.has("keyStoreVisualStyle");
   if (data.stores.length === 0) {
-    return [sectionHeading("Key Store"), paragraph("No collected store evidence is available yet.", { color: MUTED })];
+    return [sectionHeading("Key Store Page List"), paragraph("No collected store evidence is available yet.", { color: MUTED })];
   }
-  const children: DocxChild[] = [sectionHeading("Key Store")];
+  const children: DocxChild[] = [sectionHeading("Key Store Page List")];
   for (const store of data.stores) {
     const raw = reportStoreRaw(store);
     const assets = storeAssetsForReport(data, store);
@@ -286,8 +291,10 @@ async function keyStoreSection(data: ReportData, sections: Set<ReportSectionConf
         ["Joined", store.joinedDate ?? "-"],
         ["Description", raw.description ?? "No store description captured."]
       ], [28, 72]),
-      tinyHeading("Store Ratings"),
-      storeRatingTable(ratingSamples),
+      tinyHeading("1 Star Store Ratings"),
+      storeRatingTable(ratingSamples.filter((sample) => sample.rating === 1)),
+      tinyHeading("5 Star Store Ratings"),
+      storeRatingTable(ratingSamples.filter((sample) => sample.rating === 5)),
       tinyHeading("Store Categories"),
       paragraph(categories.length > 0 ? categories.join("\n") : "No store categories captured.", { preserveLines: true })
     );
@@ -303,6 +310,10 @@ async function keyStoreSection(data: ReportData, sections: Set<ReportSectionConf
     if (showVisualStyle) {
       children.push(tinyHeading("Visual Shop Banner"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_BANNER"), "Store banner", { captions: false }));
     }
+    children.push(
+      tinyHeading("TikTok Evidence"),
+      ...await assetImageBlocks(assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT"), "TikTok evidence", { captions: false })
+    );
     children.push(spacer());
   }
   return children;
@@ -1022,9 +1033,9 @@ function storeOverall(store: ReportData["stores"][number], data: ReportData): st
     store.followers ? `${formatNumber(store.followers)} followers` : undefined,
     store.voucherCount ? `${formatNumber(store.voucherCount)} voucher signals` : undefined
   ].filter(Boolean);
-  const evidenceSentence = `${store.name} is selected as the Key Store because it has the strongest combined signal across estimated monthly GMV, sold-per-month volume, promotion activity, store type, and captured evidence readiness.`;
+  const evidenceSentence = `${store.name} is included in the Key Store Page List because it appears in the approved qualified products and has collected store-page evidence.`;
   const scoreSentence = `The local evidence set links ${products.length || "available"} qualified product signal${products.length === 1 ? "" : "s"} to this store, with estimated GMV ${formatCurrency(gmvEstimate)}, sold/month ${formatNumber(soldEstimate)}, and ${promotionCount} promotion signal${promotionCount === 1 ? "" : "s"}.`;
-  const benchmarkSentence = `Use ${store.name} as the benchmark for homepage structure, product matrix, best-seller presentation, banner style, voucher strategy, and TikTok brand presence.`;
+  const benchmarkSentence = `Review ${store.name} for homepage structure, product matrix, best-seller presentation, banner style, voucher strategy, and TikTok brand presence.`;
   return uniqueStrings([
     evidenceSentence,
     ...analysisText,
@@ -1032,6 +1043,31 @@ function storeOverall(store: ReportData["stores"][number], data: ReportData): st
     scoreSentence,
     benchmarkSentence
   ]).slice(0, 5).join("\n\n");
+}
+
+function projectSearchFilters(data: ReportData): { shopTypes: string; priceRange: string } {
+  const state = safeJson<{
+    searchFilters?: {
+      shopTypes?: string[];
+      priceMin?: number;
+      priceMax?: number;
+    };
+  }>(data.project.collectionStateJson, {});
+  const labels: Record<string, string> = {
+    fulfilled_by_shopee: "Fulfilled by Shopee",
+    shopee_mall: "Shopee Mall",
+    star_plus: "Star+",
+    star: "Star"
+  };
+  const shopTypes = state.searchFilters?.shopTypes?.map((value) => labels[value] ?? value).join(", ") || "All shop types";
+  const min = state.searchFilters?.priceMin;
+  const max = state.searchFilters?.priceMax;
+  return {
+    shopTypes,
+    priceRange: min !== undefined || max !== undefined
+      ? `${min !== undefined ? formatCurrency(min) : "No minimum"} - ${max !== undefined ? formatCurrency(max) : "No maximum"}`
+      : "All prices"
+  };
 }
 
 function productMatchesStore(product: ReportData["products"][number], store: ReportData["stores"][number]): boolean {

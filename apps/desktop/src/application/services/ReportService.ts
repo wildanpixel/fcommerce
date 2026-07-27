@@ -22,6 +22,7 @@ export type ReportData = {
     keyword: string;
     marketplace: string;
     language: string;
+    collectionStateJson: string;
     createdAt: Date;
   };
   products: Array<{

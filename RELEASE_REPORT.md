@@ -14,6 +14,8 @@ The Windows installer, portable executable, and unpacked application were genera
 
 Both the unpacked application and portable executable were launched with isolated application-data directories. Their packaged API health checks returned version 1.0.0, and their settings queries completed through the packaged Prisma and SQLite runtime.
 
+This build includes the Part 3 multi-store Key Store Page List, per-store guided evidence collection, shop ID discovery, and matching inspector/report output with collection-filter context.
+
 GitHub Actions now publishes the Windows portable executable and SHA-256 checksum for version tags. Public macOS artifacts are intentionally disabled until Intel and Apple Silicon builds can be configured, launched, and renderer-tested in Xcode on macOS hardware.
 
 ## Release Checklist
@@ -23,17 +25,17 @@ GitHub Actions now publishes the Windows portable executable and SHA-256 checksu
 | Delete `dist` / `dist-node` / `release` | Passed after closing the prior portable process |
 | Generate Prisma Client | Passed |
 | TypeScript | Passed |
-| ESLint | Passed |
-| Unit tests | Passed: 11 files, 31 tests |
+| ESLint | Not rerun in this focused release pass |
+| Unit tests | Passed: 3 focused files, 12 tests |
 | Clean renderer/Electron build | Passed |
-| Playwright tests | Passed: 5 tests |
+| Playwright tests | Not rerun in this focused release pass |
 | Stage Puppeteer browser | Passed: Chrome Headless Shell 148.0.7778.97 for win32 x64 |
 | Package Electron | Passed on the first and only attempt |
 | Generate Windows Installer | Passed |
 | Generate Windows Portable | Passed |
 | Verify packaged Prisma engine | Passed in `app.asar.unpacked/node_modules/.prisma/client` |
 | Verify packaged Puppeteer executable | Passed in `win-unpacked/resources/puppeteer/win32-x64` |
-| Generate PDF with packaged browser | Passed: non-empty 17,741-byte PDF |
+| Generate PDF with packaged browser | Packaged browser presence verified; PDF smoke test not rerun |
 | Launch unpacked Windows application | Passed; `/api/health` returned version 1.0.0 |
 | Launch Windows Portable | Passed; `/api/health` returned version 1.0.0 |
 | Verify SQLite initialization and Prisma query | Passed; `/api/settings` returned marketplace `SHOPEE_ID` |
@@ -43,13 +45,9 @@ GitHub Actions now publishes the Windows portable executable and SHA-256 checksu
 ## Validation Commands
 
 - `pnpm clean`
-- `pnpm prisma:generate`
 - `pnpm typecheck`
-- `pnpm lint`
-- `pnpm test`
+- `pnpm --filter @marketplace-intelligence-os/desktop test -- src/shared/storeTypes.test.ts src/infrastructure/report/MultiStoreReport.test.ts src/api/server.test.ts`
 - `pnpm package:win`
-- `pnpm --filter @marketplace-intelligence-os/desktop exec playwright test`
-- `pnpm --filter @marketplace-intelligence-os/desktop smoke:pdf-runtime`
 - Packaged `/api/health` and `/api/settings` requests for unpacked and portable runtimes
 - `git diff --check`
 
@@ -57,9 +55,9 @@ GitHub Actions now publishes the Windows portable executable and SHA-256 checksu
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` | 236,083,465 bytes | `19BE01B22B649998AEF96068AA6B6CEBDCF61EFE0F6EA1FE9E6FB069681D21CC` |
-| `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` | 235,853,174 bytes | `8C4B0943D0D45955E87CC82A2A54D49E5AEEC8469E80FF971967B387AC289301` |
-| `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` | 201,233,920 bytes | `004F9358889718DCF3FA8B18957980F504B4336B8B4746F304183880A317FA80` |
+| `MarketPlace Keyword Competitor Analysis Setup 1.0.0.exe` | 236,082,107 bytes | `BE2BB0F3238D132E7024CF3766EAFF5524796A0E23CC1E537A964B57A3D4024D` |
+| `MarketPlace Keyword Competitor Analysis Portable 1.0.0.exe` | 235,851,822 bytes | `E133C9DE9A9122F8B6DD060380DAE193FB16B4B22CE9A2E62FDBDC2100C88D56` |
+| `win-unpacked/MarketPlace Keyword Competitor Analysis.exe` | 201,233,920 bytes | `3CDEC231D3B4E4BAFCB3C777EA9A072638D0DBEE2D8D8593D3B4201937A607AB` |
 
 ## GitHub Delivery
 

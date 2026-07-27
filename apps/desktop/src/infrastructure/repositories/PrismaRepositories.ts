@@ -26,6 +26,7 @@ import type {
   StoreProfile
 } from "../../domain/models.js";
 import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../../shared/reportSections.js";
+import { normalizeStoreType, type StoreType } from "../../shared/storeTypes.js";
 import { LocalSecretStore } from "../security/LocalSecretStore.js";
 import { getPlatformService } from "../platform/PlatformService.js";
 
@@ -891,10 +892,10 @@ function extractProductStringArray(rawJson: string, key: string): string[] {
   return Array.isArray(values) ? values.filter((value): value is string => typeof value === "string") : [];
 }
 
-function extractProductStoreType(rawJson: string): string | undefined {
+function extractProductStoreType(rawJson: string): StoreType | undefined {
   const raw = parseJsonObject(rawJson);
   const storeType = raw.storeType;
-  return typeof storeType === "string" && storeType.trim() ? storeType : undefined;
+  return normalizeStoreType(typeof storeType === "string" ? storeType : undefined) ?? undefined;
 }
 
 function extractProductString(rawJson: string | null | undefined, key: string): string | undefined {

@@ -11,6 +11,12 @@ import {
   LEGACY_REPORT_SECTION_IDS,
   REPORT_SECTION_ORDER
 } from "../shared/reportSections.js";
+import {
+  normalizeStoreType,
+  STORE_TYPE_IMAGES,
+  storeTypeFromBadgeContext,
+  type StoreType
+} from "../shared/storeTypes.js";
 import type {
   BrowserOption,
   AndroidApkCandidate,
@@ -196,7 +202,7 @@ const extractedPageProductSchema = z.object({
   reviewText: z.string().optional(),
   soldText: z.string().optional(),
   productType: z.string().optional(),
-  storeType: z.string().optional(),
+  storeType: z.enum(["star", "star_plus", "shopee_mall"]).optional(),
   storeBadgeImageUrl: z.string().optional(),
   sourcePlacement: z.string().optional(),
   storeName: z.string().optional(),
@@ -1169,9 +1175,9 @@ async function repairMissingProductStoresFromCapturedHtml(projectId: string): Pr
       data: {
         storeName: product.storeName ?? storeInfo.storeName,
         storeUrl: product.storeUrl ?? storeInfo.storeUrl,
-        mallStatus: storeInfo.storeType === "Mall ORI" ? true : product.mallStatus,
-        officialStatus: storeInfo.storeType === "Mall ORI" ? true : product.officialStatus,
-        starSeller: storeInfo.storeType === "Star" || storeInfo.storeType === "Star+" ? true : product.starSeller,
+        mallStatus: storeInfo.storeType === "shopee_mall" ? true : product.mallStatus,
+        officialStatus: storeInfo.storeType === "shopee_mall" ? true : product.officialStatus,
+        starSeller: storeInfo.storeType === "star" || storeInfo.storeType === "star_plus" ? true : product.starSeller,
         rawJson: JSON.stringify({
           ...currentRaw,
           storeType: storeInfo.storeType ?? currentRaw.storeType,
@@ -1328,7 +1334,7 @@ type EvidencePersistenceResult = {
 type StructuredProductDetail = {
   storeName?: string;
   storeUrl?: string;
-  storeType?: string;
+  storeType?: StoreType;
   rating?: number;
   ratingText?: string;
   reviewText?: string;
@@ -1443,9 +1449,9 @@ async function persistCapturedPageData(
           totalSold: enrichment.totalSold ?? product.totalSold,
           storeName: enrichment.storeName ?? product.storeName,
           storeUrl: enrichment.storeUrl ?? product.storeUrl,
-          mallStatus: enrichment.storeType === "Mall ORI" ? true : product.mallStatus,
-          officialStatus: enrichment.storeType === "Mall ORI" ? true : product.officialStatus,
-          starSeller: enrichment.storeType === "Star" || enrichment.storeType === "Star+" ? true : product.starSeller,
+          mallStatus: enrichment.storeType === "shopee_mall" ? true : product.mallStatus,
+          officialStatus: enrichment.storeType === "shopee_mall" ? true : product.officialStatus,
+          starSeller: enrichment.storeType === "star" || enrichment.storeType === "star_plus" ? true : product.starSeller,
           stock: enrichment.stock ?? product.stock,
           voucherText: enrichment.voucherText ?? enrichment.shopVouchers[0] ?? product.voucherText,
           shippingText: enrichment.shippingText ?? product.shippingText,
@@ -1653,7 +1659,7 @@ function toProductDetail(
 ): ProductDetail {
   const priceAverage = product.priceAverage ?? parsePrice(product.priceText);
   const salesLikeSource = isSalesLikeProductSource(context.source);
-  const normalizedStoreType = normalizeStoreType(product.storeType) ?? storeTypeFromOfficialStoreName(product.storeName);
+  const normalizedStoreType = normalizeStoreType(product.storeType);
   return {
     marketplace: "SHOPEE_ID",
     rank: product.rank,
@@ -1674,9 +1680,9 @@ function toProductDetail(
     totalSold: salesLikeSource ? undefined : product.soldCount,
     storeName: product.storeName,
     storeUrl: product.storeUrl ? normalizeUrl(product.storeUrl) : undefined,
-    mallStatus: normalizedStoreType === "Mall ORI" || Boolean(product.mallStatus),
-    officialStatus: normalizedStoreType === "Mall ORI" || Boolean(product.officialStatus),
-    starSeller: normalizedStoreType === "Star" || normalizedStoreType === "Star+" || Boolean(product.starSeller),
+    mallStatus: normalizedStoreType === "shopee_mall",
+    officialStatus: normalizedStoreType === "shopee_mall",
+    starSeller: normalizedStoreType === "star" || normalizedStoreType === "star_plus",
     variants: [],
     specifications: {},
     images: product.imageUrl ? [product.imageUrl] : [],
@@ -1691,7 +1697,7 @@ function toProductDetail(
       images: product.imageUrl ? [product.imageUrl] : [],
       productType: product.productType,
       storeType: normalizedStoreType,
-      storeBadgeImageUrl: product.storeBadgeImageUrl,
+      storeBadgeImageUrl: normalizedStoreType ? STORE_TYPE_IMAGES[normalizedStoreType] : undefined,
       ratingText: product.ratingText,
       reviewText: product.reviewText,
       soldText: product.soldText,
@@ -1926,7 +1932,7 @@ function extractProductEnrichment(
   reviews: ReviewEvidence[];
   storeName?: string;
   storeUrl?: string;
-  storeType?: string;
+  storeType?: StoreType;
   shopVouchers: string[];
   bundleDeals: string[];
   promotionCount?: number;
@@ -1945,10 +1951,7 @@ function extractProductEnrichment(
   const collectDescriptionPromotions = collectEverything || subAction === "description-promotions";
   const htmlStoreInfo = extractPdpStoreInfoFromHtml(html);
   const resolvedStoreName = safeStoreName(structured?.storeName ?? htmlStoreInfo.storeName);
-  const resolvedStoreType =
-    normalizeStoreType(htmlStoreInfo.storeType) ??
-    storeTypeFromOfficialStoreName(resolvedStoreName) ??
-    normalizeStoreType(structured?.storeType);
+  const resolvedStoreType = normalizeStoreType(htmlStoreInfo.storeType) ?? normalizeStoreType(structured?.storeType);
   const price = extractMoneyRange(text);
   const structuredImages = structured?.images ?? [];
   const structuredVideos = structured?.videos ?? [];
@@ -1996,7 +1999,7 @@ function extractProductEnrichment(
     reviews,
     storeName: resolvedStoreName,
     storeUrl: structured?.storeUrl ? normalizeUrl(structured.storeUrl) : htmlStoreInfo.storeUrl,
-    storeType: resolvedStoreType,
+    storeType: resolvedStoreType ?? undefined,
     shopVouchers,
     bundleDeals,
     promotionCount: structured?.promotionCount ?? shopVouchers.length + bundleDeals.length,
@@ -2117,7 +2120,7 @@ function readStructuredProductDetail(metadata?: Record<string, unknown>): Struct
   return {
     storeName: typeof raw.storeName === "string" && raw.storeName.trim() ? raw.storeName.trim() : undefined,
     storeUrl: typeof raw.storeUrl === "string" && raw.storeUrl.trim() ? raw.storeUrl.trim() : undefined,
-    storeType: normalizeStoreType(typeof raw.storeType === "string" ? raw.storeType : undefined),
+    storeType: normalizeStoreType(typeof raw.storeType === "string" ? raw.storeType : undefined) ?? undefined,
     rating: typeof raw.rating === "number" && Number.isFinite(raw.rating) && raw.rating >= 1 && raw.rating <= 5 ? raw.rating : undefined,
     ratingText: typeof raw.ratingText === "string" && raw.ratingText.trim() ? raw.ratingText.trim() : undefined,
     reviewText: typeof raw.reviewText === "string" && raw.reviewText.trim() ? raw.reviewText.trim() : undefined,
@@ -2230,42 +2233,6 @@ function metadataFlag(metadata: Record<string, unknown> | undefined, key: string
 function productDetailSubAction(metadata: Record<string, unknown> | undefined): string | undefined {
   const value = metadata?.productDetailSubAction;
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-function normalizeStoreType(value?: string): "Mall ORI" | "Star+" | "Star" | undefined {
-  const normalized = String(value ?? "").trim();
-  if (/^mall\s*ori$/iu.test(normalized) || /^shopee\s*mall$/iu.test(normalized)) {
-    return "Mall ORI";
-  }
-  if (/^star\s*\+$/iu.test(normalized) || /^starplus$/iu.test(normalized)) {
-    return "Star+";
-  }
-  if (/^star$/iu.test(normalized)) {
-    return "Star";
-  }
-  return undefined;
-}
-
-function storeTypeFromOfficialStoreName(value?: string): "Mall ORI" | undefined {
-  return /\bofficial\s+(?:store|shop)\b|\btoko\s+resmi\b|\bgerai\s+resmi\b/iu.test(String(value ?? "")) ? "Mall ORI" : undefined;
-}
-
-function normalizeStoreTypeFromBadge(value?: string): "Mall ORI" | "Star+" | "Star" | undefined {
-  const direct = normalizeStoreType(value);
-  if (direct) {
-    return direct;
-  }
-  const normalized = String(value ?? "").toLowerCase();
-  if (/star\s*(?:plus|\+)/iu.test(normalized)) {
-    return "Star+";
-  }
-  if (/mall\s*ori|mallori|mall-ori|shopee\s*mall|mall/iu.test(normalized)) {
-    return "Mall ORI";
-  }
-  if (/(?:^|[^a-z])star(?:[^a-z]|$)/iu.test(normalized)) {
-    return "Star";
-  }
-  return undefined;
 }
 
 function reviewDedupeKey(reviewItem: ReviewEvidence): string {
@@ -2432,7 +2399,7 @@ function extractHtmlTitle(html: string): string | undefined {
 export function extractPdpStoreInfoFromHtml(html: string): {
   storeName?: string;
   storeUrl?: string;
-  storeType?: string;
+  storeType?: StoreType;
 } {
   if (!html) {
     return {};
@@ -2448,8 +2415,14 @@ export function extractPdpStoreInfoFromHtml(html: string): {
     extractHtmlAttribute(block, /<a\b(?=[^>]*#product_list\b)[^>]*\bhref=["'](?<value>[^"']+)["'][^>]*>/iu) ??
     extractHtmlAttribute(block, /<a\b(?![^>]*\b(?:chat|cart|checkout|help|report|seller|login|verify|mall)\b)[^>]*\bhref=["'](?<value>\/[^"']+)["'][^>]*>/iu);
   const storeType = [...block.matchAll(/<img\b[^>]{0,1600}>/giu)]
-    .map((match) => normalizeStoreTypeFromBadge(match[0]))
-    .find((value): value is "Mall ORI" | "Star+" | "Star" => Boolean(value));
+    .map((match) => {
+      const tag = match[0];
+      const src = extractHtmlAttribute(tag, /\bsrc=["'](?<value>[^"']+)["']/iu);
+      const alt = extractHtmlAttribute(tag, /\balt=["'](?<value>[^"']+)["']/iu);
+      const title = extractHtmlAttribute(tag, /\btitle=["'](?<value>[^"']+)["']/iu);
+      return normalizeStoreType(src) ?? storeTypeFromBadgeContext(`${alt ?? ""} ${title ?? ""}`);
+    })
+    .find((value): value is StoreType => Boolean(value));
   const candidates = [
     ...extractHtmlClassTextCandidates(block, "fV3TIn"),
     ...extractHtmlClassTextCandidates(block, "shop-name"),
@@ -2462,7 +2435,7 @@ export function extractPdpStoreInfoFromHtml(html: string): {
   return {
     storeName,
     storeUrl: storeUrl ? normalizeUrl(storeUrl) : undefined,
-    storeType: storeType ?? storeTypeFromOfficialStoreName(storeName)
+    storeType
   };
 }
 

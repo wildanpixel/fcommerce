@@ -21,7 +21,7 @@ describe("Shopee PDP store extraction", () => {
                 </div>
                 <div class="aUEg4L">
                   <div class="official-shop-new-badge">
-                    <img alt="mall shop badge" src="mall.svg">
+                    <img alt="mall shop badge" src="https://down-id.img.susercontent.com/file/id-11134258-7r98z-lykpu80ygbvs76.webp">
                   </div>
                 </div>
               </a>
@@ -44,7 +44,7 @@ describe("Shopee PDP store extraction", () => {
     expect(extractPdpStoreInfoFromHtml(html)).toEqual({
       storeName: "iBox Official Shop",
       storeUrl: "https://shopee.co.id/iboxofficial?categoryId=100013&entryPoint=ShopByPDP&itemId=21493872655",
-      storeType: "Mall ORI"
+      storeType: "shopee_mall"
     });
   });
 
@@ -69,14 +69,14 @@ describe("Shopee PDP store extraction", () => {
       </section>
     `;
 
-    expect(extractPdpStoreInfoFromHtml(html).storeType).toBe("Star");
+    expect(extractPdpStoreInfoFromHtml(html).storeType).toBe("star");
   });
 
   it("recognizes a Mall ORI badge from image metadata for a non-official store name", () => {
     const html = `
       <section class="page-product__shop">
         <a href="/cetaphilindonesia?entryPoint=ShopByPDP">
-          <img src="https://down-id.img.susercontent.com/mall-ori-badge.png">
+          <img src="https://down-id.img.susercontent.com/file/id-11134258-7r98z-lykpu80ygbvs76.webp">
         </a>
         <div><div>Cetaphil Indonesia</div></div>
       </section>
@@ -84,7 +84,7 @@ describe("Shopee PDP store extraction", () => {
 
     expect(extractPdpStoreInfoFromHtml(html)).toMatchObject({
       storeName: "Cetaphil Indonesia",
-      storeType: "Mall ORI"
+      storeType: "shopee_mall"
     });
   });
 });

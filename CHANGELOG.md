@@ -4,6 +4,9 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-19
 
+- Replaced single-store AI ranking in Part 3 with a multi-store Key Store Page List populated from approved qualified products, including manual store addition and independent guided sub-actions per store.
+- Added reusable Shopee shop-ID discovery and store-specific targets for details, 1-star/5-star ratings, categories, best sellers, TikTok evidence, and optional popular-product/banner collection.
+- Mirrored the multi-store hierarchy and active Shopee search filters in Project Inspector and HTML/DOCX report output.
 - Changed release delivery to Windows-only: tagged builds now publish the portable executable and SHA-256 checksum to GitHub Releases, while macOS artifact publishing is disabled pending native Xcode and renderer revalidation.
 - Completed M2 Shopee Desktop for the guided evidence scope, including customer review image/video extraction that excludes profile avatars and records explicit not-found outcomes.
 - Completed the M3 structured intelligence contract with executive summary, SWOT, pricing, store, competitor, visual, recommendation, and persisted Key Store analysis across local, OpenAI, and Gemini provider paths.

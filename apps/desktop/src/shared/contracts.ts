@@ -1,4 +1,5 @@
 import type { ReportSectionConfig } from "./reportSections.js";
+import type { StoreType } from "./storeTypes.js";
 
 export const MARKETPLACES = [
   "SHOPEE_ID",
@@ -121,7 +122,7 @@ export type ProjectDetailPayload = {
     imageUrl?: string | null;
     storeBadgeImageUrl?: string | null;
     productType?: string | null;
-    storeType?: string | null;
+    storeType?: StoreType | null;
     sourcePlacement?: string | null;
     ratingText?: string | null;
     reviewText?: string | null;
@@ -452,7 +453,7 @@ export type ExtractedPageProduct = {
   reviewCount?: number;
   soldCount?: number;
   productType?: string;
-  storeType?: string;
+  storeType?: StoreType;
   storeBadgeImageUrl?: string;
   sourcePlacement?: string;
   ratingText?: string;
