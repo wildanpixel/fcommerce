@@ -4,6 +4,7 @@ All notable changes to MarketPlace Keyword Competitor Analysis will be documente
 
 ## Unreleased - 2026-07-19
 
+- Changed release delivery to Windows-only: tagged builds now publish the portable executable and SHA-256 checksum to GitHub Releases, while macOS artifact publishing is disabled pending native Xcode and renderer revalidation.
 - Completed M2 Shopee Desktop for the guided evidence scope, including customer review image/video extraction that excludes profile avatars and records explicit not-found outcomes.
 - Completed the M3 structured intelligence contract with executive summary, SWOT, pricing, store, competitor, visual, recommendation, and persisted Key Store analysis across local, OpenAI, and Gemini provider paths.
 - Added the Intelligence report module to HTML and DOCX output and verified deterministic M3 analysis with focused unit coverage.
