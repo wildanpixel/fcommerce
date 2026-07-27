@@ -386,30 +386,87 @@ function keyStoreReport(data: ReportData, enabled: Set<string>): string {
   const showProducts = legacy || enabled.has("keyStoreProducts");
   const showBestSellers = legacy || enabled.has("keyStoreBestSellers");
   const showVisualStyle = legacy || enabled.has("keyStoreVisualStyle");
-  const store = selectReportKeyStore(data);
-  if (!store) {
+  if (data.stores.length === 0) {
     return `<details class="page report-section" open>
       <summary>Key Store</summary>
-      <div class="report-body"><p class="muted">No Key Store evidence has been selected yet.</p></div>
+      <div class="report-body"><p class="muted">No collected store evidence is available yet.</p></div>
     </details>`;
   }
-  const assets = storeAssetsForReport(data, store);
-  const storeProducts = data.products.filter((product) => product.source === "Store Products");
-  const storeBestSellers = data.products.filter((product) => product.source === "Store Best Sellers");
   return `<details class="page report-section" open>
     <summary>Key Store</summary>
     <div class="report-body">
       <p class="kicker">Key Store</p>
-      <h2>${escapeHtml(store.name)}</h2>
-      <p><a class="link-button" href="${escapeAttribute(store.url)}">${escapeHtml(store.url)}</a></p>
-      <h3>Overall</h3>
-      <p>${escapeHtml(storeOverall(store, data))}</p>
-      ${showHome ? `<h3>Store Home Page</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"), 12, "portrait")}` : ""}
-      ${showProducts ? `<h3>Popular Products</h3>${snapshotProductTable(storeProducts)}` : ""}
-      ${showBestSellers ? `<h3>Best Sellers</h3>${snapshotProductTable(storeBestSellers)}` : ""}
-      ${showVisualStyle ? `<h3>Visual Shop Banner</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_BANNER"), 80)}` : ""}
+      <h2>Collected Store Evidence</h2>
+      ${data.stores.map((store) => storeReport(data, store, {
+        showHome,
+        showProducts,
+        showBestSellers,
+        showVisualStyle
+      })).join("")}
     </div>
   </details>`;
+}
+
+function storeReport(
+  data: ReportData,
+  store: ReportData["stores"][number],
+  options: {
+    showHome: boolean;
+    showProducts: boolean;
+    showBestSellers: boolean;
+    showVisualStyle: boolean;
+  }
+): string {
+  const raw = reportStoreRaw(store);
+  const assets = storeAssetsForReport(data, store);
+  const storeProducts = reportStoreProducts(data, store, "Store Products");
+  const storeBestSellers = reportStoreProducts(data, store, "Store Best Sellers");
+  const categories = safeJson<string[]>(store.categoriesJson, []);
+  const ratingSamples = reportStoreRatingSamples(store);
+  return `<details class="store-report" open>
+    <summary>${escapeHtml(store.name)}</summary>
+    <div class="report-body">
+      <h2>${escapeHtml(store.name)}</h2>
+      <p><a class="link-button" href="${escapeAttribute(store.url)}">Open Store</a></p>
+      <h3>Overall</h3>
+      <p style="white-space:pre-line;">${escapeHtml(storeOverall(store, data))}</p>
+      <h3>Store Data</h3>
+      <div class="grid two">
+        <div class="metric">Followers<b>${formatNumber(store.followers)}</b></div>
+        <div class="metric">Following<b>${formatNumber(store.following)}</b></div>
+        <div class="metric">Products<b>${formatNumber(store.productsCount)}</b></div>
+        <div class="metric">Rating<b>${store.rating != null ? store.rating.toFixed(1) : "-"}</b></div>
+        <div class="metric">Rating count<b>${formatNumber(store.ratingCount)}</b></div>
+        <div class="metric">Chat response<b>${escapeHtml(store.chatResponse ?? "-")}</b></div>
+        <div class="metric">Joined<b>${escapeHtml(store.joinedDate ?? "-")}</b></div>
+      </div>
+      ${raw.description ? `<p style="white-space:pre-line;">${escapeHtml(raw.description)}</p>` : '<p class="muted">No store description captured.</p>'}
+      <h3>Store Ratings</h3>
+      ${storeRatingTable(ratingSamples)}
+      <h3>Store Categories</h3>
+      ${categories.length > 0 ? `<ul>${categories.map((category) => `<li>${escapeHtml(category)}</li>`).join("")}</ul>` : '<p class="muted">No store categories captured.</p>'}
+      ${options.showHome ? `<h3>Store Home Page</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"), 12, "portrait")}` : ""}
+      ${options.showProducts ? `<h3>Popular Products</h3>${snapshotProductTable(storeProducts)}` : ""}
+      ${options.showBestSellers ? `<h3>Best Sellers</h3>${snapshotProductTable(storeBestSellers)}` : ""}
+      ${options.showVisualStyle ? `<h3>Visual Shop Banner</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_BANNER"), 80)}` : ""}
+    </div>
+  </details>`;
+}
+
+function storeRatingTable(samples: StoreRatingSample[]): string {
+  if (samples.length === 0) {
+    return '<p class="muted">No proof-backed store rating samples captured.</p>';
+  }
+  return `<table>
+    <thead><tr><th>Rating</th><th>Buyer</th><th>Comment</th><th>Captured</th><th>Proof</th></tr></thead>
+    <tbody>${samples.map((sample) => `<tr>
+      <td>${sample.rating} Star</td>
+      <td>${escapeHtml(sample.reviewer)}</td>
+      <td>${escapeHtml(sample.comment)}</td>
+      <td>${escapeHtml(sample.capturedAt ?? "-")}</td>
+      <td>${sample.mediaUrls.length > 0 ? remoteImageGrid(sample.mediaUrls, "Rating proof") : "-"}</td>
+    </tr>`).join("")}</tbody>
+  </table>`;
 }
 
 function _reviewEvidence(data: ReportData): string {
@@ -758,7 +815,7 @@ function textFromAnalysisValue(value: unknown): string | undefined {
 
 function keyProductsForReport(products: ReportData["products"]): ReportData["products"] {
   const merged = new Map<string, ReportData["products"][number]>();
-  for (const product of products.filter((item) => item.source !== "Store Products" && item.source !== "Store Best Sellers")) {
+  for (const product of products.filter((item) => !item.source?.startsWith("Store Products") && !item.source?.startsWith("Store Best Sellers"))) {
     const key = productIdentity(product);
     const existing = merged.get(key);
     if (!existing) {
@@ -975,37 +1032,75 @@ function inferredProductType(title: string): string {
   return "marketplace product";
 }
 
-function selectReportKeyStore(data: ReportData): ReportData["stores"][number] | undefined {
-  const keyProducts = keyProductsForReport(data.products);
-  const byStore = new Map<string, { count: number; gmv: number; storeName?: string; storeUrl?: string }>();
-  for (const product of keyProducts) {
-    const storeName = product.storeName ?? undefined;
-    const storeUrl = product.storeUrl ?? undefined;
-    const key = (storeUrl ?? storeName ?? "").toLowerCase();
-    if (!key) {
-      continue;
-    }
-    const current = byStore.get(key) ?? { count: 0, gmv: 0, storeName, storeUrl };
-    current.count += 1;
-    current.gmv += (product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0);
-    byStore.set(key, current);
-  }
-  const selected = [...byStore.values()].sort((left, right) => right.gmv - left.gmv || right.count - left.count)[0];
-  if (!selected) {
-    return data.stores[0];
-  }
-  return data.stores.find((store) =>
-    (selected.storeUrl && sameReportUrl(store.url, selected.storeUrl)) ||
-    (selected.storeName && store.name.toLowerCase() === selected.storeName.toLowerCase())
-  ) ?? data.stores[0];
-}
-
 function storeAssetsForReport(data: ReportData, store: ReportData["stores"][number]): ReportAsset[] {
-  const storeOwned = data.assets.filter((asset) => asset.ownerType === "STORE" && asset.ownerId === store.id);
+  const candidateId = reportStoreCandidateId(store);
+  const storeOwned = data.assets.filter((asset) =>
+    asset.ownerType === "STORE" &&
+    (asset.ownerId === store.id || Boolean(candidateId && asset.ownerId === candidateId))
+  );
   if (storeOwned.length > 0) {
     return storeOwned;
   }
   return data.assets.filter((asset) => assetMatchesStore(asset, store.url));
+}
+
+type StoreRatingSample = {
+  rating: number;
+  reviewer: string;
+  comment: string;
+  mediaUrls: string[];
+  capturedAt?: string;
+};
+
+type ReportStoreRaw = {
+  storeCandidateId?: string;
+  description?: string;
+  ratingSamples?: StoreRatingSample[];
+};
+
+function reportStoreRaw(store: ReportData["stores"][number]): ReportStoreRaw {
+  return safeJson<ReportStoreRaw>(store.rawJson, {});
+}
+
+function reportStoreCandidateId(store: ReportData["stores"][number]): string | undefined {
+  const value = reportStoreRaw(store).storeCandidateId;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function reportStoreRatingSamples(store: ReportData["stores"][number]): StoreRatingSample[] {
+  const samples = reportStoreRaw(store).ratingSamples;
+  if (!Array.isArray(samples)) {
+    return [];
+  }
+  return samples.filter((sample) =>
+    typeof sample?.rating === "number" &&
+    typeof sample.reviewer === "string" &&
+    typeof sample.comment === "string" &&
+    Array.isArray(sample.mediaUrls)
+  );
+}
+
+function reportStoreProducts(
+  data: ReportData,
+  store: ReportData["stores"][number],
+  sourcePrefix: "Store Products" | "Store Best Sellers"
+): ReportData["products"] {
+  const candidateId = reportStoreCandidateId(store);
+  if (candidateId) {
+    const scoped = data.products.filter((product) => product.source === `${sourcePrefix}:${candidateId}`);
+    if (scoped.length > 0) {
+      return scoped;
+    }
+  }
+  const matching = data.products.filter((product) =>
+    product.source?.startsWith(sourcePrefix) && productMatchesStore(product, store)
+  );
+  if (matching.length > 0) {
+    return matching;
+  }
+  return data.stores.length === 1
+    ? data.products.filter((product) => product.source?.startsWith(sourcePrefix))
+    : [];
 }
 
 function sameReportUrl(left: string, right: string): boolean {

@@ -43,6 +43,7 @@ describe("LocalHeuristicAnalysisService", () => {
           featuredProducts: [],
           bestSellers: [],
           visualTheme: { dominantColors: [], typographySignals: [], bannerStyle: [] },
+          ratingSamples: [],
           raw: {}
         }
       ],

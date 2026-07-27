@@ -24,6 +24,30 @@ export type ProjectStatus = "DRAFT" | "ACTIVE" | "COMPLETED" | "ARCHIVED";
 export type BrowserPreference = "chromium" | "chrome" | "edge" | "brave";
 export type CollectionStage = "KEYWORD_GENERAL" | "PRODUCT_DETAILS" | "EVALUATION_KEY_STORE";
 
+export const SHOPEE_SHOP_TYPE_FILTERS = [
+  "service_by_shopee_product_label_filter",
+  "OFFICIAL_MALL",
+  "PREFERRED_PLUS",
+  "PREFERRED"
+] as const;
+
+export type ShopeeShopTypeFilter = (typeof SHOPEE_SHOP_TYPE_FILTERS)[number];
+
+export type ShopeeSearchFilters = {
+  shopTypes: ShopeeShopTypeFilter[];
+  priceMin?: number;
+  priceMax?: number;
+};
+
+export type StoreCollectionCandidate = {
+  id: string;
+  storeName: string;
+  storeUrl: string;
+  shopId?: string;
+  includePopularProducts: boolean;
+  includeShopBanner: boolean;
+};
+
 export type CollectionState = {
   stage: CollectionStage;
   stageLabel: string;
@@ -34,6 +58,10 @@ export type CollectionState = {
   currentStepId?: string;
   browserUrl?: string;
   viewMode?: "desktop" | "mobile";
+  searchFilters?: ShopeeSearchFilters;
+  qualifiedProductIds?: string[];
+  qualifiedProductsApproved?: boolean;
+  storeCollectionCandidates?: StoreCollectionCandidate[];
   savedAt?: string;
 };
 
@@ -43,6 +71,7 @@ export type NewProjectInput = {
   marketplace: MarketplaceId;
   language: string;
   productCategory?: string;
+  searchFilters?: ShopeeSearchFilters;
   exportFolder?: string;
   screenshotFolder?: string;
 };
@@ -90,6 +119,7 @@ export type ProjectDetailPayload = {
     id: string;
     title: string;
     imageUrl?: string | null;
+    storeBadgeImageUrl?: string | null;
     productType?: string | null;
     storeType?: string | null;
     sourcePlacement?: string | null;
@@ -128,6 +158,7 @@ export type ProjectDetailPayload = {
   }>;
   stores: Array<{
     id: string;
+    marketplaceStoreId?: string | null;
     name: string;
     url: string;
     followers?: number | null;
@@ -137,7 +168,15 @@ export type ProjectDetailPayload = {
     ratingCount?: number | null;
     chatResponse?: string | null;
     joinedDate?: string | null;
+    description?: string | null;
     categories: string[];
+    ratingSamples: Array<{
+      rating: number;
+      reviewer: string;
+      comment: string;
+      mediaUrls: string[];
+      capturedAt?: string;
+    }>;
     voucherCount?: number | null;
     voucherTypes: string[];
     visualTheme: {

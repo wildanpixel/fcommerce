@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { extractMoneyRange, extractPdpStoreInfoFromHtml, extractRatingTextValue, parsePrice } from "./server.js";
+import { DEFAULT_REPORT_SECTIONS } from "../shared/reportSections.js";
+import {
+  extractMoneyRange,
+  extractPdpStoreInfoFromHtml,
+  extractRatingTextValue,
+  parsePrice,
+  reportSchema
+} from "./server.js";
 
 describe("Shopee PDP store extraction", () => {
   it("extracts store name from the current sll2 product shop block", () => {
@@ -63,6 +70,32 @@ describe("Shopee PDP store extraction", () => {
     `;
 
     expect(extractPdpStoreInfoFromHtml(html).storeType).toBe("Star");
+  });
+
+  it("recognizes a Mall ORI badge from image metadata for a non-official store name", () => {
+    const html = `
+      <section class="page-product__shop">
+        <a href="/cetaphilindonesia?entryPoint=ShopByPDP">
+          <img src="https://down-id.img.susercontent.com/mall-ori-badge.png">
+        </a>
+        <div><div>Cetaphil Indonesia</div></div>
+      </section>
+    `;
+
+    expect(extractPdpStoreInfoFromHtml(html)).toMatchObject({
+      storeName: "Cetaphil Indonesia",
+      storeType: "Mall ORI"
+    });
+  });
+});
+
+describe("Report request validation", () => {
+  it("accepts every default report section", () => {
+    expect(() => reportSchema.parse({
+      projectId: "3a261a88-61f0-4f86-bef1-573d40aca420",
+      templateId: "default",
+      sections: DEFAULT_REPORT_SECTIONS
+    })).not.toThrow();
   });
 });
 

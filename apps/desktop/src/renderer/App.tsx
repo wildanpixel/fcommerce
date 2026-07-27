@@ -30,6 +30,7 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
   RefreshCcw,
   Search,
   Settings,
@@ -64,10 +65,24 @@ import type {
   ReportHtmlPayload,
   ReportSummary,
   SaveSettingsPayload,
+  ShopeeSearchFilters,
+  ShopeeShopTypeFilter,
+  StoreCollectionCandidate,
   SettingsPayload
 } from "../shared/contracts.js";
+import { SHOPEE_SHOP_TYPE_FILTERS } from "../shared/contracts.js";
 import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../shared/reportSections.js";
 import { apiClient } from "./api/client.js";
+import {
+  buildStoreCollectionCandidates,
+  stableStoreCandidateId,
+  storeCategoriesUrl,
+  storeDetailsUrl,
+  storeHomepageUrl,
+  storeProductsUrl,
+  storeRatingsUrl
+} from "./collectionKeyStore.js";
+import { buildShopeeSearchUrl, withShopeeProductDisplayModel } from "./shopeeUrls.js";
 import { type AppView, useUiStore } from "./store/uiStore.js";
 
 const SHOPEE_HOME_URL = "https://shopee.co.id/";
@@ -98,6 +113,13 @@ const APP_LANGUAGES: Array<{ id: AppLanguage; label: string }> = [
   { id: "zh-CN", label: "Chinese Modern" }
 ];
 
+const SHOPEE_SHOP_TYPE_OPTIONS: Array<{ id: ShopeeShopTypeFilter; label: string }> = [
+  { id: "service_by_shopee_product_label_filter", label: "Fulfilled by Shopee" },
+  { id: "OFFICIAL_MALL", label: "Shopee Mall" },
+  { id: "PREFERRED_PLUS", label: "Star+" },
+  { id: "PREFERRED", label: "Star" }
+];
+
 const navItems: Array<{ id: AppView; label: string; icon: LucideIcon }> = [
   { id: "research", label: "New Research", icon: Search },
   { id: "projects", label: "Keyword Projects", icon: Table2 },
@@ -118,6 +140,7 @@ type AnalysisFormState = {
   marketplace: ResearchPlatform;
   createdAt: string;
   language: AppLanguage;
+  searchFilters: ShopeeSearchFilters;
 };
 
 type CollectionSubAction = {
@@ -151,6 +174,7 @@ type CollectionStep = {
   instruction: string;
   targetUrl?: string;
   ready: boolean;
+  metadata?: Record<string, unknown>;
 };
 
 type CapturedPageImage = {
@@ -224,6 +248,29 @@ type RenderedProductDetailSnapshot = {
   }>;
   reviewMediaImages: string[];
   reviewMediaVideos: string[];
+};
+
+type RenderedStoreProfileSnapshot = {
+  name?: string;
+  url?: string;
+  marketplaceStoreId?: string;
+  followers?: number;
+  following?: number;
+  productsCount?: number;
+  rating?: number;
+  ratingCount?: number;
+  chatResponse?: string;
+  joinedDate?: string;
+  description?: string;
+  categories: string[];
+  ratingSamples: Array<{
+    rating: number;
+    reviewer: string;
+    comment: string;
+    mediaUrls: string[];
+    capturedAt?: string;
+  }>;
+  bannerUrls: string[];
 };
 
 type ProductSelectionClassification =
@@ -531,7 +578,10 @@ function ManualResearchExperience() {
     productCategory: "",
     marketplace: "SHOPEE_ID",
     createdAt: new Date().toISOString(),
-    language: "id-ID"
+    language: "id-ID",
+    searchFilters: {
+      shopTypes: []
+    }
   });
   const [browserUrl, setBrowserUrl] = useState(SHOPEE_HOME_URL);
 
@@ -540,7 +590,11 @@ function ManualResearchExperience() {
     onSuccess: async (project) => {
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       setActiveProject(project);
-      setBrowserUrl(initialPlatformUrl(project.marketplace as ResearchPlatform, project.keyword));
+      setBrowserUrl(initialPlatformUrl(
+        project.marketplace as ResearchPlatform,
+        project.keyword,
+        project.collectionState.searchFilters
+      ));
       setMode("collect");
     }
   });
@@ -556,7 +610,8 @@ function ManualResearchExperience() {
       keyword,
       marketplace: form.marketplace,
       language: form.language,
-      productCategory: form.productCategory.trim()
+      productCategory: form.productCategory.trim(),
+      searchFilters: form.marketplace === "SHOPEE_ID" ? form.searchFilters : undefined
     });
   }
 
@@ -653,8 +708,41 @@ function AnalysisSetupForm({
   onBack: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
-  const canProceed = form.keyword.trim().length >= 2 && form.productCategory.trim().length >= 2 && !isSaving;
+  const priceRangeValid =
+    form.searchFilters.priceMin === undefined ||
+    form.searchFilters.priceMax === undefined ||
+    form.searchFilters.priceMin <= form.searchFilters.priceMax;
+  const canProceed =
+    form.keyword.trim().length >= 2 &&
+    form.productCategory.trim().length >= 2 &&
+    priceRangeValid &&
+    !isSaving;
   const keywordInputRef = useRef<HTMLInputElement>(null);
+
+  function toggleShopeeShopType(shopType: ShopeeShopTypeFilter) {
+    const selected = new Set(form.searchFilters.shopTypes);
+    if (selected.has(shopType)) {
+      selected.delete(shopType);
+    } else {
+      selected.add(shopType);
+    }
+    onChange({
+      searchFilters: {
+        ...form.searchFilters,
+        shopTypes: SHOPEE_SHOP_TYPE_FILTERS.filter((item) => selected.has(item))
+      }
+    });
+  }
+
+  function updatePriceRange(key: "priceMin" | "priceMax", value: string) {
+    const parsed = value === "" ? undefined : Math.max(0, Math.round(Number(value)));
+    onChange({
+      searchFilters: {
+        ...form.searchFilters,
+        [key]: Number.isFinite(parsed) ? parsed : undefined
+      }
+    });
+  }
 
   useEffect(() => {
     restoreRendererFocus();
@@ -721,6 +809,64 @@ function AnalysisSetupForm({
               />
             </div>
           </Field>
+          {form.marketplace === "SHOPEE_ID" && (
+            <>
+              <Field label="Shop Type">
+                <div className="grid grid-cols-2 gap-2" aria-label="Shopee Shop Type">
+                  {SHOPEE_SHOP_TYPE_OPTIONS.map((option) => {
+                    const checked = form.searchFilters.shopTypes.includes(option.id);
+                    return (
+                      <label
+                        key={option.id}
+                        className={[
+                          "flex min-h-11 cursor-pointer items-center gap-3 rounded-md border px-3 text-sm transition",
+                          checked
+                            ? "border-signal-blue/45 bg-signal-blue/10 text-signal-blue"
+                            : "border-white/10 bg-white/4 text-ink-300 hover:border-signal-blue/30"
+                        ].join(" ")}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-signal-blue"
+                          checked={checked}
+                          onChange={() => toggleShopeeShopType(option.id)}
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </Field>
+              <Field label="Price Range (IDR)">
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <input
+                    aria-label="Minimum Price"
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={form.searchFilters.priceMin ?? ""}
+                    onChange={(event) => updatePriceRange("priceMin", event.target.value)}
+                    placeholder="Minimum"
+                  />
+                  <span className="text-sm text-ink-500">to</span>
+                  <input
+                    aria-label="Maximum Price"
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={form.searchFilters.priceMax ?? ""}
+                    onChange={(event) => updatePriceRange("priceMax", event.target.value)}
+                    placeholder="Maximum"
+                  />
+                </div>
+                {!priceRangeValid && (
+                  <div className="mt-2 text-xs text-signal-rose">Maximum price must be greater than or equal to minimum price.</div>
+                )}
+              </Field>
+            </>
+          )}
           <div className="col-span-2 grid grid-cols-[180px_minmax(0,1fr)] gap-3">
             <button className="secondary-button" type="button" onClick={onBack}>
               <ChevronLeft size={16} />
@@ -1099,6 +1245,11 @@ function GuidedBrowserCollector({
   const [stageCompleted, setStageCompleted] = useState<CollectionState["stageCompleted"]>(savedCollectionState.stageCompleted);
   const [reviewingKeyProducts, setReviewingKeyProducts] = useState(false);
   const [reviewingEvaluation, setReviewingEvaluation] = useState(false);
+  const [qualifiedProductIds, setQualifiedProductIds] = useState<string[]>(savedCollectionState.qualifiedProductIds ?? []);
+  const [qualifiedProductsApproved, setQualifiedProductsApproved] = useState(Boolean(savedCollectionState.qualifiedProductsApproved));
+  const [storeCollectionCandidates, setStoreCollectionCandidates] = useState<StoreCollectionCandidate[]>(
+    savedCollectionState.storeCollectionCandidates ?? []
+  );
   const [activeSubActionId, setActiveSubActionId] = useState<string | undefined>(undefined);
   const [analysisSessionCollapsed, setAnalysisSessionCollapsed] = useState(true);
   const [activitySidebarOpen, setActivitySidebarOpen] = useState(false);
@@ -1140,8 +1291,8 @@ function GuidedBrowserCollector({
   });
 
   const allSteps = useMemo(
-    () => buildCollectionSteps(project, platform, currentUrl, projectDetail.data),
-    [currentUrl, platform, project, projectDetail.data]
+    () => buildCollectionSteps(project, platform, currentUrl, viewMode, projectDetail.data, storeCollectionCandidates),
+    [currentUrl, platform, project, projectDetail.data, storeCollectionCandidates, viewMode]
   );
   const steps = useMemo(() => allSteps.filter((step) => step.stage === activeStage), [activeStage, allSteps]);
   const activeStep = steps[activeStepIndex] ?? steps[0] ?? allSteps[0];
@@ -1163,10 +1314,17 @@ function GuidedBrowserCollector({
         targetUrl: activeTargetUrl
       }
     : activeStep;
-  const selectedKeyProducts = useMemo(
-    () => selectKeyProductCandidates(projectDetail.data?.products ?? [], project.keyword),
+  const qualifiedProductPool = useMemo(
+    () => selectKeyProductCandidates(projectDetail.data?.products ?? [], project.keyword, 20),
     [project.keyword, projectDetail.data?.products]
   );
+  const selectedKeyProducts = useMemo(() => {
+    const selectedIds = qualifiedProductIds.length > 0
+      ? qualifiedProductIds
+      : qualifiedProductPool.slice(0, 10).map((product) => product.id);
+    const byId = new Map(qualifiedProductPool.map((product) => [product.id, product]));
+    return selectedIds.map((id) => byId.get(id)).filter((product): product is ProjectProductEvidence => Boolean(product));
+  }, [qualifiedProductIds, qualifiedProductPool]);
   const collectedCount = allSteps.filter((step) => isCollectionStepComplete(step, collectedSteps)).length;
   const stageCollectedCount = steps.filter((step) => isCollectionStepComplete(step, collectedSteps)).length;
   const collectionProgressPercent = allSteps.length > 0 ? Math.round((collectedCount / allSteps.length) * 100) : 0;
@@ -1193,14 +1351,38 @@ function GuidedBrowserCollector({
           changed = true;
         }
       }
-      const keyStoreAsset = reusableKeyStoreHomepageAsset(detail);
-      if (keyStoreAsset && !next["store-homepage"]) {
-        next["store-homepage"] = keyStoreAsset.path;
-        changed = true;
+      for (const step of allSteps.filter((item) => item.metadata?.storeEvidenceType === "homepage")) {
+        const storeUrl = typeof step.metadata?.canonicalStoreUrl === "string" ? step.metadata.canonicalStoreUrl : undefined;
+        const keyStoreAsset = reusableKeyStoreHomepageAsset(detail, storeUrl);
+        if (keyStoreAsset && !next[step.id]) {
+          next[step.id] = keyStoreAsset.path;
+          changed = true;
+        }
       }
       return changed ? next : current;
     });
   }, [allSteps, projectDetail.data]);
+
+  useEffect(() => {
+    if (qualifiedProductIds.length > 0 || qualifiedProductPool.length === 0) {
+      return;
+    }
+    setQualifiedProductIds(qualifiedProductPool.slice(0, 10).map((product) => product.id));
+  }, [qualifiedProductIds.length, qualifiedProductPool]);
+
+  useEffect(() => {
+    if (selectedKeyProducts.length === 0 || storeCollectionCandidates.length > 0) {
+      return;
+    }
+    const candidates = buildStoreCollectionCandidates(selectedKeyProducts);
+    if (candidates.length === 0) {
+      return;
+    }
+    setStoreCollectionCandidates(candidates);
+    persistCollectionState({ storeCollectionCandidates: candidates });
+    // Candidate bootstrapping must run only when the candidate list is initially empty.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKeyProducts, storeCollectionCandidates.length]);
 
   useEffect(() => {
     if (!isManualActionState) {
@@ -1281,12 +1463,22 @@ function GuidedBrowserCollector({
       currentStepId: overrides.currentStepId ?? activeStep?.id,
       browserUrl: overrides.browserUrl ?? currentUrl,
       viewMode: overrides.viewMode ?? viewMode,
+      searchFilters: overrides.searchFilters ?? savedCollectionState.searchFilters,
+      qualifiedProductIds: overrides.qualifiedProductIds ?? qualifiedProductIds,
+      qualifiedProductsApproved: overrides.qualifiedProductsApproved ?? qualifiedProductsApproved,
+      storeCollectionCandidates: overrides.storeCollectionCandidates ?? storeCollectionCandidates,
       savedAt: new Date().toISOString()
     };
   }
 
   function persistCollectionState(overrides: Partial<CollectionState> = {}) {
     saveCollectionState.mutate(buildCollectionState(overrides));
+  }
+
+  function updateStoreCollectionCandidates(candidates: StoreCollectionCandidate[]) {
+    const nextCandidates = candidates.slice(0, 50);
+    setStoreCollectionCandidates(nextCandidates);
+    persistCollectionState({ storeCollectionCandidates: nextCandidates });
   }
 
   const saveEvidence = useMutation({
@@ -1696,7 +1888,10 @@ function GuidedBrowserCollector({
     appendLog(setActivityLog, "Collection progress saved. You can close the browser and continue from this project later.");
   }
 
-  function completeCurrentStage(nextCollectedSteps = collectedSteps) {
+  function completeCurrentStage(
+    nextCollectedSteps = collectedSteps,
+    stateOverrides: Partial<CollectionState> = {}
+  ) {
     const nextStage = nextCollectionStage(activeStage);
     const nextStageCompleted = {
       ...stageCompleted,
@@ -1712,6 +1907,7 @@ function GuidedBrowserCollector({
         setExpanded(false);
       }
       persistCollectionState({
+        ...stateOverrides,
         stage: nextStage,
         stageLabel: collectionStageLabel(nextStage),
         stageCompleted: nextStageCompleted,
@@ -1727,6 +1923,7 @@ function GuidedBrowserCollector({
       return;
     }
     persistCollectionState({
+      ...stateOverrides,
       stageCompleted: nextStageCompleted,
       stepAssetPaths: nextCollectedSteps,
       completedStepIds: Object.keys(nextCollectedSteps),
@@ -1740,7 +1937,8 @@ function GuidedBrowserCollector({
   function openKeyProductTableReview() {
     setExpanded(false);
     setReviewingKeyProducts(true);
-    appendLog(setActivityLog, "Built the AI-assisted Key Product table from Relevance and Top Sales evidence.");
+    setQualifiedProductsApproved(Boolean(savedCollectionState.qualifiedProductsApproved));
+    appendLog(setActivityLog, "Generated the Product Qualified draft from Top Sales first, then Relevance evidence.");
   }
 
   function openEvaluationReview() {
@@ -1749,53 +1947,107 @@ function GuidedBrowserCollector({
     appendLog(setActivityLog, "Opened Evaluation Phase in the collection workspace. Score Potential Stores before collecting Key Store evidence.");
   }
 
+  function removeQualifiedProduct(productId: string) {
+    setQualifiedProductIds((current) => current.filter((id) => id !== productId));
+    setQualifiedProductsApproved(false);
+  }
+
+  function addQualifiedProduct(productId: string) {
+    setQualifiedProductIds((current) => {
+      if (current.includes(productId) || current.length >= 20) {
+        return current;
+      }
+      return [...current, productId];
+    });
+    setQualifiedProductsApproved(false);
+  }
+
+  function approveQualifiedProducts() {
+    if (selectedKeyProducts.length === 0) {
+      setCaptureStatus({ message: "Select at least one qualified product", state: "failed", progress: 100 });
+      return;
+    }
+    setQualifiedProductsApproved(true);
+    persistCollectionState({
+      qualifiedProductIds,
+      qualifiedProductsApproved: true
+    });
+    setCaptureStatus({
+      message: `${selectedKeyProducts.length} qualified products approved`,
+      state: "done",
+      progress: 100
+    });
+    appendLog(setActivityLog, `${selectedKeyProducts.length} qualified products approved and saved.`);
+  }
+
   function startProductDetailCollection() {
+    if (!qualifiedProductsApproved || selectedKeyProducts.length === 0) {
+      setCaptureStatus({ message: "Approve Product Qualified before continuing", state: "failed", progress: 100 });
+      return;
+    }
     const processStep = allSteps.find((step) => step.id === "key-product-table");
     const nextCollectedSteps = processStep
       ? { ...collectedSteps, [processStep.id]: "processed:key-product-table" }
       : collectedSteps;
     setCollectedSteps(nextCollectedSteps);
     setReviewingKeyProducts(false);
-    completeCurrentStage(nextCollectedSteps);
+    completeCurrentStage(nextCollectedSteps, {
+      qualifiedProductIds,
+      qualifiedProductsApproved: true
+    });
   }
 
   async function startKeyStoreCollection() {
-    if (!projectDetail.data?.analyses.length) {
-      setCaptureStatus({ message: "Run AI Scoring before Key Store collection", state: "failed", progress: 100 });
+    const detail = projectDetail.data;
+    if (!detail) {
+      setCaptureStatus({ message: "Project evidence is still loading", state: "failed", progress: 100 });
       return;
     }
-    const processStep = allSteps.find((step) => step.id === "evaluation-phase-scoring");
+    const candidates = buildStoreCollectionCandidates(selectedKeyProducts, storeCollectionCandidates);
+    if (candidates.length === 0) {
+      setCaptureStatus({ message: "Add at least one store before starting collection", state: "failed", progress: 100 });
+      return;
+    }
+    setStoreCollectionCandidates(candidates);
+    setViewMode("mobile");
+    const nextAllSteps = buildCollectionSteps(project, platform, currentUrl, "mobile", detail, candidates);
+    const stageSteps = nextAllSteps.filter((step) => step.stage === "EVALUATION_KEY_STORE");
+    const processStep = stageSteps.find((step) => step.id === "evaluation-phase-scoring");
     const nextCollectedSteps: Record<string, string> = processStep
       ? { ...collectedSteps, [processStep.id]: "processed:evaluation-phase-scoring" }
       : collectedSteps;
-    const reusableAsset = reusableKeyStoreHomepageAsset(projectDetail.data);
-    if (reusableAsset) {
-      const homepageStep = steps.find((step) => step.id === "store-homepage");
-      if (homepageStep) {
+    let reusedHomepageCount = 0;
+    for (const candidate of candidates) {
+      const homepageStep = stageSteps.find((step) => step.id === `${candidate.id}-homepage`);
+      const reusableAsset = reusableKeyStoreHomepageAsset(detail, candidate.storeUrl);
+      if (homepageStep && reusableAsset) {
         nextCollectedSteps[homepageStep.id] = reusableAsset.path;
+        reusedHomepageCount += 1;
       }
     }
     setCollectedSteps(nextCollectedSteps);
     setReviewingEvaluation(false);
-    const keyStoreStepOrder = ["store-homepage", "store-products", "store-best-seller", "store-visual-style", "tiktok-brand-search"];
-    const nextStepId = keyStoreStepOrder.find((stepId) => !nextCollectedSteps[stepId]) ?? "tiktok-brand-search";
-    const resolvedNextIndex = steps.findIndex((step) => step.id === nextStepId);
-    const nextIndex = resolvedNextIndex >= 0 ? resolvedNextIndex : Math.max(0, steps.findIndex((step) => step.id === "store-homepage"));
+    const nextIndex = Math.max(0, stageSteps.findIndex((step) => step.id !== "evaluation-phase-scoring" && !isCollectionStepComplete(step, nextCollectedSteps)));
     setActiveStepIndex(nextIndex);
-    if (steps[nextIndex]?.targetUrl) {
-      navigateTo(steps[nextIndex].targetUrl);
+    if (stageSteps[nextIndex]?.targetUrl) {
+      navigateTo(stageSteps[nextIndex].targetUrl);
     }
     persistCollectionState({
+      stage: "EVALUATION_KEY_STORE",
+      viewMode: "mobile",
+      storeCollectionCandidates: candidates,
       stepAssetPaths: nextCollectedSteps,
       completedStepIds: Object.keys(nextCollectedSteps),
-      progressPercent: collectionProgress(allSteps, nextCollectedSteps),
-      currentStepId: steps[nextIndex]?.id ?? processStep?.id
+      progressPercent: collectionProgress(nextAllSteps, nextCollectedSteps),
+      currentStepId: stageSteps[nextIndex]?.id ?? processStep?.id
     });
-    const nextStepLabel = steps[nextIndex]?.label ?? "Key Store evidence";
-    setCaptureStatus({ message: reusableAsset ? `Saved store evidence reused. Continue with ${nextStepLabel}` : `Continue with ${nextStepLabel}`, state: "done", progress: 100 });
-    appendLog(setActivityLog, reusableAsset
-      ? `Saved Store Home Page evidence was reused. Continue with the first missing Key Store step: ${nextStepLabel}.`
-      : `Evaluation Phase marked processed. Continue with ${nextStepLabel}.`);
+    const nextStepLabel = stageSteps[nextIndex]?.label ?? "Store evidence";
+    setCaptureStatus({
+      message: `${candidates.length} stores ready${reusedHomepageCount ? `, ${reusedHomepageCount} homepages reused` : ""}`,
+      state: "done",
+      progress: 100
+    });
+    appendLog(setActivityLog, `Multi-store collection started for ${candidates.length} stores. Continue with ${nextStepLabel}.`);
   }
 
   function runStagePrimaryAction() {
@@ -1857,9 +2109,7 @@ function GuidedBrowserCollector({
     }
     const captureMode = subAction?.captureMode ?? step.captureMode ?? "full-page";
     const targetSelector = subAction?.targetSelector ?? step.targetSelector;
-    const extractionSelector = subAction?.id === "shop-homepage" || step.id === "store-homepage"
-      ? ".shop-page__all-products-section"
-      : targetSelector;
+    const extractionSelector = targetSelector;
     const captureStrategy = subAction?.captureStrategy ?? step.captureStrategy ?? "selector";
     const dataOnlyEvidence = isDataOnlyEvidenceStep(step, subAction);
     setCaptureStatus({
@@ -1888,7 +2138,12 @@ function GuidedBrowserCollector({
     });
     const extractionTimeoutMs = dataOnlyEvidence ? 32_000 : 20_000;
     const snapshot = await withTimeout(
-          extractRenderedPageSnapshot(webview, extractionSelector, { includeHtml: true }),
+          extractRenderedPageSnapshot(webview, extractionSelector, {
+            includeHtml: true,
+            requestedStoreRating: typeof step.metadata?.requestedRating === "number"
+              ? step.metadata.requestedRating
+              : undefined
+          }),
           extractionTimeoutMs,
           "The store HTML took too long to hydrate. Keep the target section visible, then try Collect Data again."
         )
@@ -1922,6 +2177,11 @@ function GuidedBrowserCollector({
             reviewMediaImages: [],
             reviewMediaVideos: []
           },
+          storeProfile: {
+            categories: [],
+            ratingSamples: [],
+            bannerUrls: []
+          },
           storeDecorationImages: []
         };
       });
@@ -1943,6 +2203,7 @@ function GuidedBrowserCollector({
       pagePdfDataUrl: undefined,
       extractedProducts: snapshot.products,
       metadata: {
+        ...step.metadata,
         section: step.section,
         keyword: project.keyword,
         productCategory,
@@ -1961,6 +2222,7 @@ function GuidedBrowserCollector({
         productDetailSubActionMode: subAction?.mode,
         syncProductDetail: step.stage === "PRODUCT_DETAILS",
         structuredProductDetail,
+        structuredStoreProfile: snapshot.storeProfile,
         storeDecorationImages: snapshot.storeDecorationImages,
         extractedText: snapshot.visibleText,
         extractedProductCount: snapshot.products.length,
@@ -2162,8 +2424,8 @@ function GuidedBrowserCollector({
           }}
           onReset={(subActionId) => void resetCollectedEvidence(activeStep, subActionId)}
           onSelectSubAction={selectSubAction}
-          onAttachFile={activeStep.id === "tiktok-brand-search" ? () => attachFileEvidence.mutate(activeStep) : undefined}
-          onOpenAndroid={activeStep.id === "tiktok-brand-search" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
+          onAttachFile={activeStep.id === "tiktok-brand-search" || activeStep.metadata?.storeEvidenceType === "tiktok" ? () => attachFileEvidence.mutate(activeStep) : undefined}
+          onOpenAndroid={activeStep.id === "tiktok-brand-search" || activeStep.metadata?.storeEvidenceType === "tiktok" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
           onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
           onNext={advanceGuidedCollection}
         />
@@ -2174,19 +2436,26 @@ function GuidedBrowserCollector({
   const keyProductTablePanel = (
     <KeyProductTableReview
       products={selectedKeyProducts}
+      availableProducts={qualifiedProductPool.filter((product) => !qualifiedProductIds.includes(product.id))}
       totalProducts={projectDetail.data?.products.length ?? 0}
+      approved={qualifiedProductsApproved}
       onBackToBrowser={() => setReviewingKeyProducts(false)}
-      onStartProductDetails={startProductDetailCollection}
+      onRemoveProduct={removeQualifiedProduct}
+      onAddProduct={addQualifiedProduct}
+      onApprove={approveQualifiedProducts}
+      onNext={startProductDetailCollection}
     />
   );
 
   const evaluationPanel = (
     <EvaluationCollectionPanel
       detail={projectDetail.data}
+      candidates={storeCollectionCandidates}
       onBackToBrowser={() => setReviewingEvaluation(false)}
       onRunAnalysis={() => runAnalysis.mutate()}
       scoring={runAnalysis.isPending}
       scoringProvider={runAnalysis.data?.provider}
+      onCandidatesChange={updateStoreCollectionCandidates}
       onStartKeyStoreCollection={startKeyStoreCollection}
     />
   );
@@ -2267,7 +2536,7 @@ function GuidedBrowserCollector({
               </button>
               <button className="primary-button h-9 px-2 text-xs" type="button" onClick={runStagePrimaryAction} disabled={saveCollectionState.isPending}>
                 {saveCollectionState.isPending ? <span className="mio-spinner" /> : <CheckCircle2 size={14} />}
-                {activeStage === "KEYWORD_GENERAL" ? "Review Table" : stageCompletionButtonLabel(activeStage)}
+                {activeStage === "KEYWORD_GENERAL" ? "Get Product Qualified" : stageCompletionButtonLabel(activeStage)}
               </button>
             </div>
             <div className="mt-4 max-h-[420px] space-y-2 overflow-auto pr-1">
@@ -2609,20 +2878,60 @@ function productDetailSubActionEvidenceCount(payload: ManualEvidencePayload, sub
 
 function EvaluationCollectionPanel({
   detail,
+  candidates,
   onBackToBrowser,
   onRunAnalysis,
   scoring,
   scoringProvider,
+  onCandidatesChange,
   onStartKeyStoreCollection
 }: {
   detail?: ProjectDetailPayload;
+  candidates: StoreCollectionCandidate[];
   onBackToBrowser: () => void;
   onRunAnalysis: () => void;
   scoring: boolean;
   scoringProvider?: string;
+  onCandidatesChange: (candidates: StoreCollectionCandidate[]) => void;
   onStartKeyStoreCollection: () => void;
 }) {
-  const candidates = detail ? storeEvaluationCandidates(detail) : [];
+  const [manualStoreName, setManualStoreName] = useState("");
+  const [manualStoreUrl, setManualStoreUrl] = useState("");
+
+  function addManualStore() {
+    const storeName = manualStoreName.trim();
+    const rawUrl = manualStoreUrl.trim();
+    if (!storeName || !rawUrl) {
+      return;
+    }
+    let storeUrl: string;
+    try {
+      storeUrl = new URL(rawUrl, "https://shopee.co.id").toString();
+    } catch {
+      return;
+    }
+    const id = stableStoreCandidateId(storeUrl, storeName);
+    if (candidates.some((candidate) => candidate.id === id || candidate.storeUrl === storeUrl)) {
+      return;
+    }
+    onCandidatesChange([
+      ...candidates,
+      {
+        id,
+        storeName,
+        storeUrl,
+        includePopularProducts: false,
+        includeShopBanner: false
+      }
+    ]);
+    setManualStoreName("");
+    setManualStoreUrl("");
+  }
+
+  function updateCandidate(candidateId: string, patch: Partial<StoreCollectionCandidate>) {
+    onCandidatesChange(candidates.map((candidate) => candidate.id === candidateId ? { ...candidate, ...patch } : candidate));
+  }
+
   return (
     <Panel
       title="Evaluation Phase"
@@ -2635,25 +2944,84 @@ function EvaluationCollectionPanel({
       }
     >
       <div className="mb-4 rounded-md border border-signal-blue/20 bg-signal-blue/10 p-4 text-sm leading-6 text-ink-300">
-        Review Potential Stores without leaving the collection workspace. Run AI scoring after Product Detail Qualified evidence is synced, then start Key Store collection for the top-ranked store.
+        Review every distinct store declared by Product Qualified. All listed stores will be collected; AI scoring runs after store evidence is complete.
       </div>
-      {detail ? (
-        <EvaluationCards detail={detail} onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
-      ) : (
+      {!detail ? (
         <EmptyState label="Loading project evidence..." />
+      ) : candidates.length === 0 ? (
+        <EmptyState label="No Potential Store is available yet. Sync PDP store names or add a store manually." />
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          {candidates.map((candidate) => (
+            <article className="rounded-md border border-white/10 bg-ink-900/45 p-4" key={candidate.id}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-500">Potential Store</div>
+                  <div className="mt-1 truncate font-semibold text-ink-100">{candidate.storeName}</div>
+                  <a className="mt-1 block truncate text-xs text-signal-blue" href={candidate.storeUrl} target="_blank" rel="noreferrer">
+                    {candidate.storeUrl}
+                  </a>
+                </div>
+                <button
+                  className="secondary-button mio-round-icon-button h-9 w-9 shrink-0 px-0"
+                  type="button"
+                  onClick={() => onCandidatesChange(candidates.filter((item) => item.id !== candidate.id))}
+                  aria-label={`Remove ${candidate.storeName}`}
+                  title={`Remove ${candidate.storeName}`}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              <div className="mt-4 grid gap-2 text-xs text-ink-300">
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded border border-white/10 px-3 py-2">
+                  <span>Collect Popular Products</span>
+                  <input
+                    type="checkbox"
+                    checked={candidate.includePopularProducts}
+                    onChange={(event) => updateCandidate(candidate.id, { includePopularProducts: event.target.checked })}
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded border border-white/10 px-3 py-2">
+                  <span>Collect Visual Shop Banner</span>
+                  <input
+                    type="checkbox"
+                    checked={candidate.includeShopBanner}
+                    onChange={(event) => updateCandidate(candidate.id, { includeShopBanner: event.target.checked })}
+                  />
+                </label>
+              </div>
+            </article>
+          ))}
+        </div>
       )}
+      <div className="mt-4 rounded-md border border-white/10 bg-ink-950/25 p-4">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-ink-500">Add desired store</div>
+        <div className="grid gap-2 md:grid-cols-[minmax(140px,0.65fr)_minmax(220px,1.35fr)_auto]">
+          <input className="form-input" value={manualStoreName} onChange={(event) => setManualStoreName(event.target.value)} placeholder="Store name" />
+          <input className="form-input" value={manualStoreUrl} onChange={(event) => setManualStoreUrl(event.target.value)} placeholder="https://shopee.co.id/store-name" />
+          <button className="secondary-button h-10 w-auto px-4" type="button" onClick={addManualStore} disabled={!manualStoreName.trim() || !manualStoreUrl.trim()}>
+            <Plus size={15} />
+            Add Store
+          </button>
+        </div>
+      </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-5 text-ink-500">
-          {candidates.length > 0 && detail?.analyses.length
-            ? `${candidates[0].name} is currently ranked as Key Store from ${candidates.length} Potential Store candidates.`
-            : candidates.length > 0
-              ? `${candidates.length} Potential Store candidates are ready for AI scoring.`
-            : "No Potential Store is available yet. Capture PDP store names or store links first."}
+          {candidates.length > 0
+            ? `${candidates.length} Potential Store${candidates.length === 1 ? "" : "s"} will be collected independently.`
+            : "Add at least one Potential Store to continue."}
         </div>
-        <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartKeyStoreCollection} disabled={candidates.length === 0 || !detail?.analyses.length}>
+        <div className="flex flex-wrap gap-2">
+          <button className="secondary-button h-10 w-auto px-4" type="button" onClick={onRunAnalysis} disabled={scoring || !detail}>
+            <Brain size={16} />
+            {scoring ? "Scoring..." : "Run AI Scoring"}
+            {scoringProvider ? ` (${scoringProvider})` : ""}
+          </button>
+          <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartKeyStoreCollection} disabled={candidates.length === 0}>
           <Store size={16} />
-          Start Key Store Collection
-        </button>
+            Start Store Collection
+          </button>
+        </div>
       </div>
     </Panel>
   );
@@ -3110,7 +3478,8 @@ function isDataOnlyEvidenceStep(step: CollectionStep, action?: CollectionSubActi
   if (action?.mode === "screenshot") {
     return false;
   }
-  return ["STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER"].includes(step.kind);
+  return step.metadata?.dataOnly === true ||
+    ["STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER"].includes(step.kind);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -3987,6 +4356,9 @@ function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; 
     { id: "evaluation-phase", label: "Evaluation Phase", depth: 0 },
     { id: "key-store", label: "Key Store", depth: 0 },
     { id: "key-store-overall", label: "Overall", depth: 1 },
+    { id: "key-store-data", label: "Store Data", depth: 1 },
+    { id: "key-store-ratings", label: "Store Ratings", depth: 1 },
+    { id: "key-store-categories", label: "Store Categories", depth: 1 },
     { id: "key-store-home", label: "Store Home Page", depth: 1 },
     { id: "key-store-popular", label: "Popular Products", depth: 1 },
     { id: "key-store-best-sellers", label: "Best Sellers", depth: 1 },
@@ -4086,73 +4458,267 @@ function KeyStorePanel({
   detail: ProjectDetailPayload;
   onContinueCollection: () => void;
 }) {
-  const candidate = detail.analyses.length > 0 ? storeEvaluationCandidates(detail)[0] : undefined;
-  if (!candidate) {
-    return <EmptyState label="No Key Store selected yet. Complete Product Detail Qualified and run Evaluation Phase scoring first." />;
+  const candidates = buildStoreCollectionCandidates(
+    selectKeyProductCandidates(detail.products, detail.project.keyword, 20),
+    projectCollectionState(detail.project).storeCollectionCandidates ?? []
+  );
+  if (candidates.length === 0) {
+    return <EmptyState label="No store candidates yet. Approve qualified products or add a store in Evaluation Phase first." />;
   }
-  const matchingProducts = selectKeyProductCandidates(detail.products, detail.project.keyword)
-    .filter((product) => normalizeStoreKey(product) === candidate.key);
+  const evaluations = storeEvaluationCandidates(detail);
   const latestAnalysis = [...detail.analyses].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
-  const conclusionSentences = keyStoreOverallConclusions(candidate, latestAnalysis?.resultJson);
-  const storeProducts = detail.products.filter((product) => product.source === "Store Products" && productMatchesStoreCandidate(product, candidate));
-  const storeBestSellers = detail.products.filter((product) => product.source === "Store Best Sellers" && productMatchesStoreCandidate(product, candidate));
-  const storeAssets = detail.assets.filter((asset) =>
-    asset.ownerType === "STORE" &&
-    (!candidate.url || !asset.sourceUrl || sameStoreIntent(asset.sourceUrl, candidate.url))
-  );
-  const sharedProductHomeAssets = detail.assets.filter((asset) =>
-    asset.ownerType === "PRODUCT" &&
-    asset.kind === "STORE_HOME" &&
-    Boolean(asset.sourceUrl && candidate.url && sameStoreIntent(asset.sourceUrl, candidate.url))
-  );
-  const homeAssets = [...storeAssets.filter((asset) => asset.kind === "STORE_HOME"), ...sharedProductHomeAssets]
-    .filter((asset, index, values) => values.findIndex((candidateAsset) => candidateAsset.id === asset.id) === index);
-  const bannerAssets = storeAssets.filter((asset) => asset.kind === "STORE_BANNER");
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 p-3">
         <div>
-          <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Selected Key Store</div>
-          <div className="mt-1 text-base font-semibold text-white">{candidate.name}</div>
-          {candidate.url && (
-            <button className="secondary-button mt-2 h-8 max-w-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(candidate.url ?? "")}>
-              <ExternalLink size={13} />
-              <span className="truncate">Open Store Page</span>
-            </button>
-          )}
+          <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Store Collection</div>
+          <div className="mt-1 text-base font-semibold text-white">{candidates.length} candidate stores</div>
+          <div className="mt-1 text-xs text-ink-400">Each qualified store keeps its own profile, ratings, category, product, banner, and TikTok evidence.</div>
         </div>
         <button className="primary-button h-9 w-auto px-3" type="button" onClick={onContinueCollection}>
           <ClipboardCheck size={15} />
-          Collect Key Store Data
+          Continue Store Collection
         </button>
       </div>
 
       <NestedReportSection id="key-store-overall" title="Overall">
-        <div className="space-y-2 text-sm leading-6 text-ink-300">
-          {conclusionSentences.map((sentence) => (
-            <p key={sentence}>{sentence}</p>
-          ))}
+        <div className="space-y-3">
+          {candidates.map((candidate) => {
+            const evaluation = evaluations.find((item) => collectionCandidateMatchesEvaluation(candidate, item));
+            const store = findCollectedStore(detail, candidate);
+            const sentences = evaluation
+              ? keyStoreOverallConclusions(evaluation, latestAnalysis?.resultJson)
+              : collectedStoreConclusions(candidate, store);
+            return (
+              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+                <div className="space-y-2 text-sm leading-6 text-ink-300">
+                  {sentences.map((sentence) => <p key={sentence}>{sentence}</p>)}
+                </div>
+              </StoreEvidenceGroup>
+            );
+          })}
+        </div>
+      </NestedReportSection>
+
+      <NestedReportSection id="key-store-data" title="Store Data">
+        <div className="space-y-3">
+          {candidates.map((candidate) => {
+            const store = findCollectedStore(detail, candidate);
+            return (
+              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+                {store ? (
+                  <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                    <InfoLine label="Followers" value={formatOptionalNumber(store.followers)} />
+                    <InfoLine label="Following" value={formatOptionalNumber(store.following)} />
+                    <InfoLine label="Products" value={formatOptionalNumber(store.productsCount)} />
+                    <InfoLine label="Rating" value={store.rating ? `${store.rating}${store.ratingCount ? ` (${formatOptionalNumber(store.ratingCount)})` : ""}` : "-"} />
+                    <InfoLine label="Chat response" value={store.chatResponse ?? "-"} />
+                    <InfoLine label="Joined" value={store.joinedDate ?? "-"} />
+                    <div className="sm:col-span-2">
+                      <InfoLine label="Description" value={store.description ?? "-"} />
+                    </div>
+                  </div>
+                ) : <EmptyState label="Store details have not been collected." />}
+              </StoreEvidenceGroup>
+            );
+          })}
+        </div>
+      </NestedReportSection>
+
+      <NestedReportSection id="key-store-ratings" title="Store Ratings">
+        <div className="space-y-3">
+          {candidates.map((candidate) => {
+            const samples = findCollectedStore(detail, candidate)?.ratingSamples ?? [];
+            return (
+              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+                {samples.length > 0 ? (
+                  <div className="space-y-2">
+                    {samples.map((sample, index) => (
+                      <div key={`${candidate.id}-${sample.rating}-${index}`} className="rounded-md border border-white/8 bg-white/5 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span className="font-semibold text-white">{sample.reviewer || "Shopee buyer"}</span>
+                          <span className="text-ink-400">{sample.rating} star{sample.capturedAt ? ` · ${sample.capturedAt}` : ""}</span>
+                        </div>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-ink-300">{sample.comment}</p>
+                        {sample.mediaUrls.length > 0 && (
+                          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                            {sample.mediaUrls.map((url) => (
+                              <img key={url} src={imageSource(url)} alt={`${sample.reviewer} rating evidence`} loading="lazy" decoding="async" className="aspect-square w-full rounded object-cover" />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : <EmptyState label="No proof-backed store ratings collected." />}
+              </StoreEvidenceGroup>
+            );
+          })}
+        </div>
+      </NestedReportSection>
+
+      <NestedReportSection id="key-store-categories" title="Store Categories">
+        <div className="space-y-3">
+          {candidates.map((candidate) => {
+            const categories = findCollectedStore(detail, candidate)?.categories ?? [];
+            return (
+              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+                {categories.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map((category) => <span key={category} className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-ink-300">{category}</span>)}
+                  </div>
+                ) : <EmptyState label="No store categories collected." />}
+              </StoreEvidenceGroup>
+            );
+          })}
         </div>
       </NestedReportSection>
 
       <NestedReportSection id="key-store-home" title="Store Home Page">
-        <AssetList assets={homeAssets} limit={12} />
+        <div className="space-y-3">
+          {candidates.map((candidate) => (
+            <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+              <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_HOME")} limit={12} />
+            </StoreEvidenceGroup>
+          ))}
+        </div>
       </NestedReportSection>
 
       <NestedReportSection id="key-store-popular" title="Popular Products">
-        <ProductCardGrid products={storeProducts.length > 0 ? storeProducts : matchingProducts} limit={80} />
+        <div className="space-y-3">
+          {candidates.map((candidate) => {
+            const collected = storeProductsForCandidate(detail, candidate, "Store Products");
+            const fallback = selectKeyProductCandidates(detail.products, detail.project.keyword, 20)
+              .filter((product) => productMatchesCollectionCandidate(product, candidate));
+            return (
+              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+                <ProductCardGrid products={collected.length > 0 ? collected : fallback} limit={80} />
+              </StoreEvidenceGroup>
+            );
+          })}
+        </div>
       </NestedReportSection>
 
       <NestedReportSection id="key-store-best-sellers" title="Best Sellers">
-        <ProductCardGrid products={storeBestSellers} limit={80} />
+        <div className="space-y-3">
+          {candidates.map((candidate) => (
+            <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+              <ProductCardGrid products={storeProductsForCandidate(detail, candidate, "Store Best Sellers")} limit={80} />
+            </StoreEvidenceGroup>
+          ))}
+        </div>
       </NestedReportSection>
 
       <NestedReportSection id="key-store-visual" title="Visual Shop Banner">
-        <AssetList assets={bannerAssets} limit={80} />
+        <div className="space-y-3">
+          {candidates.map((candidate) => (
+            <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+              <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_BANNER")} limit={80} />
+            </StoreEvidenceGroup>
+          ))}
+        </div>
       </NestedReportSection>
     </div>
   );
+}
+
+function StoreEvidenceGroup({
+  candidate,
+  children
+}: {
+  candidate: StoreCollectionCandidate;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-md border border-white/8 bg-white/5 p-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="font-semibold text-white">{candidate.storeName}</div>
+          {candidate.shopId && <div className="mt-0.5 text-xs text-ink-500">Shop ID {candidate.shopId}</div>}
+        </div>
+        <button className="secondary-button h-8 max-w-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(candidate.storeUrl)}>
+          <ExternalLink size={13} />
+          <span className="truncate">Open Store</span>
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function collectionCandidateMatchesEvaluation(candidate: StoreCollectionCandidate, evaluation: StoreEvaluationCandidate): boolean {
+  return Boolean(
+    (candidate.storeUrl && evaluation.url && sameStoreIntent(candidate.storeUrl, evaluation.url)) ||
+    normalizeComparableStoreName(candidate.storeName) === normalizeComparableStoreName(evaluation.name)
+  );
+}
+
+function findCollectedStore(detail: ProjectDetailPayload, candidate: StoreCollectionCandidate) {
+  return detail.stores.find((store) =>
+    Boolean(candidate.shopId && store.marketplaceStoreId === candidate.shopId) ||
+    Boolean(store.url && candidate.storeUrl && sameStoreIntent(store.url, candidate.storeUrl)) ||
+    normalizeComparableStoreName(store.name) === normalizeComparableStoreName(candidate.storeName)
+  );
+}
+
+function collectedStoreConclusions(
+  candidate: StoreCollectionCandidate,
+  store: ProjectDetailPayload["stores"][number] | undefined
+): string[] {
+  if (!store) {
+    return [`${candidate.storeName} is queued for structured store collection. Complete its store data, ratings, categories, product matrix, and visual evidence before AI scoring.`];
+  }
+  const performance = [
+    store.rating ? `rating ${store.rating}${store.ratingCount ? ` from ${formatOptionalNumber(store.ratingCount)} ratings` : ""}` : undefined,
+    store.followers ? `${formatOptionalNumber(store.followers)} followers` : undefined,
+    store.productsCount ? `${formatOptionalNumber(store.productsCount)} products` : undefined,
+    store.chatResponse ? `chat response ${store.chatResponse}` : undefined
+  ].filter(Boolean).join(", ");
+  return [
+    `${store.name} is included as a qualified-store candidate${performance ? ` with ${performance}` : ""}.`,
+    store.description
+      ? store.description
+      : "Its final overall assessment will be generated from the collected profile, ratings, categories, products, promotions, and visual evidence."
+  ];
+}
+
+function storeProductsForCandidate(
+  detail: ProjectDetailPayload,
+  candidate: StoreCollectionCandidate,
+  prefix: "Store Products" | "Store Best Sellers"
+) {
+  return detail.products.filter((product) =>
+    product.source?.startsWith(prefix) &&
+    (product.source === `${prefix}:${candidate.id}` || productMatchesCollectionCandidate(product, candidate))
+  );
+}
+
+function storeAssetsForCandidate(
+  detail: ProjectDetailPayload,
+  candidate: StoreCollectionCandidate,
+  kind: "STORE_HOME" | "STORE_BANNER"
+) {
+  return detail.assets.filter((asset) =>
+    asset.kind === kind &&
+    (
+      asset.ownerId === candidate.id ||
+      Boolean(asset.sourceUrl && candidate.storeUrl && sameStoreIntent(asset.sourceUrl, candidate.storeUrl))
+    )
+  );
+}
+
+function productMatchesCollectionCandidate(
+  product: ProjectProductEvidence,
+  candidate: StoreCollectionCandidate
+): boolean {
+  return Boolean(
+    product.storeUrl && candidate.storeUrl && sameStoreIntent(product.storeUrl, candidate.storeUrl)
+  ) || normalizeComparableStoreName(product.storeName) === normalizeComparableStoreName(candidate.storeName);
+}
+
+function normalizeComparableStoreName(value?: string | null): string {
+  return value?.trim().toLocaleLowerCase().replace(/\s+/gu, " ") ?? "";
 }
 
 function ProjectOutlineNav({
@@ -4483,7 +5049,13 @@ function ProductViewToggle({ value, onChange }: { value: "cards" | "list"; onCha
   );
 }
 
-function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) {
+function ProductInfoTable({
+  products,
+  onRemoveProduct
+}: {
+  products: ProjectProductEvidence[];
+  onRemoveProduct?: (productId: string) => void;
+}) {
   if (products.length === 0) {
     return <EmptyState label="Product info table is empty. Capture Relevance and Top Sales pages first." />;
   }
@@ -4504,6 +5076,7 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
             <th className="px-3 py-2">Rating</th>
             <th className="px-3 py-2">Reviews</th>
             <th className="px-3 py-2">Total Sold</th>
+            {onRemoveProduct && <th className="w-12 px-3 py-2" aria-label="Actions" />}
           </tr>
         </thead>
         <tbody>
@@ -4516,11 +5089,35 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
               <td className="px-3 py-2">{product.productType ?? inferredProductTypeLabel(displayProductTitle(product))}</td>
               <td className="px-3 py-2">{product.monthlySoldText ?? formatOptionalNumber(product.monthlySold)}</td>
               <td className="px-3 py-2">{product.storeName ?? "-"}</td>
-              <td className="px-3 py-2">{storeTypeLabel(product)}</td>
+              <td className="px-3 py-2">
+                {product.storeBadgeImageUrl ? (
+                  <img
+                    className="h-5 w-auto max-w-[72px] object-contain"
+                    src={product.storeBadgeImageUrl}
+                    alt={storeTypeLabel(product)}
+                    loading="lazy"
+                  />
+                ) : (
+                  storeTypeLabel(product)
+                )}
+              </td>
               <td className="px-3 py-2">{formatCurrency(product.priceAverage)}</td>
               <td className="px-3 py-2">{productRatingText(product)}</td>
               <td className="px-3 py-2">{product.reviewText ?? formatOptionalNumber(product.reviewCount)}</td>
               <td className="px-3 py-2">{product.totalSoldText ?? formatOptionalNumber(product.totalSold)}</td>
+              {onRemoveProduct && (
+                <td className="px-3 py-2">
+                  <button
+                    className="secondary-button mio-round-icon-button h-8 w-8 px-0 text-signal-red"
+                    type="button"
+                    onClick={() => onRemoveProduct(product.id)}
+                    aria-label={`Remove ${displayProductTitle(product)}`}
+                    title="Remove product"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -4531,15 +5128,26 @@ function ProductInfoTable({ products }: { products: ProjectProductEvidence[] }) 
 
 function KeyProductTableReview({
   products,
+  availableProducts,
   totalProducts,
+  approved,
   onBackToBrowser,
-  onStartProductDetails
+  onRemoveProduct,
+  onAddProduct,
+  onApprove,
+  onNext
 }: {
   products: ProjectProductEvidence[];
+  availableProducts: ProjectProductEvidence[];
   totalProducts: number;
+  approved: boolean;
   onBackToBrowser: () => void;
-  onStartProductDetails: () => void;
+  onRemoveProduct: (productId: string) => void;
+  onAddProduct: (productId: string) => void;
+  onApprove: () => void;
+  onNext: () => void;
 }) {
+  const [productToAdd, setProductToAdd] = useState("");
   return (
     <Panel
       title="Key Product Table"
@@ -4552,18 +5160,56 @@ function KeyProductTableReview({
       }
     >
       <div className="mb-4 rounded-md border border-signal-blue/20 bg-signal-blue/10 p-4 text-sm leading-6 text-ink-300">
-        AI-assisted local scoring merged Relevance and Top Sales rows, removed duplicates, then prioritized Top Sales placement,
-        monthly sold, reviews, rating, price clarity, and usable thumbnails. Showing {products.length} selected product{products.length === 1 ? "" : "s"} from {totalProducts} extracted row{totalProducts === 1 ? "" : "s"}.
+        Product Qualified starts with Top Sales evidence, then uses Relevance evidence to enrich and rank commercially valid products.
+        GIMMICK, NOT FOR SALE, FREE GIFT, irrelevant, and duplicate rows are excluded. Review up to 20 products before approval.
+        Showing {products.length} selected product{products.length === 1 ? "" : "s"} from {totalProducts} extracted row{totalProducts === 1 ? "" : "s"}.
       </div>
-      <ProductInfoTable products={products} />
+      <div className="mb-4 flex flex-wrap items-end gap-2">
+        <label className="min-w-[280px] flex-1 text-xs font-medium text-ink-400">
+          Add another qualified product
+          <select
+            className="input mt-1"
+            value={productToAdd}
+            onChange={(event) => setProductToAdd(event.target.value)}
+            disabled={products.length >= 20 || availableProducts.length === 0}
+          >
+            <option value="">Select product</option>
+            {availableProducts.map((product) => (
+              <option key={product.id} value={product.id}>
+                {productSourcePlacement(product)} - {displayProductTitle(product)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="secondary-button h-10 w-auto px-4"
+          type="button"
+          disabled={!productToAdd || products.length >= 20}
+          onClick={() => {
+            onAddProduct(productToAdd);
+            setProductToAdd("");
+          }}
+        >
+          <Plus size={16} />
+          Add Product
+        </button>
+        <span className="pb-3 text-xs text-ink-500">{products.length}/20</span>
+      </div>
+      <ProductInfoTable products={products} onRemoveProduct={onRemoveProduct} />
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-5 text-ink-500">
           Store Name, Total Sold, review detail, slides, description, and shop homepage are enriched during Product Detail Qualified collection.
         </div>
-        <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartProductDetails} disabled={products.length === 0}>
-          <ClipboardCheck size={16} />
-          Start Collect Product Detail
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button className="secondary-button h-10 w-auto px-4" type="button" onClick={onApprove} disabled={products.length === 0 || approved}>
+            <CheckCircle2 size={16} />
+            {approved ? "Product Qualified Approved" : "Approve Product Qualified"}
+          </button>
+          <button className="primary-button h-10 w-auto px-4" type="button" onClick={onNext} disabled={!approved || products.length === 0}>
+            Next
+            <ChevronRight size={16} />
+          </button>
+        </div>
       </div>
     </Panel>
   );
@@ -4660,14 +5306,19 @@ function productAssetsForStep(detail: ProjectDetailPayload, product: ProjectProd
   return [...productAssets, ...sharedProductShopHomeAssets, ...legacyShopHomeAssets];
 }
 
-function reusableKeyStoreHomepageAsset(detail: ProjectDetailPayload): ProjectDetailPayload["assets"][number] | undefined {
-  const keyProducts = selectKeyProductCandidates(detail.products, detail.project.keyword);
-  const seed = selectKeyStoreSeedProduct(keyProducts);
-  if (!seed) {
+function reusableKeyStoreHomepageAsset(
+  detail: ProjectDetailPayload,
+  storeUrl?: string
+): ProjectDetailPayload["assets"][number] | undefined {
+  const canonicalTarget = canonicalStoreUrl(storeUrl);
+  if (!canonicalTarget) {
     return undefined;
   }
-  return productAssetsForStep(detail, seed)
-    .filter((asset) => asset.kind === "STORE_HOME")
+  return detail.assets
+    .filter((asset) =>
+      asset.kind === "STORE_HOME" &&
+      Boolean(asset.sourceUrl && sameStoreIntent(asset.sourceUrl, canonicalTarget))
+    )
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
 }
 
@@ -5877,7 +6528,13 @@ function defaultCollectionState(): CollectionState {
     progressPercent: 0,
     completedStepIds: [],
     stepAssetPaths: {},
-    stageCompleted: {}
+    stageCompleted: {},
+    searchFilters: {
+      shopTypes: []
+    },
+    qualifiedProductIds: [],
+    qualifiedProductsApproved: false,
+    storeCollectionCandidates: []
   };
 }
 
@@ -6014,10 +6671,12 @@ function buildCollectionSteps(
   project: ProjectSummary,
   platform: ResearchPlatform,
   currentUrl: string,
-  detail?: ProjectDetailPayload
+  viewMode: PlatformViewMode,
+  detail?: ProjectDetailPayload,
+  storeCollectionCandidates: StoreCollectionCandidate[] = []
 ): CollectionStep[] {
   return platform === "SHOPEE_ID"
-    ? buildShopeeSteps(project, currentUrl, detail?.products ?? [])
+    ? buildShopeeSteps(project, currentUrl, viewMode, detail, storeCollectionCandidates)
     : buildTikTokSteps(project, currentUrl);
 }
 
@@ -6076,23 +6735,27 @@ function buildAndroidTikTokSteps(project: ProjectSummary, status: AndroidToolSta
 function buildShopeeSteps(
   project: ProjectSummary,
   currentUrl: string,
-  products: ProjectProductEvidence[]
+  viewMode: PlatformViewMode,
+  detail?: ProjectDetailPayload,
+  storeCollectionCandidates: StoreCollectionCandidate[] = []
 ): CollectionStep[] {
-  const keyword = encodeURIComponent(project.keyword);
-  const relevanceUrl = `https://shopee.co.id/search?keyword=${keyword}&page=0&sortBy=relevancy`;
-  const salesUrl = `https://shopee.co.id/search?keyword=${keyword}&page=0&sortBy=sales`;
+  const products = detail?.products ?? [];
+  const collectionState = projectCollectionState(project);
+  const searchFilters = collectionState.searchFilters;
+  const relevanceUrl = buildShopeeSearchUrl(project.keyword, "relevancy", searchFilters);
+  const salesUrl = buildShopeeSearchUrl(project.keyword, "sales", searchFilters);
   const productReady = isShopeeProductPage(currentUrl);
   const storeReady = isShopeeStorePage(currentUrl);
   const hasRelevanceProducts = products.some((product) => product.source === "Relevance");
   const hasTopSalesProducts = products.some((product) => product.source === "Top Sales");
-  const keyProducts = selectKeyProductCandidates(products, project.keyword);
-  const keyStoreSeed = selectKeyStoreSeedProduct(keyProducts);
-  const keyStoreUrl = keyStoreSeed?.storeUrl ?? undefined;
-  const keyStoreBrandName = keyStoreSeed?.storeName ?? storeNameFromUrl(keyStoreUrl) ?? project.keyword;
-  const currentStoreUrl = storeReady ? currentUrl : keyStoreUrl;
-  const popularStoreTarget = currentStoreUrl ? withStoreSort(currentStoreUrl, "pop") : undefined;
-  const bestSellerTarget = currentStoreUrl ? withStoreSort(currentStoreUrl, "sales") : undefined;
-  const tiktokBrandSearchTarget = `https://www.tiktok.com/search?q=${encodeURIComponent(keyStoreBrandName)}`;
+  const rankedKeyProducts = selectKeyProductCandidates(products, project.keyword, 20);
+  const rankedKeyProductsById = new Map(rankedKeyProducts.map((product) => [product.id, product]));
+  const keyProducts = collectionState.qualifiedProductIds?.length
+    ? collectionState.qualifiedProductIds
+        .map((productId) => rankedKeyProductsById.get(productId) ?? products.find((product) => product.id === productId))
+        .filter((product): product is ProjectProductEvidence => Boolean(product))
+    : rankedKeyProducts.slice(0, 10);
+  const candidateStores = buildStoreCollectionCandidates(keyProducts, storeCollectionCandidates);
 
   const discoverySteps: CollectionStep[] = [
     {
@@ -6130,7 +6793,7 @@ function buildShopeeSteps(
   ];
 
   const productSteps = keyProducts.map((product): CollectionStep => {
-    const productUrl = product.productUrl;
+    const productUrl = withShopeeProductDisplayModel(product.productUrl, viewMode);
     const productCurrent = productReady && sameProductIntent(currentUrl, productUrl);
     const productTitle = displayProductTitle(product);
     return {
@@ -6228,95 +6891,171 @@ function buildShopeeSteps(
     }
   ];
 
+  const evaluationStep: CollectionStep = {
+    id: "evaluation-phase-scoring",
+    stage: "EVALUATION_KEY_STORE",
+    section: "Evaluation Phase",
+    label: "Prepare Potential Stores",
+    kind: "STORE_HOME",
+    mode: "PROCESS",
+    instruction: "Review the distinct stores declared by qualified products, add any manual store, and choose optional evidence before starting collection.",
+    subActions: [
+      {
+        id: "potential-stores",
+        label: "Potential Store cards",
+        mode: "sync",
+        description: "Deduplicate qualified products by store and show one card per store."
+      },
+      {
+        id: "ai-scoring",
+        label: "AI Scoring",
+        mode: "sync",
+        description: "Run scoring after store details, ratings, categories, products, and visual evidence are collected."
+      },
+      {
+        id: "store-collection",
+        label: "Store collection",
+        mode: "background",
+        description: "Collect evidence for every listed store instead of locking collection to one winner."
+      }
+    ],
+    ready: candidateStores.length > 0
+  };
   const storeSteps: CollectionStep[] = [
-    {
-      id: "evaluation-phase-scoring",
-      stage: "EVALUATION_KEY_STORE",
-      section: "Evaluation Phase",
-      label: "AI score Potential Stores",
-      kind: "STORE_HOME",
-      mode: "PROCESS",
-      instruction: "Score Potential Stores by estimated GMV/month, sold/month, and active promotion signals. The highest ranked store becomes the Key Store.",
-      subActions: [
-        {
-          id: "potential-stores",
-          label: "Potential Store cards",
-          mode: "sync",
-          description: "Deduplicate qualified products by store and show one card per store."
-        },
-        {
-          id: "ai-scoring",
-          label: "AI Scoring",
-          mode: "sync",
-          description: "Use GMV/month, sold/month, shop vouchers, bundle deals, and evidence readiness."
-        },
-        {
-          id: "key-store-selection",
-          label: "Key Store selection",
-          mode: "background",
-          description: "Promote the highest scoring Potential Store into the Key Store section."
-        }
-      ],
-      ready: keyProducts.some((product) => product.storeName || product.storeUrl)
-    },
-    {
-      id: "store-homepage",
-      stage: "EVALUATION_KEY_STORE",
-      section: "Key Store",
-      label: "Store homepage",
-      kind: "STORE_HOME",
-      targetSelector: ".shop-decoration",
-      captureStrategy: "top-through-selector",
-      instruction: "Open the inspected product store page and capture only the shop-decoration homepage area.",
-      targetUrl: keyStoreUrl,
-      ready: Boolean(storeReady && (!keyStoreUrl || sameUrlIntent(currentUrl, keyStoreUrl)))
-    },
-    {
-      id: "store-products",
-      stage: "EVALUATION_KEY_STORE",
-      section: "Key Store",
-      label: "Store popular products",
-      kind: "STORE_FEATURED_PRODUCTS",
-      targetSelector: ".shop-page__all-products-section",
-      instruction: "Open the store product tab sorted by Popular, then collect the full first-page product rows from shop-page__all-products-section. No screenshot is required.",
-      targetUrl: popularStoreTarget,
-      ready: storeReady && currentUrl.includes("sortBy=pop")
-    },
-    {
-      id: "store-best-seller",
-      stage: "EVALUATION_KEY_STORE",
-      section: "Key Store",
-      label: "Store best-seller page",
-      kind: "STORE_BEST_SELLER",
-      targetSelector: ".shop-page__all-products-section",
-      instruction: "Open the store product tab sorted by Top Sales, then collect the full first-page product rows from shop-page__all-products-section. No screenshot is required.",
-      targetUrl: bestSellerTarget,
-      ready: storeReady && currentUrl.includes("sortBy=sales")
-    },
-    {
-      id: "store-visual-style",
-      stage: "EVALUATION_KEY_STORE",
-      section: "Key Store",
-      label: "Visual Shop Banner",
-      kind: "STORE_BANNER",
-      targetSelector: ".shop-decoration",
-      instruction: "Download readable banner and carousel images from shop-decoration. Product-card images are ignored and no screenshot is required.",
-      targetUrl: keyStoreUrl,
-      ready: Boolean(storeReady && (!keyStoreUrl || sameUrlIntent(currentUrl, keyStoreUrl)))
-    },
-    {
-      id: "tiktok-brand-search",
-      stage: "EVALUATION_KEY_STORE",
-      section: "Cross Platform Evidence",
-      label: "TikTok brand/store search",
-      kind: "SOCIAL_ACCOUNT",
-      instruction: `Open TikTok search for ${keyStoreBrandName}, then capture or attach the cross-platform evidence.`,
-      targetUrl: tiktokBrandSearchTarget,
-      ready: sameUrlIntent(currentUrl, tiktokBrandSearchTarget) || isTikTokPage(currentUrl)
-    }
+    evaluationStep,
+    ...candidateStores.flatMap((candidate) => buildShopeeStoreCollectionSteps(candidate, currentUrl, storeReady))
   ];
 
   return [...discoverySteps, ...genericProductSteps, ...productSteps, ...storeSteps];
+}
+
+function buildShopeeStoreCollectionSteps(
+  candidate: StoreCollectionCandidate,
+  currentUrl: string,
+  storeReady: boolean
+): CollectionStep[] {
+  const homepageUrl = storeHomepageUrl(candidate);
+  const commonMetadata = {
+    storeCandidateId: candidate.id,
+    storeName: candidate.storeName,
+    shopId: candidate.shopId,
+    canonicalStoreUrl: homepageUrl
+  };
+  const step = (
+    suffix: string,
+    label: string,
+    kind: ManualEvidenceKind,
+    targetUrl: string,
+    storeEvidenceType: string,
+    instruction: string,
+    options: Partial<CollectionStep> = {}
+  ): CollectionStep => ({
+    id: `${candidate.id}-${suffix}`,
+    stage: "EVALUATION_KEY_STORE",
+    section: candidate.storeName,
+    label,
+    kind,
+    ownerType: "STORE",
+    ownerId: candidate.id,
+    targetUrl,
+    instruction,
+    ready: storeReady && sameUrlIntent(currentUrl, targetUrl),
+    ...options,
+    metadata: {
+      ...commonMetadata,
+      storeEvidenceType,
+      ...(options.metadata ?? {})
+    }
+  });
+  const steps: CollectionStep[] = [
+    step(
+      "homepage",
+      `${candidate.storeName}: Store Home Page`,
+      "STORE_HOME",
+      homepageUrl,
+      "homepage",
+      "Capture the store homepage as evidence for this store.",
+      { captureMode: "full-page", captureStrategy: "top-through-selector", targetSelector: ".shop-decoration" }
+    ),
+    step(
+      "details",
+      `${candidate.storeName}: Store Data`,
+      "STORE_HOME",
+      storeDetailsUrl(candidate),
+      "details",
+      "Collect followers, following, rating, chat response, product count, joined date, and description from Shop Details.",
+      { metadata: { dataOnly: true } }
+    ),
+    step(
+      "rating-negative",
+      `${candidate.storeName}: 1-star Store Ratings`,
+      "REVIEW_SECTION",
+      storeRatingsUrl(candidate, 1),
+      "rating-1",
+      "Collect up to five 1-star store ratings that include both review text and customer image or video proof.",
+      { metadata: { dataOnly: true, requestedRating: 1 } }
+    ),
+    step(
+      "rating-positive",
+      `${candidate.storeName}: 5-star Store Ratings`,
+      "REVIEW_SECTION",
+      storeRatingsUrl(candidate, 5),
+      "rating-5",
+      "Collect up to five 5-star store ratings that include both review text and customer image or video proof.",
+      { metadata: { dataOnly: true, requestedRating: 5 } }
+    ),
+    step(
+      "categories",
+      `${candidate.storeName}: Store Categories`,
+      "STORE_HOME",
+      storeCategoriesUrl(candidate),
+      "categories",
+      "Collect the visible store category names and product counts.",
+      { metadata: { dataOnly: true } }
+    )
+  ];
+  if (candidate.includePopularProducts) {
+    steps.push(step(
+      "popular",
+      `${candidate.storeName}: Popular Products`,
+      "STORE_FEATURED_PRODUCTS",
+      storeProductsUrl(candidate, "pop"),
+      "popular-products",
+      "Collect the full first page of store products sorted by Popular.",
+      { targetSelector: ".shop-page__all-products-section", metadata: { dataOnly: true } }
+    ));
+  }
+  steps.push(step(
+    "best-seller",
+    `${candidate.storeName}: Best Sellers`,
+    "STORE_BEST_SELLER",
+    storeProductsUrl(candidate, "sales"),
+    "best-sellers",
+    "Collect the full first page of store products sorted by Top Sales.",
+    { targetSelector: ".shop-page__all-products-section", metadata: { dataOnly: true } }
+  ));
+  if (candidate.includeShopBanner) {
+    steps.push(step(
+      "banner",
+      `${candidate.storeName}: Visual Shop Banner`,
+      "STORE_BANNER",
+      homepageUrl,
+      "banner",
+      "Download banner and carousel images from shop-decoration while excluding product-card images.",
+      { targetSelector: ".shop-decoration", metadata: { dataOnly: true } }
+    ));
+  }
+  const tiktokTarget = `https://www.tiktok.com/search?q=${encodeURIComponent(candidate.storeName)}`;
+  steps.push(step(
+    "tiktok",
+    `${candidate.storeName}: TikTok Evidence`,
+    "SOCIAL_ACCOUNT",
+    tiktokTarget,
+    "tiktok",
+    `Open TikTok search for ${candidate.storeName}, then capture or attach cross-platform evidence.`,
+    { ready: sameUrlIntent(currentUrl, tiktokTarget) || isTikTokPage(currentUrl) }
+  ));
+  return steps;
 }
 
 function buildTikTokSteps(project: ProjectSummary, currentUrl: string): CollectionStep[] {
@@ -6364,11 +7103,15 @@ function buildTikTokSteps(project: ProjectSummary, currentUrl: string): Collecti
   ];
 }
 
-function initialPlatformUrl(platform: ResearchPlatform, keyword: string): string {
+function initialPlatformUrl(
+  platform: ResearchPlatform,
+  keyword: string,
+  searchFilters?: ShopeeSearchFilters
+): string {
   if (platform === "TIKTOK_SHOP") {
     return TIKTOK_SHOP_URL;
   }
-  return `https://shopee.co.id/search?keyword=${encodeURIComponent(keyword)}&page=0&sortBy=relevancy`;
+  return buildShopeeSearchUrl(keyword, "relevancy", searchFilters);
 }
 
 function isShopeeSearchPage(value: string): boolean {
@@ -6418,7 +7161,8 @@ function sameUrlIntent(current: string, target: string): boolean {
       currentUrl.hostname === targetUrl.hostname &&
       currentUrl.pathname === targetUrl.pathname &&
       currentUrl.searchParams.get("keyword") === targetUrl.searchParams.get("keyword") &&
-      currentUrl.searchParams.get("sortBy") === targetUrl.searchParams.get("sortBy")
+      currentUrl.searchParams.get("sortBy") === targetUrl.searchParams.get("sortBy") &&
+      currentUrl.searchParams.get("fe_filter_options") === targetUrl.searchParams.get("fe_filter_options")
     );
   } catch {
     return false;
@@ -6472,33 +7216,11 @@ function shopeeProductIdentity(value: string): string | undefined {
   return match ? `${match[1]}:${match[2]}` : undefined;
 }
 
-function withStoreSort(value: string, sortBy: "pop" | "sales"): string {
-  try {
-    const url = new URL(value);
-    url.searchParams.set("page", "0");
-    url.searchParams.set("sortBy", sortBy);
-    url.searchParams.set("tab", "0");
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
-
-function storeNameFromUrl(value?: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-  try {
-    const url = new URL(value);
-    const slug = decodeURIComponent(url.pathname.split("/").filter(Boolean)[0] ?? "");
-    const name = slug.replace(/[-_]+/gu, " ").replace(/\.id$/iu, "").trim();
-    return name || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function selectKeyProductCandidates(products: ProjectProductEvidence[], keyword = ""): ProjectProductEvidence[] {
+function selectKeyProductCandidates(
+  products: ProjectProductEvidence[],
+  keyword = "",
+  limit = 10
+): ProjectProductEvidence[] {
   const merged = new Map<string, ProjectProductEvidence>();
   for (const rawProduct of products.filter(isQualifiedProductSource)) {
     const product = normalizeProductSelectionSignals(rawProduct);
@@ -6517,6 +7239,10 @@ function selectKeyProductCandidates(products: ProjectProductEvidence[], keyword 
   return candidates
     .filter((product) => selectionDiagnostics(product, candidates, keyword).classification !== "Not Recommended")
     .sort((left, right) => {
+      const sourceDelta = Number(hasTopSalesPlacement(right)) - Number(hasTopSalesPlacement(left));
+      if (sourceDelta !== 0) {
+        return sourceDelta;
+      }
       const rightDiagnostics = selectionDiagnostics(right, candidates, keyword);
       const leftDiagnostics = selectionDiagnostics(left, candidates, keyword);
       const tierDelta = selectionTier(rightDiagnostics.classification) - selectionTier(leftDiagnostics.classification);
@@ -6532,7 +7258,7 @@ function selectKeyProductCandidates(products: ProjectProductEvidence[], keyword 
         (right.rating ?? 0) - (left.rating ?? 0) ||
         (right.reviewCount ?? 0) - (left.reviewCount ?? 0);
     })
-    .slice(0, 10)
+    .slice(0, limit)
     .map((product) => ({
       ...product,
       selectionReason: selectionReasonForDisplay(product, candidates, keyword)
@@ -6540,11 +7266,15 @@ function selectKeyProductCandidates(products: ProjectProductEvidence[], keyword 
 }
 
 function isExcludedCommerceProductTitle(title: string): boolean {
-  return /\b(?:NOT\s+FOR\s+SALE|FREE\s+GIFT)\b/iu.test(title);
+  return /\b(?:GIMMICK|NOT\s+FOR\s+SALE|FREE\s+GIFT)\b/iu.test(title);
+}
+
+function hasTopSalesPlacement(product: ProjectProductEvidence): boolean {
+  return product.source === "Top Sales" || /\b(?:top\s+)?\d+\s+in\s+sales\b/iu.test(productSourcePlacement(product));
 }
 
 function isQualifiedProductSource(product: ProjectProductEvidence): boolean {
-  return product.source !== "Store Products" && product.source !== "Store Best Sellers";
+  return !product.source?.startsWith("Store Products") && !product.source?.startsWith("Store Best Sellers");
 }
 
 function normalizeProductSelectionSignals(product: ProjectProductEvidence): ProjectProductEvidence {
@@ -6597,6 +7327,7 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
     rating: mergeRatingValue(base, preferred),
     storeName: preferred.storeName ?? base.storeName,
     storeUrl: preferred.storeUrl ?? base.storeUrl,
+    storeBadgeImageUrl: preferred.storeBadgeImageUrl ?? base.storeBadgeImageUrl,
     imageUrl: preferred.imageUrl ?? base.imageUrl,
     images: preferred.images.length > 0 ? preferred.images : base.images,
     videos: preferred.videos.length > 0 ? preferred.videos : base.videos,
@@ -6620,9 +7351,9 @@ function mergeStoreType(base: ProjectProductEvidence | undefined, preferred: Pro
     return officialType;
   }
   const values = [preferred.storeType, base?.storeType].filter((value): value is string => Boolean(value));
-  return values.find((value) => value === "Star+") ??
+  return values.find((value) => value === "Mall ORI") ??
+    values.find((value) => value === "Star+") ??
     values.find((value) => value === "Star") ??
-    values.find((value) => value === "Mall ORI") ??
     values[0];
 }
 
@@ -7133,7 +7864,7 @@ function productSoldMetricLabel(product: ProjectProductEvidence): string {
 }
 
 function isMonthlySoldProductSource(source?: string | null): boolean {
-  return source === "Top Sales" || source === "Store Best Sellers";
+  return source === "Top Sales" || Boolean(source?.startsWith("Store Best Sellers"));
 }
 
 type StoreEvaluationCandidate = {
@@ -7216,31 +7947,8 @@ function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluatio
     }));
 }
 
-function selectKeyStoreSeedProduct(products: ProjectProductEvidence[]): ProjectProductEvidence | undefined {
-  return [...products]
-    .filter((product) => product.storeName || product.storeUrl)
-    .sort((left, right) => {
-      const leftGmv = (left.priceAverage ?? 0) * (left.monthlySold ?? left.totalSold ?? 0);
-      const rightGmv = (right.priceAverage ?? 0) * (right.monthlySold ?? right.totalSold ?? 0);
-      return rightGmv - leftGmv || productQualityScore(right) - productQualityScore(left);
-    })[0];
-}
-
 function normalizeStoreKey(product: ProjectProductEvidence): string {
   return (canonicalStoreUrl(product.storeUrl) ?? product.storeName ?? product.title).toLowerCase().replace(/\s+/g, "-");
-}
-
-function productMatchesStoreCandidate(product: ProjectProductEvidence, candidate: StoreEvaluationCandidate): boolean {
-  if (!product.storeName && !product.storeUrl) {
-    return true;
-  }
-  if (normalizeStoreKey(product) === candidate.key) {
-    return true;
-  }
-  if (product.storeUrl && candidate.url && sameStoreIntent(product.storeUrl, candidate.url)) {
-    return true;
-  }
-  return Boolean(product.storeName && product.storeName.toLowerCase() === candidate.name.toLowerCase());
 }
 
 function keyStoreOverallConclusions(candidate: StoreEvaluationCandidate, resultJson?: string): string[] {
@@ -7351,12 +8059,13 @@ function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): str
 async function extractRenderedPageSnapshot(
   webview: WebviewElement,
   productScopeSelector?: string,
-  options: { includeHtml?: boolean } = {}
+  options: { includeHtml?: boolean; requestedStoreRating?: number } = {}
 ): Promise<{
   html: string;
   visibleText: string;
   products: ExtractedPageProduct[];
   productDetail: RenderedProductDetailSnapshot;
+  storeProfile: RenderedStoreProfileSnapshot;
   storeDecorationImages: string[];
 }> {
   if (!webview.executeJavaScript) {
@@ -7379,6 +8088,11 @@ async function extractRenderedPageSnapshot(
         reviewMediaImages: [],
         reviewMediaVideos: []
       },
+      storeProfile: {
+        categories: [],
+        ratingSamples: [],
+        bannerUrls: []
+      },
       storeDecorationImages: []
     };
   }
@@ -7387,9 +8101,13 @@ async function extractRenderedPageSnapshot(
     visibleText: string;
     products: ExtractedPageProduct[];
     productDetail: RenderedProductDetailSnapshot;
+    storeProfile: RenderedStoreProfileSnapshot;
     storeDecorationImages: string[];
   }>(`
     (async () => {
+      const requestedStoreRating = ${Number.isFinite(options.requestedStoreRating)
+        ? Math.max(1, Math.min(5, Number(options.requestedStoreRating)))
+        : "undefined"};
       const parseHumanNumber = (value) => {
         if (!value) return undefined;
         const normalized = String(value).toLowerCase().replace(/\\+/g, "").replace(/,/g, ".").trim();
@@ -7532,9 +8250,9 @@ async function extractRenderedPageSnapshot(
       const inferStoreType = (text, imageUrl, outerHtml) => {
         const value = compact([text, imageUrl, outerHtml].filter(Boolean).join(" ")).toLowerCase();
         if (/star\\s*\\+|starplus|star-plus/u.test(value)) return "Star+";
-        if (/(^|[^a-z])star([^a-z]|$)/u.test(value)) return "Star";
         if (/mall\\s*ori|mallori|mall-ori/u.test(value)) return "Mall ORI";
         if (/shopee\\s*mall|mall/u.test(value)) return "Mall ORI";
+        if (/(^|[^a-z])star([^a-z]|$)/u.test(value)) return "Star";
         return undefined;
       };
       const classifyBadgeImageByPixels = async (imageElement) => {
@@ -7567,8 +8285,9 @@ async function extractRenderedPageSnapshot(
           const denominator = Math.max(bright, 1);
           const ratio = width / Math.max(height, 1);
           if (red / denominator > 0.12) {
+            if (ratio > 2.45) return "Mall ORI";
             if (orange / denominator > 0.04 || width <= 46) return "Star";
-            return ratio > 3.05 ? "Mall ORI" : "Star";
+            return "Star";
           }
           if (orange / denominator > 0.10) {
             return width / height > 2.15 ? "Star+" : "Star";
@@ -8310,6 +9029,123 @@ async function extractRenderedPageSnapshot(
             })
           ])
         : [];
+      const storePageRoot = document.querySelector(
+        ".shop-page, .shop-detail, [class*='shop-detail'], [class*='shop-page'], [class*='shop-info']"
+      ) || document.body;
+      const storePageText = blockTextFromHtml(storePageRoot);
+      const storePageLines = storePageText
+        .split("\\n")
+        .map(compact)
+        .filter(Boolean);
+      const firstCountNearLabel = (labels) => {
+        for (const line of storePageLines) {
+          if (!labels.some((label) => label.test(line))) continue;
+          const match = line.match(/([\\d.,]+)\\s*(rb|ribu|k|jt|juta|m)?/iu);
+          if (match) return parseHumanNumber(\`\${match[1]}\${match[2] || ""}\`);
+        }
+        return undefined;
+      };
+      const firstTextNearLabel = (labels) => {
+        for (const line of storePageLines) {
+          if (!labels.some((label) => label.test(line))) continue;
+          const value = compact(line.replace(/^[^:]{0,40}:\\s*/u, ""));
+          if (value) return value;
+        }
+        return undefined;
+      };
+      const currentUrl = new URL(location.href);
+      const marketplaceStoreId = currentUrl.searchParams.get("shopid") ||
+        currentUrl.pathname.match(/\\/(?:shop|buyer)\\/(\\d+)/iu)?.[1] ||
+        Array.from(document.querySelectorAll('a[href*="shopid="], a[href*="/shop/"], a[href*="/buyer/"]'))
+          .map((anchor) => {
+            try {
+              const target = new URL(anchor.href, location.href);
+              return target.searchParams.get("shopid") || target.pathname.match(/\\/(?:shop|buyer)\\/(\\d+)/iu)?.[1];
+            } catch {
+              return undefined;
+            }
+          })
+          .find(Boolean);
+      const profileNameCandidates = [
+        textFrom(document.querySelector("[class*='shop-name'], [class*='ShopName']")),
+        textFrom(document.querySelector(".shop-detail h1, .shop-page h1, [class*='shop-info'] h1")),
+        document.querySelector("meta[property='og:title']")?.getAttribute("content"),
+        document.title?.replace(/\\s*[|\\-]\\s*Shopee.*$/iu, "")
+      ].filter(Boolean);
+      const profileName = unique(profileNameCandidates)
+        .map(cleanStoreNameCandidate)
+        .find(isGoodStoreName) || storeName;
+      const profileRatingText = firstTextNearLabel([/^rating\\b/iu, /^penilaian\\b/iu, /shop rating/iu]);
+      const profileRatingMatch = profileRatingText?.match(/([1-5](?:[.,]\\d+)?)\\s*(?:out of 5|dari 5)?/iu);
+      const profileRatingCountMatch = profileRatingText?.match(/\\(([\\d.,]+)\\s*(rb|ribu|k|jt|juta|m)?\\s*(?:ratings?|penilaian)?\\)/iu);
+      const profileDescriptionIndex = storePageLines.findIndex((line) => /^(description|deskripsi)\\b/iu.test(line));
+      const profileDescription = profileDescriptionIndex >= 0
+        ? storePageLines
+            .slice(profileDescriptionIndex, profileDescriptionIndex + 8)
+            .map((line, index) => index === 0 ? line.replace(/^(description|deskripsi)\\s*:?\\s*/iu, "") : line)
+            .filter((line) => line && !/^(shop link|tautan toko|verified accounts?|akun terverifikasi|view all products?|lihat semua produk)/iu.test(line))
+            .join("\\n")
+            .slice(0, 2400)
+        : undefined;
+      const categoryCandidates = Array.from(document.querySelectorAll(
+        "a[href*='tab=category'], [class*='category'] a, [class*='category'] [role='button'], [class*='category'] li"
+      ))
+        .map((element) => textFrom(element))
+        .filter((value) => value.length >= 2 && value.length <= 120)
+        .filter((value) => !/^(category|categories|kategori|products?|produk|shop|toko|home|beranda)$/iu.test(value))
+        .filter((value) => /\\(\\s*\\d+\\s*\\)/u.test(value) || currentUrl.searchParams.get("tab") === "category");
+      const storeRatingRowCandidates = Array.from(document.querySelectorAll(
+        ".shopee-product-rating, [class*='shop-rating'], [class*='product-rating'], [class*='rating-item'], [class*='review-item']"
+      ));
+      const storeRatingSamples = storeRatingRowCandidates
+        .map((row) => {
+          const rowText = blockTextFromHtml(row);
+          const rowLines = rowText.split("\\n").map(compact).filter(Boolean);
+          const mediaElements = Array.from(row.querySelectorAll("video, picture, img[src], img[srcset], source[srcset]"));
+          const mediaUrls = unique(mediaElements
+            .filter((element) => !element.closest("[class*='avatar'], [class*='profile'], [class*='user-avatar']"))
+            .map((element) => element.tagName === "VIDEO"
+              ? absoluteUrl(element.currentSrc || element.src || element.getAttribute("src") || "")
+              : imageUrlFrom(element))
+            .filter((value) => value && !/(avatar|profile|default[-_]?avatar|sprite|icon)/iu.test(value)));
+          const detectedRating = requestedStoreRating ||
+            Math.min(5, Math.max(1, row.querySelectorAll("[class*='star'][class*='active'], svg[class*='star']").length || 0));
+          const reviewer = rowLines.find((line) =>
+            line.length >= 2 &&
+            line.length <= 80 &&
+            !/^\\d|^(variation|variasi|quality|kualitas|effect|efek|performance|performa|texture|tekstur)/iu.test(line)
+          ) || "Shopee buyer";
+          const capturedAt = rowText.match(/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u)?.[0];
+          const comment = cleanReviewComment(rowText);
+          return {
+            rating: detectedRating || requestedStoreRating || 5,
+            reviewer,
+            comment,
+            mediaUrls,
+            capturedAt
+          };
+        })
+        .filter((sample) => sample.mediaUrls.length > 0 && sample.comment.length >= 20)
+        .filter((sample) => !requestedStoreRating || sample.rating === requestedStoreRating)
+        .slice(0, 5);
+      const storeProfile = {
+        name: profileName,
+        url: location.href,
+        marketplaceStoreId: marketplaceStoreId || undefined,
+        followers: firstCountNearLabel([/followers?/iu, /pengikut/iu]),
+        following: firstCountNearLabel([/following/iu, /mengikuti/iu]),
+        productsCount: firstCountNearLabel([/^products?\\b/iu, /^produk\\b/iu]),
+        rating: profileRatingMatch ? Number(profileRatingMatch[1].replace(",", ".")) : undefined,
+        ratingCount: profileRatingCountMatch
+          ? parseHumanNumber(\`\${profileRatingCountMatch[1]}\${profileRatingCountMatch[2] || ""}\`)
+          : undefined,
+        chatResponse: firstTextNearLabel([/chat (?:performance|response)/iu, /performa chat/iu, /respon chat/iu]),
+        joinedDate: firstTextNearLabel([/^joined\\b/iu, /^bergabung\\b/iu]),
+        description: profileDescription || undefined,
+        categories: unique(categoryCandidates).slice(0, 60),
+        ratingSamples: storeRatingSamples,
+        bannerUrls: storeDecorationImages.slice(0, 40)
+      };
       const capturedProductCards = capturedProductCardHtml.length > 0
         ? \`<section data-mio-captured-product-cards="true">\${capturedProductCardHtml.join("")}</section>\`
         : "";
@@ -8320,7 +9156,14 @@ async function extractRenderedPageSnapshot(
       const visibleText = [document.title || "", location.href, compact(visibleTextSource).slice(0, 24000)]
         .filter(Boolean)
         .join("\\n");
-      return { html, visibleText, products, productDetail, storeDecorationImages: storeDecorationImages.slice(0, 40) };
+      return {
+        html,
+        visibleText,
+        products,
+        productDetail,
+        storeProfile,
+        storeDecorationImages: storeDecorationImages.slice(0, 40)
+      };
     })();
   `);
   const timeout = new Promise<never>((_resolve, reject) => {

@@ -285,6 +285,7 @@ export class ShopeeAdapter implements MarketplaceAdapter {
         featuredProducts: products.slice(0, 12),
         bestSellers: products.slice(0, 12),
         visualTheme: inferVisualTheme(raw.text, raw.images),
+        ratingSamples: [],
         raw: {
           textSample: raw.text.slice(0, 5000),
           imageCount: raw.images.length,

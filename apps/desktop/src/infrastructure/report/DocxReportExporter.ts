@@ -261,31 +261,65 @@ async function keyStoreSection(data: ReportData, sections: Set<ReportSectionConf
   const showProducts = legacy || sections.has("keyStoreProducts");
   const showBestSellers = legacy || sections.has("keyStoreBestSellers");
   const showVisualStyle = legacy || sections.has("keyStoreVisualStyle");
-  const store = selectReportKeyStore(data);
-  if (!store) {
-    return [sectionHeading("Key Store"), paragraph("No Key Store evidence has been selected yet.", { color: MUTED })];
+  if (data.stores.length === 0) {
+    return [sectionHeading("Key Store"), paragraph("No collected store evidence is available yet.", { color: MUTED })];
   }
-  const assets = storeAssetsForReport(data, store);
-  const children: DocxChild[] = [
-    sectionHeading("Key Store"),
-    subHeading(store.name),
-    linkParagraph(store.url, store.url),
-    tinyHeading("Overall"),
-    paragraph(storeOverall(store, data), { preserveLines: true })
-  ];
-  if (showHome) {
-    children.push(tinyHeading("Store Home Page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_HOME"), "Store home page", { captions: false, layout: "portraitEvidence" }));
-  }
-  if (showProducts) {
-    children.push(tinyHeading("Popular Products"), await snapshotProductTable(data.products.filter((product) => product.source === "Store Products")));
-  }
-  if (showBestSellers) {
-    children.push(tinyHeading("Best Sellers"), await snapshotProductTable(data.products.filter((product) => product.source === "Store Best Sellers")));
-  }
-  if (showVisualStyle) {
-    children.push(tinyHeading("Visual Shop Banner"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_BANNER"), "Store banner", { captions: false }));
+  const children: DocxChild[] = [sectionHeading("Key Store")];
+  for (const store of data.stores) {
+    const raw = reportStoreRaw(store);
+    const assets = storeAssetsForReport(data, store);
+    const categories = safeJson<string[]>(store.categoriesJson, []);
+    const ratingSamples = reportStoreRatingSamples(store);
+    children.push(
+      subHeading(store.name),
+      linkParagraph("Open Store", store.url),
+      tinyHeading("Overall"),
+      paragraph(storeOverall(store, data), { preserveLines: true }),
+      tinyHeading("Store Data"),
+      simpleTable([
+        ["Followers", formatNumber(store.followers)],
+        ["Following", formatNumber(store.following)],
+        ["Products", formatNumber(store.productsCount)],
+        ["Rating", store.rating != null ? store.rating.toFixed(1) : "-"],
+        ["Rating count", formatNumber(store.ratingCount)],
+        ["Chat response", store.chatResponse ?? "-"],
+        ["Joined", store.joinedDate ?? "-"],
+        ["Description", raw.description ?? "No store description captured."]
+      ], [28, 72]),
+      tinyHeading("Store Ratings"),
+      storeRatingTable(ratingSamples),
+      tinyHeading("Store Categories"),
+      paragraph(categories.length > 0 ? categories.join("\n") : "No store categories captured.", { preserveLines: true })
+    );
+    if (showHome) {
+      children.push(tinyHeading("Store Home Page"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_HOME"), "Store home page", { captions: false, layout: "portraitEvidence" }));
+    }
+    if (showProducts) {
+      children.push(tinyHeading("Popular Products"), await snapshotProductTable(reportStoreProducts(data, store, "Store Products")));
+    }
+    if (showBestSellers) {
+      children.push(tinyHeading("Best Sellers"), await snapshotProductTable(reportStoreProducts(data, store, "Store Best Sellers")));
+    }
+    if (showVisualStyle) {
+      children.push(tinyHeading("Visual Shop Banner"), ...await assetImageBlocks(assets.filter((asset) => asset.kind === "STORE_BANNER"), "Store banner", { captions: false }));
+    }
+    children.push(spacer());
   }
   return children;
+}
+
+function storeRatingTable(samples: StoreRatingSample[]): Table {
+  const rows = samples.map((sample) => [
+    `${sample.rating} Star`,
+    sample.reviewer,
+    sample.comment,
+    sample.capturedAt ?? "-",
+    sample.mediaUrls.length > 0 ? sample.mediaUrls.join("\n") : "-"
+  ]);
+  return tableWithHeader(
+    ["Rating", "Buyer", "Comment", "Captured", "Proof media"],
+    rows.length > 0 ? rows : [["-", "-", "No proof-backed store rating samples captured.", "-", "-"]]
+  );
 }
 
 async function tiktokSection(data: ReportData): Promise<DocxChild[]> {
@@ -674,7 +708,7 @@ function spacer(): Paragraph {
 
 function keyProductsForReport(products: ReportData["products"]): ReportData["products"] {
   const merged = new Map<string, ReportData["products"][number]>();
-  for (const product of products.filter((item) => item.source !== "Store Products" && item.source !== "Store Best Sellers")) {
+  for (const product of products.filter((item) => !item.source?.startsWith("Store Products") && !item.source?.startsWith("Store Best Sellers"))) {
     const key = productIdentity(product);
     const existing = merged.get(key);
     if (!existing) {
@@ -896,37 +930,75 @@ function storeType(product: { mallStatus: boolean; officialStatus: boolean; star
   return "-";
 }
 
-function selectReportKeyStore(data: ReportData): ReportData["stores"][number] | undefined {
-  const keyProducts = keyProductsForReport(data.products);
-  const byStore = new Map<string, { count: number; gmv: number; storeName?: string; storeUrl?: string }>();
-  for (const product of keyProducts) {
-    const storeName = product.storeName ?? undefined;
-    const storeUrl = product.storeUrl ?? undefined;
-    const key = (storeUrl ?? storeName ?? "").toLowerCase();
-    if (!key) {
-      continue;
-    }
-    const current = byStore.get(key) ?? { count: 0, gmv: 0, storeName, storeUrl };
-    current.count += 1;
-    current.gmv += (product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0);
-    byStore.set(key, current);
-  }
-  const selected = [...byStore.values()].sort((left, right) => right.gmv - left.gmv || right.count - left.count)[0];
-  if (!selected) {
-    return data.stores[0];
-  }
-  return data.stores.find((store) =>
-    (selected.storeUrl && sameReportUrl(store.url, selected.storeUrl)) ||
-    (selected.storeName && store.name.toLowerCase() === selected.storeName.toLowerCase())
-  ) ?? data.stores[0];
-}
-
 function storeAssetsForReport(data: ReportData, store: ReportData["stores"][number]): ReportData["assets"] {
-  const storeOwned = data.assets.filter((asset) => asset.ownerType === "STORE" && asset.ownerId === store.id);
+  const candidateId = reportStoreCandidateId(store);
+  const storeOwned = data.assets.filter((asset) =>
+    asset.ownerType === "STORE" &&
+    (asset.ownerId === store.id || Boolean(candidateId && asset.ownerId === candidateId))
+  );
   if (storeOwned.length > 0) {
     return storeOwned;
   }
   return data.assets.filter((asset) => assetMatchesStore(asset, store.url));
+}
+
+type StoreRatingSample = {
+  rating: number;
+  reviewer: string;
+  comment: string;
+  mediaUrls: string[];
+  capturedAt?: string;
+};
+
+type ReportStoreRaw = {
+  storeCandidateId?: string;
+  description?: string;
+  ratingSamples?: StoreRatingSample[];
+};
+
+function reportStoreRaw(store: ReportData["stores"][number]): ReportStoreRaw {
+  return safeJson<ReportStoreRaw>(store.rawJson, {});
+}
+
+function reportStoreCandidateId(store: ReportData["stores"][number]): string | undefined {
+  const value = reportStoreRaw(store).storeCandidateId;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function reportStoreRatingSamples(store: ReportData["stores"][number]): StoreRatingSample[] {
+  const samples = reportStoreRaw(store).ratingSamples;
+  if (!Array.isArray(samples)) {
+    return [];
+  }
+  return samples.filter((sample) =>
+    typeof sample?.rating === "number" &&
+    typeof sample.reviewer === "string" &&
+    typeof sample.comment === "string" &&
+    Array.isArray(sample.mediaUrls)
+  );
+}
+
+function reportStoreProducts(
+  data: ReportData,
+  store: ReportData["stores"][number],
+  sourcePrefix: "Store Products" | "Store Best Sellers"
+): ReportData["products"] {
+  const candidateId = reportStoreCandidateId(store);
+  if (candidateId) {
+    const scoped = data.products.filter((product) => product.source === `${sourcePrefix}:${candidateId}`);
+    if (scoped.length > 0) {
+      return scoped;
+    }
+  }
+  const matching = data.products.filter((product) =>
+    product.source?.startsWith(sourcePrefix) && productMatchesStore(product, store)
+  );
+  if (matching.length > 0) {
+    return matching;
+  }
+  return data.stores.length === 1
+    ? data.products.filter((product) => product.source?.startsWith(sourcePrefix))
+    : [];
 }
 
 function storeOverall(store: ReportData["stores"][number], data: ReportData): string {

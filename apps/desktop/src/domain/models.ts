@@ -65,7 +65,15 @@ export type StoreProfile = {
   ratingCount?: number;
   chatResponse?: string;
   joinedDate?: string;
+  description?: string;
   categories: string[];
+  ratingSamples: Array<{
+    rating: number;
+    reviewer: string;
+    comment: string;
+    mediaUrls: string[];
+    capturedAt?: string;
+  }>;
   voucherCount?: number;
   voucherTypes: string[];
   featuredProducts: ProductCard[];

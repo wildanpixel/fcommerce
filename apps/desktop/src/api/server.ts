@@ -6,7 +6,11 @@ import express, { type Express, type Request, type Response } from "express";
 import JSZip from "jszip";
 import sharp from "sharp";
 import { z } from "zod";
-import { DEFAULT_REPORT_SECTIONS } from "../shared/reportSections.js";
+import {
+  DEFAULT_REPORT_SECTIONS,
+  LEGACY_REPORT_SECTION_IDS,
+  REPORT_SECTION_ORDER
+} from "../shared/reportSections.js";
 import type {
   BrowserOption,
   AndroidApkCandidate,
@@ -71,12 +75,38 @@ const marketplaceSchema = z.enum([
   "ALIBABA"
 ]);
 
+const shopeeShopTypeSchema = z.enum([
+  "service_by_shopee_product_label_filter",
+  "OFFICIAL_MALL",
+  "PREFERRED_PLUS",
+  "PREFERRED"
+]);
+
+const shopeeSearchFiltersSchema = z.object({
+  shopTypes: z.array(shopeeShopTypeSchema).max(4),
+  priceMin: z.number().int().nonnegative().optional(),
+  priceMax: z.number().int().nonnegative().optional()
+}).refine(
+  (value) => value.priceMin === undefined || value.priceMax === undefined || value.priceMin <= value.priceMax,
+  { message: "Minimum price cannot exceed maximum price." }
+);
+
+const storeCollectionCandidateSchema = z.object({
+  id: z.string().min(1),
+  storeName: z.string().min(1),
+  storeUrl: z.string().url(),
+  shopId: z.string().optional(),
+  includePopularProducts: z.boolean(),
+  includeShopBanner: z.boolean()
+});
+
 const projectSchema = z.object({
   name: z.string().min(2),
   keyword: z.string().min(2),
   marketplace: marketplaceSchema,
   language: z.string().min(2),
   productCategory: z.string().optional(),
+  searchFilters: shopeeSearchFiltersSchema.optional(),
   exportFolder: z.string().optional(),
   screenshotFolder: z.string().optional()
 });
@@ -104,39 +134,15 @@ const settingsSchema = z.object({
   geminiApiKey: z.string().optional()
 });
 
-const reportSchema = z.object({
+const reportSectionIdSchema = z.enum([...REPORT_SECTION_ORDER, ...LEGACY_REPORT_SECTION_IDS]);
+
+export const reportSchema = z.object({
   projectId: z.string().uuid(),
   templateId: z.string().min(2),
   theme: z.enum(["light", "dark"]).optional(),
   sections: z.array(
     z.object({
-      id: z.enum([
-        "summaryMetrics",
-        "keywordGeneral",
-        "keyProducts",
-        "productDetailFirstPage",
-        "productDetailSlides",
-        "productDetailDescription",
-        "productDetailReviews",
-        "productDetailUserMedia",
-        "productDetailShopHomePage",
-        "keyStoreHomePage",
-        "keyStoreProducts",
-        "keyStoreBestSellers",
-        "keyStoreVisualStyle",
-        "tiktokEvidence",
-        "cover",
-        "keywordRelevance",
-        "topSales",
-        "keyProductTable",
-        "productDossiers",
-        "reviewEvidence",
-        "storeOverview",
-        "storeDossiers",
-        "visualStyle",
-        "crossPlatformEvidence",
-        "aiRecommendations"
-      ]),
+      id: reportSectionIdSchema,
       label: z.string(),
       enabled: z.boolean(),
       requiredEvidence: z.array(z.string())
@@ -247,6 +253,10 @@ const collectionStateSchema = z.object({
   currentStepId: z.string().optional(),
   browserUrl: z.string().optional(),
   viewMode: z.enum(["desktop", "mobile"]).optional(),
+  searchFilters: shopeeSearchFiltersSchema.optional(),
+  qualifiedProductIds: z.array(z.string()).max(20).optional(),
+  qualifiedProductsApproved: z.boolean().optional(),
+  storeCollectionCandidates: z.array(storeCollectionCandidateSchema).max(50).optional(),
   savedAt: z.string().optional()
 });
 
@@ -1069,6 +1079,7 @@ function toAnalysisInput(data: ReportData): AnalysisInput {
         typographySignals: [],
         bannerStyle: []
       }),
+      ratingSamples: [],
       raw: {}
     })),
     reviews: data.reviews.map((review) => ({
@@ -1342,6 +1353,29 @@ type StructuredProductDetail = {
   reviewMediaVideos: string[];
 };
 
+type StructuredStoreProfile = {
+  name?: string;
+  url?: string;
+  marketplaceStoreId?: string;
+  followers?: number;
+  following?: number;
+  productsCount?: number;
+  rating?: number;
+  ratingCount?: number;
+  chatResponse?: string;
+  joinedDate?: string;
+  description?: string;
+  categories: string[];
+  ratingSamples: Array<{
+    rating: number;
+    reviewer: string;
+    comment: string;
+    mediaUrls: string[];
+    capturedAt?: string;
+  }>;
+  bannerUrls: string[];
+};
+
 async function persistCapturedPageData(
   intelligenceRepository: {
     saveProduct(projectId: string, product: ProductDetail): Promise<string>;
@@ -1529,7 +1563,7 @@ async function persistExtractedProducts(
     pdfPath?: string;
   }
 ): Promise<number> {
-  const source = productSourceFromEvidenceKind(input.kind);
+  const source = productSourceFromEvidence(input);
   if (!source || !input.extractedProducts?.length) {
     return 0;
   }
@@ -1567,19 +1601,24 @@ async function persistExtractedProducts(
   return uniqueProducts.length;
 }
 
-function productSourceFromEvidenceKind(kind: ManualEvidencePayload["kind"]): string | undefined {
-  switch (kind) {
+function productSourceFromEvidence(input: ManualEvidencePayload): string | undefined {
+  switch (input.kind) {
     case "SEARCH_RESULT":
       return "Relevance";
     case "TOP_SALES":
       return "Top Sales";
     case "STORE_FEATURED_PRODUCTS":
-      return "Store Products";
+      return scopedStoreProductSource("Store Products", input);
     case "STORE_BEST_SELLER":
-      return "Store Best Sellers";
+      return scopedStoreProductSource("Store Best Sellers", input);
     default:
       return undefined;
   }
+}
+
+function scopedStoreProductSource(prefix: "Store Products" | "Store Best Sellers", input: ManualEvidencePayload): string {
+  const candidateId = typeof input.metadata?.storeCandidateId === "string" ? cleanText(input.metadata.storeCandidateId) : "";
+  return candidateId ? `${prefix}:${candidateId}` : prefix;
 }
 
 function uniqueExtractedProducts(products: ExtractedPageProduct[]): ExtractedPageProduct[] {
@@ -1597,7 +1636,7 @@ function uniqueExtractedProducts(products: ExtractedPageProduct[]): ExtractedPag
 }
 
 function isExcludedCommerceProductTitle(title: string): boolean {
-  return /\b(?:NOT\s+FOR\s+SALE|FREE\s+GIFT)\b/iu.test(title);
+  return /\b(?:NOT\s+FOR\s+SALE|FREE\s+GIFT|GIMMICK)\b/iu.test(title);
 }
 
 function toProductDetail(
@@ -1647,6 +1686,7 @@ function toProductDetail(
       sourceStepId: context.stepId,
       sourceUrl: context.sourceUrl,
       sourcePlacement: product.sourcePlacement ?? sourcePlacementLabel(product, context.source),
+      storeCandidateId: context.source.split(":")[1],
       imageUrl: product.imageUrl,
       images: product.imageUrl ? [product.imageUrl] : [],
       productType: product.productType,
@@ -1672,12 +1712,23 @@ function sourcePlacementLabel(product: ExtractedPageProduct, source: string): st
 }
 
 async function resetNormalizedEvidence(input: ManualEvidenceResetPayload): Promise<void> {
-  if (input.stepId === "store-products") {
-    await prisma.product.deleteMany({ where: { projectId: input.projectId, source: "Store Products" } });
+  const storeCandidateId = input.stepId.match(/^(store-[^-]+)-/u)?.[1];
+  if (input.stepId.endsWith("-popular")) {
+    await prisma.product.deleteMany({
+      where: {
+        projectId: input.projectId,
+        source: storeCandidateId ? `Store Products:${storeCandidateId}` : "Store Products"
+      }
+    });
     return;
   }
-  if (input.stepId === "store-best-seller") {
-    await prisma.product.deleteMany({ where: { projectId: input.projectId, source: "Store Best Sellers" } });
+  if (input.stepId.endsWith("-best-seller")) {
+    await prisma.product.deleteMany({
+      where: {
+        projectId: input.projectId,
+        source: storeCandidateId ? `Store Best Sellers:${storeCandidateId}` : "Store Best Sellers"
+      }
+    });
     return;
   }
   if (input.ownerType !== "PRODUCT" || !input.ownerId || !input.subActionId) {
@@ -1790,7 +1841,7 @@ function formatSourcePlacementToken(value: string, source: string | null | undef
 }
 
 function isSalesLikeProductSource(source: string): boolean {
-  return source === "Top Sales" || source === "Store Best Sellers";
+  return source === "Top Sales" || source.startsWith("Store Best Sellers");
 }
 
 function toStoreProfile(product: ExtractedPageProduct): StoreProfile {
@@ -1807,6 +1858,7 @@ function toStoreProfile(product: ExtractedPageProduct): StoreProfile {
       typographySignals: [],
       bannerStyle: []
     },
+    ratingSamples: [],
     raw: {
       source: "rendered-page-snapshot",
       productTitle: product.title
@@ -1893,7 +1945,10 @@ function extractProductEnrichment(
   const collectDescriptionPromotions = collectEverything || subAction === "description-promotions";
   const htmlStoreInfo = extractPdpStoreInfoFromHtml(html);
   const resolvedStoreName = safeStoreName(structured?.storeName ?? htmlStoreInfo.storeName);
-  const resolvedStoreType = storeTypeFromOfficialStoreName(resolvedStoreName) ?? normalizeStoreType(structured?.storeType ?? htmlStoreInfo.storeType);
+  const resolvedStoreType =
+    normalizeStoreType(htmlStoreInfo.storeType) ??
+    storeTypeFromOfficialStoreName(resolvedStoreName) ??
+    normalizeStoreType(structured?.storeType);
   const price = extractMoneyRange(text);
   const structuredImages = structured?.images ?? [];
   const structuredVideos = structured?.videos ?? [];
@@ -1953,31 +2008,45 @@ function extractProductEnrichment(
 
 function extractStoreProfile(input: ManualEvidencePayload, projectId: string): StoreProfile {
   const text = normalizeEvidenceText(input.visibleText);
-  const url = normalizeUrl(input.sourceUrl ?? `https://shopee.co.id/store-${projectId}`);
-  const storeName = inferStoreName(text, url, input.label);
+  const structured = readStructuredStoreProfile(input.metadata);
+  const canonicalStoreUrl = typeof input.metadata?.canonicalStoreUrl === "string"
+    ? input.metadata.canonicalStoreUrl
+    : undefined;
+  const url = normalizeUrl(canonicalStoreUrl ?? structured?.url ?? input.sourceUrl ?? `https://shopee.co.id/store-${projectId}`);
+  const metadataStoreName = typeof input.metadata?.storeName === "string" ? input.metadata.storeName.trim() : undefined;
+  const metadataShopId = typeof input.metadata?.shopId === "string" ? input.metadata.shopId.trim() : undefined;
+  const storeName = structured?.name || metadataStoreName || inferStoreName(text, url, input.label);
   const voucherLine = findLine(text, ["voucher", "diskon", "cashback"]);
   return {
     marketplace: "SHOPEE_ID",
+    marketplaceStoreId: structured?.marketplaceStoreId || metadataShopId,
     name: storeName,
     url,
-    followers: extractCountNear(text, ["followers", "pengikut"]),
-    following: extractCountNear(text, ["following", "mengikuti"]),
-    productsCount: extractCountNear(text, ["products", "produk"]),
-    rating: extractRating(text),
-    ratingCount: extractCountNear(text, ["ratings", "penilaian"]),
-    chatResponse: findLine(text, ["chat", "response", "respon"]),
-    joinedDate: findLine(text, ["joined", "bergabung"]),
-    categories: extractSectionKeywords(text, ["kategori", "category"], 8),
+    followers: structured?.followers ?? extractCountNear(text, ["followers", "pengikut"]),
+    following: structured?.following ?? extractCountNear(text, ["following", "mengikuti"]),
+    productsCount: structured?.productsCount ?? extractCountNear(text, ["products", "produk"]),
+    rating: structured?.rating ?? extractRating(text),
+    ratingCount: structured?.ratingCount ?? extractCountNear(text, ["ratings", "penilaian"]),
+    chatResponse: structured?.chatResponse ?? findLine(text, ["chat", "response", "respon"]),
+    joinedDate: structured?.joinedDate ?? findLine(text, ["joined", "bergabung"]),
+    description: structured?.description,
+    categories: structured?.categories.length
+      ? structured.categories
+      : extractSectionKeywords(text, ["kategori", "category"], 8),
     voucherCount: voucherLine ? Math.max(1, countOccurrences(text, /voucher/giu)) : undefined,
     voucherTypes: voucherLine ? mergeUnique(extractSectionKeywords(text, ["voucher", "diskon", "cashback"], 8)) : [],
     featuredProducts: [],
     bestSellers: [],
     visualTheme: extractVisualTheme(text, input.kind),
+    ratingSamples: structured?.ratingSamples ?? [],
     raw: {
       source: "guided-manual-collector",
       sourceStepId: input.stepId,
       sourceUrl: input.sourceUrl,
       ownerId: input.ownerId,
+      storeCandidateId: input.metadata?.storeCandidateId,
+      storeEvidenceType: input.metadata?.storeEvidenceType,
+      bannerUrls: structured?.bannerUrls ?? extractStringArray(input.metadata?.storeDecorationImages),
       htmlCaptured: Boolean(input.pageHtml),
       textCaptured: Boolean(input.visibleText),
       visibleTextPreview: text.slice(0, 2400)
@@ -2067,6 +2136,47 @@ function readStructuredProductDetail(metadata?: Record<string, unknown>): Struct
   };
 }
 
+function readStructuredStoreProfile(metadata?: Record<string, unknown>): StructuredStoreProfile | undefined {
+  const raw = metadata?.structuredStoreProfile;
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const readFiniteNumber = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  const readString = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const ratingSamples = Array.isArray(raw.ratingSamples)
+    ? raw.ratingSamples
+        .filter(isRecord)
+        .map((sample) => ({
+          rating: Math.max(1, Math.min(5, readFiniteNumber(sample.rating) ?? 5)),
+          reviewer: readString(sample.reviewer) ?? "Shopee buyer",
+          comment: sanitizeShopeeReviewComment(readString(sample.comment) ?? ""),
+          mediaUrls: extractStringArray(sample.mediaUrls).filter(isReviewMediaUrl),
+          capturedAt: readString(sample.capturedAt)
+        }))
+        .filter((sample) => sample.comment.length >= 20 && sample.mediaUrls.length > 0)
+        .slice(0, 5)
+    : [];
+
+  return {
+    name: readString(raw.name),
+    url: readString(raw.url),
+    marketplaceStoreId: readString(raw.marketplaceStoreId),
+    followers: readFiniteNumber(raw.followers),
+    following: readFiniteNumber(raw.following),
+    productsCount: readFiniteNumber(raw.productsCount),
+    rating: readFiniteNumber(raw.rating),
+    ratingCount: readFiniteNumber(raw.ratingCount),
+    chatResponse: readString(raw.chatResponse),
+    joinedDate: readString(raw.joinedDate),
+    description: readString(raw.description),
+    categories: extractStringArray(raw.categories),
+    ratingSamples,
+    bannerUrls: extractStringArray(raw.bannerUrls)
+  };
+}
+
 function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): ReviewEvidence {
   return {
     sentiment: input.type === "Negative Reviews" ? "NEGATIVE" : "POSITIVE",
@@ -2149,11 +2259,11 @@ function normalizeStoreTypeFromBadge(value?: string): "Mall ORI" | "Star+" | "St
   if (/star\s*(?:plus|\+)/iu.test(normalized)) {
     return "Star+";
   }
-  if (/star/iu.test(normalized)) {
-    return "Star";
-  }
-  if (/mall/iu.test(normalized)) {
+  if (/mall\s*ori|mallori|mall-ori|shopee\s*mall|mall/iu.test(normalized)) {
     return "Mall ORI";
+  }
+  if (/(?:^|[^a-z])star(?:[^a-z]|$)/iu.test(normalized)) {
+    return "Star";
   }
   return undefined;
 }
@@ -2337,9 +2447,9 @@ export function extractPdpStoreInfoFromHtml(html: string): {
     extractHtmlAttribute(block, /<a\b(?=[^>]*\bentryPoint=ShopByPDP\b)[^>]*\bhref=["'](?<value>[^"']+)["'][^>]*>/iu) ??
     extractHtmlAttribute(block, /<a\b(?=[^>]*#product_list\b)[^>]*\bhref=["'](?<value>[^"']+)["'][^>]*>/iu) ??
     extractHtmlAttribute(block, /<a\b(?![^>]*\b(?:chat|cart|checkout|help|report|seller|login|verify|mall)\b)[^>]*\bhref=["'](?<value>\/[^"']+)["'][^>]*>/iu);
-  const storeType = normalizeStoreTypeFromBadge(
-    extractHtmlAttribute(block, /<img\b(?=[^>]*\balt=["'][^"']*(?:mall|star)[^"']*["'])[^>]*\balt=["'](?<value>[^"']+)["'][^>]*>/iu)
-  );
+  const storeType = [...block.matchAll(/<img\b[^>]{0,1600}>/giu)]
+    .map((match) => normalizeStoreTypeFromBadge(match[0]))
+    .find((value): value is "Mall ORI" | "Star+" | "Star" => Boolean(value));
   const candidates = [
     ...extractHtmlClassTextCandidates(block, "fV3TIn"),
     ...extractHtmlClassTextCandidates(block, "shop-name"),
@@ -2352,7 +2462,7 @@ export function extractPdpStoreInfoFromHtml(html: string): {
   return {
     storeName,
     storeUrl: storeUrl ? normalizeUrl(storeUrl) : undefined,
-    storeType: storeTypeFromOfficialStoreName(storeName) ?? storeType
+    storeType: storeType ?? storeTypeFromOfficialStoreName(storeName)
   };
 }
 
@@ -2722,7 +2832,7 @@ function selectionReason(
   const reasons = new Set<string>();
   if (isSalesLikeProductSource(source)) {
     reasons.add("best selling");
-  } else if (source === "Store Products") {
+  } else if (source.startsWith("Store Products")) {
     reasons.add("store matrix");
   } else {
     reasons.add("platform recommended");

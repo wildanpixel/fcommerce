@@ -49,14 +49,20 @@ export type ReportData = {
   }>;
   stores: Array<{
     id: string;
+    marketplaceStoreId?: string | null;
     name: string;
     url: string;
     followers?: number | null;
+    following?: number | null;
     productsCount?: number | null;
     rating?: number | null;
+    ratingCount?: number | null;
     chatResponse?: string | null;
+    joinedDate?: string | null;
+    categoriesJson: string;
     voucherCount?: number | null;
     visualThemeJson: string;
+    rawJson: string;
   }>;
   reviews: Array<{
     id: string;

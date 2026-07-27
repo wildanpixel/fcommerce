@@ -55,7 +55,7 @@ export class PrismaProjectRepository implements ProjectRepository {
         marketplace: input.marketplace,
         language: input.language,
         productCategory: input.productCategory,
-        collectionStateJson: JSON.stringify(defaultCollectionState()),
+        collectionStateJson: JSON.stringify(defaultCollectionState(input.searchFilters)),
         exportFolder: input.exportFolder,
         screenshotFolder: input.screenshotFolder,
         status: "ACTIVE"
@@ -127,6 +127,7 @@ export class PrismaProjectRepository implements ProjectRepository {
         id: product.id,
         title: product.title,
         imageUrl: extractProductImageUrl(product.rawJson),
+        storeBadgeImageUrl: extractProductString(product.rawJson, "storeBadgeImageUrl"),
         productType: product.productType,
         storeType: extractProductStoreType(product.rawJson),
         sourcePlacement: extractProductSourcePlacement(product.rawJson),
@@ -165,6 +166,7 @@ export class PrismaProjectRepository implements ProjectRepository {
       })),
       stores: stores.map((store) => ({
         id: store.id,
+        marketplaceStoreId: store.marketplaceStoreId,
         name: store.name,
         url: store.url,
         followers: store.followers,
@@ -174,7 +176,9 @@ export class PrismaProjectRepository implements ProjectRepository {
         ratingCount: store.ratingCount,
         chatResponse: store.chatResponse,
         joinedDate: store.joinedDate,
+        description: extractProductString(store.rawJson, "description"),
         categories: parseJsonArray(store.categoriesJson),
+        ratingSamples: extractStoreRatingSamples(store.rawJson),
         voucherCount: store.voucherCount,
         voucherTypes: parseJsonArray(store.voucherTypesJson),
         visualTheme: parseVisualTheme(store.visualThemeJson),
@@ -331,12 +335,32 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
   }
 
   async saveStore(projectId: string, store: StoreProfile): Promise<string> {
+    const stableStoreId = `${projectId}:${store.marketplaceStoreId || store.url}`;
+    const existing = await this.db.store.findFirst({
+      where: {
+        projectId,
+        OR: [
+          ...(store.marketplaceStoreId ? [{ marketplaceStoreId: store.marketplaceStoreId }] : []),
+          { url: store.url }
+        ]
+      }
+    });
+    const existingRaw = parseJsonRecord(existing?.rawJson);
+    const mergedRaw = {
+      ...existingRaw,
+      ...store.raw,
+      description: store.description ?? extractProductString(existing?.rawJson, "description"),
+      ratingSamples: mergeStoreRatingSamples(
+        extractStoreRatingSamples(existing?.rawJson),
+        store.ratingSamples
+      )
+    };
     const saved = await this.db.store.upsert({
       where: {
-        id: `${projectId}:${store.url}`
+        id: existing?.id ?? stableStoreId
       },
       create: {
-        id: `${projectId}:${store.url}`,
+        id: stableStoreId,
         projectId,
         marketplace: store.marketplace,
         marketplaceStoreId: store.marketplaceStoreId,
@@ -353,21 +377,24 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
         voucherCount: store.voucherCount,
         voucherTypesJson: JSON.stringify(store.voucherTypes),
         visualThemeJson: JSON.stringify(store.visualTheme),
-        rawJson: JSON.stringify(store.raw)
+        rawJson: JSON.stringify(mergedRaw)
       },
       update: {
-        followers: store.followers,
-        following: store.following,
-        productsCount: store.productsCount,
-        rating: store.rating,
-        ratingCount: store.ratingCount,
-        chatResponse: store.chatResponse,
-        joinedDate: store.joinedDate,
-        categoriesJson: JSON.stringify(store.categories),
-        voucherCount: store.voucherCount,
-        voucherTypesJson: JSON.stringify(store.voucherTypes),
-        visualThemeJson: JSON.stringify(store.visualTheme),
-        rawJson: JSON.stringify(store.raw)
+        marketplaceStoreId: store.marketplaceStoreId ?? existing?.marketplaceStoreId,
+        name: store.name || existing?.name,
+        url: store.url || existing?.url,
+        followers: store.followers ?? existing?.followers,
+        following: store.following ?? existing?.following,
+        productsCount: store.productsCount ?? existing?.productsCount,
+        rating: store.rating ?? existing?.rating,
+        ratingCount: store.ratingCount ?? existing?.ratingCount,
+        chatResponse: store.chatResponse ?? existing?.chatResponse,
+        joinedDate: store.joinedDate ?? existing?.joinedDate,
+        categoriesJson: JSON.stringify(mergeUniqueStrings(parseJsonArray(existing?.categoriesJson), store.categories)),
+        voucherCount: store.voucherCount ?? existing?.voucherCount,
+        voucherTypesJson: JSON.stringify(mergeUniqueStrings(parseJsonArray(existing?.voucherTypesJson), store.voucherTypes)),
+        visualThemeJson: JSON.stringify(mergeVisualThemes(parseVisualTheme(existing?.visualThemeJson), store.visualTheme)),
+        rawJson: JSON.stringify(mergedRaw)
       }
     });
     return saved.id;
@@ -620,14 +647,15 @@ function toProjectSummary(project: ProjectWithCounts): ProjectSummary {
   };
 }
 
-function defaultCollectionState(): CollectionState {
+function defaultCollectionState(searchFilters?: NewProjectInput["searchFilters"]): CollectionState {
   return {
     stage: "KEYWORD_GENERAL",
     stageLabel: "Part 1 - Keyword General",
     progressPercent: 0,
     completedStepIds: [],
     stepAssetPaths: {},
-    stageCompleted: {}
+    stageCompleted: {},
+    searchFilters
   };
 }
 
@@ -652,8 +680,58 @@ function parseCollectionState(value: string): CollectionState {
     currentStepId: typeof parsed.currentStepId === "string" ? parsed.currentStepId : undefined,
     browserUrl: typeof parsed.browserUrl === "string" ? parsed.browserUrl : undefined,
     viewMode: parsed.viewMode === "mobile" || parsed.viewMode === "desktop" ? parsed.viewMode : undefined,
+    searchFilters: parseShopeeSearchFilters(parsed.searchFilters),
+    qualifiedProductIds: Array.isArray(parsed.qualifiedProductIds)
+      ? parsed.qualifiedProductIds.filter((item): item is string => typeof item === "string").slice(0, 20)
+      : undefined,
+    qualifiedProductsApproved: parsed.qualifiedProductsApproved === true,
+    storeCollectionCandidates: parseStoreCollectionCandidates(parsed.storeCollectionCandidates),
     savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : undefined
   };
+}
+
+function parseShopeeSearchFilters(value: unknown): CollectionState["searchFilters"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const allowed = new Set([
+    "service_by_shopee_product_label_filter",
+    "OFFICIAL_MALL",
+    "PREFERRED_PLUS",
+    "PREFERRED"
+  ]);
+  const shopTypes = Array.isArray(record.shopTypes)
+    ? record.shopTypes.filter((item): item is NonNullable<CollectionState["searchFilters"]>["shopTypes"][number] =>
+        typeof item === "string" && allowed.has(item)
+      )
+    : [];
+  const priceMin = typeof record.priceMin === "number" && record.priceMin >= 0 ? record.priceMin : undefined;
+  const priceMax = typeof record.priceMax === "number" && record.priceMax >= 0 ? record.priceMax : undefined;
+  return { shopTypes, priceMin, priceMax };
+}
+
+function parseStoreCollectionCandidates(value: unknown): CollectionState["storeCollectionCandidates"] {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.storeName !== "string" || typeof record.storeUrl !== "string") {
+      return [];
+    }
+    return [{
+      id: record.id,
+      storeName: record.storeName,
+      storeUrl: record.storeUrl,
+      shopId: typeof record.shopId === "string" ? record.shopId : undefined,
+      includePopularProducts: record.includePopularProducts === true,
+      includeShopBanner: record.includeShopBanner === true
+    }];
+  }).slice(0, 50);
 }
 
 function isCollectionStage(value: string): value is CollectionState["stage"] {
@@ -819,7 +897,10 @@ function extractProductStoreType(rawJson: string): string | undefined {
   return typeof storeType === "string" && storeType.trim() ? storeType : undefined;
 }
 
-function extractProductString(rawJson: string, key: string): string | undefined {
+function extractProductString(rawJson: string | null | undefined, key: string): string | undefined {
+  if (!rawJson) {
+    return undefined;
+  }
   const raw = parseJsonObject(rawJson);
   const value = raw[key];
   return typeof value === "string" && value.trim() ? value : undefined;
@@ -837,7 +918,10 @@ function extractProductSourcePlacement(rawJson: string): string | undefined {
   return typeof sourcePlacement === "string" && sourcePlacement.trim() ? sourcePlacement : undefined;
 }
 
-function parseJsonArray(value: string): string[] {
+function parseJsonArray(value?: string | null): string[] {
+  if (!value) {
+    return [];
+  }
   try {
     const parsed = JSON.parse(value) as unknown;
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
@@ -854,7 +938,7 @@ function parseStringRecord(value: string): Record<string, string> {
   );
 }
 
-function parseVisualTheme(value: string): {
+function parseVisualTheme(value?: string | null): {
   dominantColors: string[];
   typographySignals: string[];
   bannerStyle: string[];
@@ -867,11 +951,67 @@ function parseVisualTheme(value: string): {
   };
 }
 
-function parseJsonObject(value: string): Record<string, unknown> {
+function parseJsonObject(value?: string | null): Record<string, unknown> {
+  if (!value) {
+    return {};
+  }
   try {
     const parsed = JSON.parse(value) as unknown;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
   } catch {
     return {};
   }
+}
+
+function parseJsonRecord(value?: string | null): Record<string, unknown> {
+  return parseJsonObject(value);
+}
+
+function extractStoreRatingSamples(value?: string | null): StoreProfile["ratingSamples"] {
+  const samples = parseJsonObject(value).ratingSamples;
+  if (!Array.isArray(samples)) {
+    return [];
+  }
+  return samples
+    .filter((sample): sample is Record<string, unknown> => Boolean(sample && typeof sample === "object" && !Array.isArray(sample)))
+    .map((sample) => ({
+      rating: typeof sample.rating === "number" ? sample.rating : Number(sample.rating),
+      reviewer: typeof sample.reviewer === "string" ? sample.reviewer : "Shopee buyer",
+      comment: typeof sample.comment === "string" ? sample.comment : "",
+      mediaUrls: Array.isArray(sample.mediaUrls)
+        ? sample.mediaUrls.filter((item): item is string => typeof item === "string")
+        : [],
+      capturedAt: typeof sample.capturedAt === "string" ? sample.capturedAt : undefined
+    }))
+    .filter((sample) => Number.isFinite(sample.rating) && sample.comment.trim().length > 0);
+}
+
+function mergeStoreRatingSamples(
+  current: StoreProfile["ratingSamples"],
+  incoming: StoreProfile["ratingSamples"]
+): StoreProfile["ratingSamples"] {
+  const seen = new Set<string>();
+  return [...current, ...incoming].filter((sample) => {
+    const key = `${sample.rating}:${sample.reviewer}:${sample.comment}`.toLocaleLowerCase();
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function mergeUniqueStrings(current: string[], incoming: string[]): string[] {
+  return [...new Set([...current, ...incoming].map((item) => item.trim()).filter(Boolean))];
+}
+
+function mergeVisualThemes(
+  current: StoreProfile["visualTheme"],
+  incoming: StoreProfile["visualTheme"]
+): StoreProfile["visualTheme"] {
+  return {
+    dominantColors: mergeUniqueStrings(current.dominantColors, incoming.dominantColors),
+    typographySignals: mergeUniqueStrings(current.typographySignals, incoming.typographySignals),
+    bannerStyle: mergeUniqueStrings(current.bannerStyle, incoming.bannerStyle)
+  };
 }
