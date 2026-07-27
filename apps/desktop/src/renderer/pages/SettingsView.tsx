@@ -1,0 +1,225 @@
+import { FormEvent, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Archive, ExternalLink, FileText, KeyRound, Settings, ShieldCheck, TerminalSquare } from "lucide-react";
+import type { SaveSettingsPayload, SettingsPayload } from "../../shared/contracts.js";
+import { apiClient } from "../api/client.js";
+import { APP_LANGUAGES } from "../app/languages.js";
+import { EmptyState, Field, Panel, StatusLine } from "../components/ui.js";
+
+const APP_DISPLAY_NAME = "MarketPlace Keyword Competitor Analysis";
+
+export function SettingsView() {
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: apiClient.settings });
+  const platform = useQuery({ queryKey: ["platform"], queryFn: apiClient.platform });
+  const health = useQuery({ queryKey: ["health"], queryFn: apiClient.health });
+  const browsers = useQuery({ queryKey: ["browsers"], queryFn: apiClient.browsers });
+  type SettingsFormState = SaveSettingsPayload &
+    Pick<SettingsPayload, "openAiKeyConfigured" | "geminiKeyConfigured">;
+  const [form, setForm] = useState<SettingsFormState | null>(null);
+  const value: SettingsFormState | null = form ?? settings.data ?? null;
+  const save = useMutation({
+    mutationFn: apiClient.saveSettings,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["settings"] })
+  });
+
+  if (!value) {
+    return <EmptyState label="Loading settings." />;
+  }
+
+  function update(patch: Partial<SettingsFormState>) {
+    if (!value) {
+      return;
+    }
+    setForm({ ...value, ...patch });
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!value) {
+      return;
+    }
+    save.mutate({
+      marketplace: value.marketplace,
+      theme: value.theme,
+      browser: value.browser,
+      exportFolder: value.exportFolder,
+      screenshotFolder: value.screenshotFolder,
+      language: value.language,
+      concurrency: value.concurrency,
+      openAiApiKey: value.openAiApiKey,
+      geminiApiKey: value.geminiApiKey
+    });
+  }
+
+  return (
+    <section className="space-y-5">
+      <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-5">
+        <Panel title="Settings" icon={Settings}>
+        <form className="grid grid-cols-2 gap-4" onSubmit={submit}>
+          <Field label="Theme">
+            <select value={value.theme} onChange={(event) => update({ theme: event.target.value as SaveSettingsPayload["theme"] })} className="input">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="system">System</option>
+            </select>
+          </Field>
+          <Field label="Preferred Browser">
+            <select value={value.browser} onChange={(event) => update({ browser: event.target.value as SaveSettingsPayload["browser"] })} className="input">
+              {(browsers.data ?? [{ id: "chromium" as const, name: "Bundled Chromium", available: true, profilePath: "" }]).map((browser) => (
+                <option key={browser.id} value={browser.id} disabled={!browser.available}>
+                  {browser.name}
+                  {browser.available ? "" : " (not detected)"}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Export folder">
+            <input value={value.exportFolder} onChange={(event) => update({ exportFolder: event.target.value })} className="input" />
+          </Field>
+          <Field label="Screenshot folder">
+            <input value={value.screenshotFolder} onChange={(event) => update({ screenshotFolder: event.target.value })} className="input" />
+          </Field>
+          <Field label="Language">
+            <select value={value.language} onChange={(event) => update({ language: event.target.value })} className="input">
+              {APP_LANGUAGES.map((language) => (
+                <option key={language.id} value={language.id}>
+                  {language.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Concurrency">
+            <input
+              type="number"
+              min={1}
+              max={5}
+              value={value.concurrency}
+              onChange={(event) => update({ concurrency: Number(event.target.value) })}
+              className="input"
+            />
+          </Field>
+          <Field label="OpenAI API key">
+            <input type="password" onChange={(event) => update({ openAiApiKey: event.target.value })} className="input" placeholder={value.openAiKeyConfigured ? "Configured" : ""} />
+          </Field>
+          <Field label="Gemini API key">
+            <input type="password" onChange={(event) => update({ geminiApiKey: event.target.value })} className="input" placeholder={value.geminiKeyConfigured ? "Configured" : ""} />
+          </Field>
+          <button className="primary-button col-span-2" type="submit" disabled={save.isPending}>
+            <KeyRound size={16} />
+            Save Settings
+          </button>
+        </form>
+        </Panel>
+        <Panel title="Runtime" icon={TerminalSquare}>
+        <div className="space-y-3 text-sm text-ink-300">
+          <StatusLine label="OpenAI" active={value.openAiKeyConfigured} />
+          <StatusLine label="Gemini" active={value.geminiKeyConfigured} />
+          <StatusLine label="Marketplace adapters" active />
+          <StatusLine label="Local database" active />
+          <div className="rounded-md border border-white/8 bg-white/5 p-3">
+            <div className="mb-2 text-xs uppercase tracking-[0.12em] text-ink-500">Application</div>
+            <div className="mb-3 space-y-1 break-all text-xs leading-5 text-ink-300">
+              <div>Product: {health.data?.product ?? APP_DISPLAY_NAME}</div>
+              <div>Version: {health.data?.version ?? "-"}</div>
+              <div>Packaged: {platform.data?.isPackaged ? "Yes" : "No"}</div>
+            </div>
+            <div className="mb-2 text-xs uppercase tracking-[0.12em] text-ink-500">
+              {platform.data?.os ?? "Platform"} folders
+            </div>
+            <div className="space-y-1 break-all text-xs leading-5 text-ink-300">
+              <div>Data: {platform.data?.directories.data ?? "-"}</div>
+              <div>Reports: {platform.data?.directories.reports ?? "-"}</div>
+              <div>Browser profiles: {platform.data?.directories.browserProfiles ?? "-"}</div>
+            </div>
+            {platform.data?.directories.appData && (
+              <button className="primary-button mt-3" type="button" onClick={() => void apiClient.openPath(platform.data.directories.appData)}>
+                <Archive size={16} />
+                Open App Folder
+              </button>
+            )}
+          </div>
+        </div>
+        </Panel>
+      </div>
+      <Panel title="AI API Key Setup" icon={KeyRound}>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ApiKeyGuide
+            provider="OpenAI"
+            configured={value.openAiKeyConfigured}
+            steps={[
+              "Open the OpenAI API Keys page and sign in.",
+              "Select Create new secret key and copy it when it is shown.",
+              "Paste it into OpenAI API key above, then save settings."
+            ]}
+            primaryLabel="Open OpenAI API Keys"
+            primaryUrl="https://platform.openai.com/api-keys"
+            documentationUrl="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key"
+          />
+          <ApiKeyGuide
+            provider="Gemini"
+            configured={value.geminiKeyConfigured}
+            steps={[
+              "Open Google AI Studio and sign in with your Google account.",
+              "Select Create API key, choose a project, and copy the generated key.",
+              "Paste it into Gemini API key above, then save settings."
+            ]}
+            primaryLabel="Open Google AI Studio"
+            primaryUrl="https://aistudio.google.com/app/apikey"
+            documentationUrl="https://ai.google.dev/gemini-api/docs/api-key"
+          />
+        </div>
+        <div className="mt-4 flex items-start gap-3 rounded-2xl bg-signal-amber/10 p-4 text-sm leading-6 text-ink-400">
+          <ShieldCheck className="mt-0.5 shrink-0 text-signal-amber" size={18} />
+          <span>API keys are secrets. Keep each key private, do not place it in screenshots or source control, and rotate it immediately if it is exposed.</span>
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+function ApiKeyGuide({
+  provider,
+  configured,
+  steps,
+  primaryLabel,
+  primaryUrl,
+  documentationUrl
+}: {
+  provider: string;
+  configured: boolean;
+  steps: string[];
+  primaryLabel: string;
+  primaryUrl: string;
+  documentationUrl: string;
+}) {
+  return (
+    <article className="rounded-[24px] bg-white/6 p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-base font-semibold text-white">{provider}</div>
+          <div className="mt-1 text-xs text-ink-500">Official provider setup</div>
+        </div>
+        <span className={configured ? "status-pill status-running" : "status-pill status-pending"}>{configured ? "Configured" : "Not configured"}</span>
+      </div>
+      <ol className="mt-4 space-y-3">
+        {steps.map((step, index) => (
+          <li key={step} className="flex gap-3 text-sm leading-6 text-ink-300">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal-blue/14 text-xs font-semibold text-signal-blue">{index + 1}</span>
+            <span>{step}</span>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button className="primary-button h-10 w-auto rounded-full px-4 text-sm" type="button" onClick={() => void apiClient.openUrl(primaryUrl)}>
+          <ExternalLink size={15} />
+          {primaryLabel}
+        </button>
+        <button className="secondary-button h-10 w-auto rounded-full px-4 text-sm" type="button" onClick={() => void apiClient.openUrl(documentationUrl)}>
+          <FileText size={15} />
+          Official guide
+        </button>
+      </div>
+    </article>
+  );
+}
