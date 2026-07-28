@@ -136,6 +136,8 @@ const settingsSchema = z.object({
   screenshotFolder: z.string().min(1),
   language: z.string().min(2),
   concurrency: z.number().int().min(1).max(5),
+  reportFilenameTemplate: z.string().min(1),
+  reportSectionOrder: z.array(z.enum([...REPORT_SECTION_ORDER, ...LEGACY_REPORT_SECTION_IDS])),
   openAiApiKey: z.string().optional(),
   geminiApiKey: z.string().optional()
 });
@@ -146,6 +148,8 @@ export const reportSchema = z.object({
   projectId: z.string().uuid(),
   templateId: z.string().min(2),
   theme: z.enum(["light", "dark"]).optional(),
+  fileName: z.string().min(1).optional(),
+  exportFolder: z.string().min(1).optional(),
   sections: z.array(
     z.object({
       id: reportSectionIdSchema,
@@ -833,6 +837,8 @@ export function createApp(): Express {
       screenshotFolder: input.screenshotFolder,
       language: input.language,
       concurrency: input.concurrency,
+      reportFilenameTemplate: input.reportFilenameTemplate,
+      reportSectionOrder: input.reportSectionOrder,
       openAiKeyConfigured: Boolean(input.openAiApiKey),
       geminiKeyConfigured: Boolean(input.geminiApiKey)
     });
@@ -1376,6 +1382,7 @@ type StructuredStoreProfile = {
     rating: number;
     reviewer: string;
     comment: string;
+    sellerResponse?: string;
     mediaUrls: string[];
     capturedAt?: string;
   }>;
@@ -2151,15 +2158,25 @@ function readStructuredStoreProfile(metadata?: Record<string, unknown>): Structu
   const ratingSamples = Array.isArray(raw.ratingSamples)
     ? raw.ratingSamples
         .filter(isRecord)
-        .map((sample) => ({
+        .map((sample, sourceIndex) => ({
           rating: Math.max(1, Math.min(5, readFiniteNumber(sample.rating) ?? 5)),
           reviewer: readString(sample.reviewer) ?? "Shopee buyer",
           comment: sanitizeShopeeReviewComment(readString(sample.comment) ?? ""),
+          sellerResponse: readString(sample.sellerResponse),
           mediaUrls: extractStringArray(sample.mediaUrls).filter(isReviewMediaUrl),
-          capturedAt: readString(sample.capturedAt)
+          capturedAt: readString(sample.capturedAt),
+          sourceIndex
         }))
-        .filter((sample) => sample.comment.length >= 20 && sample.mediaUrls.length > 0)
+        .filter((sample) => sample.comment.length >= 20)
+        .sort((a, b) => {
+          const priority = (sample: typeof a) =>
+            Number(sample.mediaUrls.length > 0) * 4 +
+            Number(Boolean(sample.comment.trim())) * 2 +
+            Number(Boolean(sample.sellerResponse?.trim()));
+          return priority(b) - priority(a) || a.sourceIndex - b.sourceIndex;
+        })
         .slice(0, 5)
+        .map(({ sourceIndex: _sourceIndex, ...sample }) => sample)
     : [];
 
   return {

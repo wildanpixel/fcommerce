@@ -1,4 +1,4 @@
-import type { ReportSectionConfig } from "./reportSections.js";
+import type { ReportSectionConfig, ReportSectionId } from "./reportSections.js";
 import type { StoreType } from "./storeTypes.js";
 
 export const MARKETPLACES = [
@@ -175,6 +175,7 @@ export type ProjectDetailPayload = {
       rating: number;
       reviewer: string;
       comment: string;
+      sellerResponse?: string;
       mediaUrls: string[];
       capturedAt?: string;
     }>;
@@ -240,6 +241,8 @@ export type SettingsPayload = {
   screenshotFolder: string;
   language: string;
   concurrency: number;
+  reportFilenameTemplate: string;
+  reportSectionOrder: ReportSectionId[];
   openAiKeyConfigured: boolean;
   geminiKeyConfigured: boolean;
 };
@@ -298,6 +301,8 @@ export type ReportGenerationPayload = {
   templateId: string;
   sections: ReportSectionConfig[];
   theme?: "light" | "dark";
+  fileName?: string;
+  exportFolder?: string;
 };
 
 export type ReportGenerationResult = {

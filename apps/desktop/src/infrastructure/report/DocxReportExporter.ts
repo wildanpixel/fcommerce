@@ -44,23 +44,41 @@ const SOFT_BLUE = "EAF2FF";
 
 export class ConsultingDocxReportExporter {
   async render(data: ReportData, payload?: ReportGenerationPayload): Promise<Buffer> {
-    const sections = enabledSectionIds(payload?.sections ?? DEFAULT_REPORT_SECTIONS);
+    const configuredSections = payload?.sections ?? DEFAULT_REPORT_SECTIONS;
+    const sections = enabledSectionIds(configuredSections);
+    const sectionPosition = new Map(configuredSections.map((section, index) => [section.id, index]));
+    const position = (...ids: ReportSectionConfig["id"][]) =>
+      Math.min(...ids.map((id) => sectionPosition.get(id) ?? Number.MAX_SAFE_INTEGER));
+    const filters = projectSearchFilters(data);
     const children: DocxChild[] = [
       titleParagraph("MarketPlace Keyword Competitor Analysis"),
       paragraph(data.project.keyword, { size: 36, bold: true, color: INK }),
       paragraph(`${data.project.marketplace} keyword competitor report generated from local guided evidence.`, { color: MUTED }),
+      simpleTable([
+        ["Shop Type", filters.shopTypes],
+        ["Price Range", filters.priceRange]
+      ], [30, 70]),
       linkParagraph("Developer: Wildan Ega Pradana", AUTHOR_LINKEDIN),
       spacer()
     ];
-
+    const blocks: Array<{ position: number; children: DocxChild[] }> = [];
     if (include(sections, "summaryMetrics", "cover")) {
-      children.push(sectionHeading("Summary Metrics"), metricsTable(data), spacer());
+      blocks.push({
+        position: position("summaryMetrics", "cover"),
+        children: [sectionHeading("Summary Metrics"), metricsTable(data), spacer()]
+      });
     }
     if (include(sections, "keywordGeneral", "keywordRelevance", "topSales")) {
-      children.push(...await keywordGeneralSection(data));
+      blocks.push({
+        position: position("keywordGeneral", "keywordRelevance", "topSales"),
+        children: await keywordGeneralSection(data)
+      });
     }
     if (include(sections, "keyProducts", "keyProductTable")) {
-      children.push(sectionHeading("Key Products"), keyProductTable(data), spacer());
+      blocks.push({
+        position: position("keyProducts", "keyProductTable"),
+        children: [sectionHeading("Key Products"), keyProductTable(data), spacer()]
+      });
     }
     if (include(
       sections,
@@ -73,17 +91,34 @@ export class ConsultingDocxReportExporter {
       "productDossiers",
       "reviewEvidence"
     )) {
-      children.push(...await productDetailSections(data, sections));
+      blocks.push({
+        position: position("productDetailFirstPage", "productDossiers", "reviewEvidence"),
+        children: await productDetailSections(data, sections)
+      });
     }
     if (include(sections, "keyStoreHomePage", "keyStoreProducts", "keyStoreBestSellers", "keyStoreVisualStyle", "storeOverview", "storeDossiers", "visualStyle")) {
-      children.push(...await keyStoreSection(data, sections));
+      blocks.push({
+        position: position("keyStoreHomePage", "storeOverview", "storeDossiers", "visualStyle"),
+        children: await keyStoreSection(data, sections)
+      });
     }
     if (include(sections, "intelligence", "aiRecommendations")) {
-      children.push(...intelligenceSection(data));
+      blocks.push({
+        position: position("intelligence", "aiRecommendations"),
+        children: intelligenceSection(data)
+      });
     }
     if (include(sections, "tiktokEvidence", "crossPlatformEvidence")) {
-      children.push(...await tiktokSection(data));
+      blocks.push({
+        position: position("tiktokEvidence", "crossPlatformEvidence"),
+        children: await tiktokSection(data)
+      });
     }
+    children.push(
+      ...blocks
+        .sort((left, right) => left.position - right.position)
+        .flatMap((block) => block.children)
+    );
 
     const doc = new Document({
       title: data.project.keyword,

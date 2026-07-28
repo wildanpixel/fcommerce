@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, extname, resolve } from "node:path";
 import type { ProjectSummary } from "../../shared/contracts.js";
 import type { ReportWorkspace } from "../../application/services/ReportService.js";
 import type { WorkspaceLocator } from "../../application/services/IntelligenceWorkflow.js";
@@ -23,14 +23,21 @@ export class ProjectWorkspace implements WorkspaceLocator, ReportWorkspace {
     return folder;
   }
 
-  async ensureReportPaths(projectId: string, templateId: string): Promise<{
+  async ensureReportPaths(projectId: string, templateId: string, options?: {
+    fileName?: string;
+    exportFolder?: string;
+  }): Promise<{
     htmlPath: string;
     pdfPath: string;
   }> {
-    const folder = resolve(this.exportRoot, projectId);
+    const folder = resolve(options?.exportFolder ?? this.exportRoot, projectId);
     await mkdir(folder, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const base = `${slug(templateId)}-${timestamp}`;
+    const requestedName = options?.fileName?.trim();
+    const withoutExtension = requestedName
+      ? basename(requestedName, extname(requestedName))
+      : `${slug(templateId)}-${timestamp}`;
+    const base = sanitizeReportFileName(withoutExtension);
     return {
       htmlPath: resolve(folder, `${base}.html`),
       pdfPath: resolve(folder, `${base}.pdf`)
@@ -41,6 +48,15 @@ export class ProjectWorkspace implements WorkspaceLocator, ReportWorkspace {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, html, "utf8");
   }
+}
+
+export function sanitizeReportFileName(value: string): string {
+  const cleaned = value
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/[. ]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length > 0 ? cleaned.slice(0, 180) : "marketplace-report";
 }
 
 export function slug(value: string): string {

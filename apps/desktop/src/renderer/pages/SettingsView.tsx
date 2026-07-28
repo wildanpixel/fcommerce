@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ExternalLink, FileText, KeyRound, Settings, ShieldCheck, TerminalSquare } from "lucide-react";
+import { Archive, Bot, ExternalLink, FileText, FolderOpen, KeyRound, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, TerminalSquare } from "lucide-react";
 import type { SaveSettingsPayload, SettingsPayload } from "../../shared/contracts.js";
 import { apiClient } from "../api/client.js";
 import { APP_LANGUAGES } from "../app/languages.js";
@@ -14,6 +14,7 @@ export function SettingsView() {
   const platform = useQuery({ queryKey: ["platform"], queryFn: apiClient.platform });
   const health = useQuery({ queryKey: ["health"], queryFn: apiClient.health });
   const browsers = useQuery({ queryKey: ["browsers"], queryFn: apiClient.browsers });
+  const [activeSection, setActiveSection] = useState<"general" | "ai">("general");
   type SettingsFormState = SaveSettingsPayload &
     Pick<SettingsPayload, "openAiKeyConfigured" | "geminiKeyConfigured">;
   const [form, setForm] = useState<SettingsFormState | null>(null);
@@ -47,14 +48,45 @@ export function SettingsView() {
       screenshotFolder: value.screenshotFolder,
       language: value.language,
       concurrency: value.concurrency,
+      reportFilenameTemplate: value.reportFilenameTemplate,
+      reportSectionOrder: value.reportSectionOrder,
       openAiApiKey: value.openAiApiKey,
       geminiApiKey: value.geminiApiKey
     });
   }
 
+  async function chooseFolder(field: "exportFolder" | "screenshotFolder") {
+    const selected = await window.marketplaceOS?.platform?.pickFolder();
+    if (selected) {
+      update({ [field]: selected });
+    }
+  }
+
+  function resetFolder(field: "exportFolder" | "screenshotFolder") {
+    const directory = field === "exportFolder"
+      ? platform.data?.directories.reports
+      : platform.data?.directories.screenshots;
+    if (directory) {
+      update({ [field]: directory });
+    }
+  }
+
   return (
     <section className="space-y-5">
-      <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-5">
+      <div className="grid grid-cols-[220px_minmax(0,1fr)] gap-5">
+        <nav className="mio-panel h-fit space-y-2 rounded-[24px] p-3" aria-label="Settings sections">
+          <button className={activeSection === "general" ? "primary-button w-full justify-start" : "secondary-button w-full justify-start border-0"} type="button" onClick={() => setActiveSection("general")}>
+            <SlidersHorizontal size={16} />
+            General
+          </button>
+          <button className={activeSection === "ai" ? "primary-button w-full justify-start" : "secondary-button w-full justify-start border-0"} type="button" onClick={() => setActiveSection("ai")}>
+            <Bot size={16} />
+            AI Configuration
+          </button>
+        </nav>
+        <div className="space-y-5">
+        {activeSection === "general" ? (
+        <>
         <Panel title="Settings" icon={Settings}>
         <form className="grid grid-cols-2 gap-4" onSubmit={submit}>
           <Field label="Theme">
@@ -75,10 +107,26 @@ export function SettingsView() {
             </select>
           </Field>
           <Field label="Export folder">
-            <input value={value.exportFolder} onChange={(event) => update({ exportFolder: event.target.value })} className="input" />
+            <div className="flex gap-2">
+              <input value={value.exportFolder} readOnly className="input min-w-0 flex-1" title={value.exportFolder} />
+              <button className="secondary-button mio-round-icon-button h-11 w-11 shrink-0 px-0" type="button" onClick={() => void chooseFolder("exportFolder")} aria-label="Choose report export folder" title="Choose report export folder">
+                <FolderOpen size={16} />
+              </button>
+              <button className="secondary-button mio-round-icon-button h-11 w-11 shrink-0 px-0" type="button" onClick={() => resetFolder("exportFolder")} aria-label="Reset report export folder" title="Reset to default">
+                <RotateCcw size={16} />
+              </button>
+            </div>
           </Field>
           <Field label="Screenshot folder">
-            <input value={value.screenshotFolder} onChange={(event) => update({ screenshotFolder: event.target.value })} className="input" />
+            <div className="flex gap-2">
+              <input value={value.screenshotFolder} readOnly className="input min-w-0 flex-1" title={value.screenshotFolder} />
+              <button className="secondary-button mio-round-icon-button h-11 w-11 shrink-0 px-0" type="button" onClick={() => void chooseFolder("screenshotFolder")} aria-label="Choose screenshot folder" title="Choose screenshot folder">
+                <FolderOpen size={16} />
+              </button>
+              <button className="secondary-button mio-round-icon-button h-11 w-11 shrink-0 px-0" type="button" onClick={() => resetFolder("screenshotFolder")} aria-label="Reset screenshot folder" title="Reset to default">
+                <RotateCcw size={16} />
+              </button>
+            </div>
           </Field>
           <Field label="Language">
             <select value={value.language} onChange={(event) => update({ language: event.target.value })} className="input">
@@ -99,11 +147,8 @@ export function SettingsView() {
               className="input"
             />
           </Field>
-          <Field label="OpenAI API key">
-            <input type="password" onChange={(event) => update({ openAiApiKey: event.target.value })} className="input" placeholder={value.openAiKeyConfigured ? "Configured" : ""} />
-          </Field>
-          <Field label="Gemini API key">
-            <input type="password" onChange={(event) => update({ geminiApiKey: event.target.value })} className="input" placeholder={value.geminiKeyConfigured ? "Configured" : ""} />
+          <Field label="Report filename template">
+            <input value={value.reportFilenameTemplate} onChange={(event) => update({ reportFilenameTemplate: event.target.value })} className="input" />
           </Field>
           <button className="primary-button col-span-2" type="submit" disabled={save.isPending}>
             <KeyRound size={16} />
@@ -141,7 +186,23 @@ export function SettingsView() {
           </div>
         </div>
         </Panel>
-      </div>
+        </>
+        ) : (
+        <>
+        <Panel title="AI Configuration" icon={KeyRound}>
+          <form className="grid gap-4 lg:grid-cols-2" onSubmit={submit}>
+            <Field label="OpenAI API key">
+              <input type="password" onChange={(event) => update({ openAiApiKey: event.target.value })} className="input" placeholder={value.openAiKeyConfigured ? "Configured" : ""} />
+            </Field>
+            <Field label="Gemini API key">
+              <input type="password" onChange={(event) => update({ geminiApiKey: event.target.value })} className="input" placeholder={value.geminiKeyConfigured ? "Configured" : ""} />
+            </Field>
+            <button className="primary-button lg:col-span-2" type="submit" disabled={save.isPending}>
+              <KeyRound size={16} />
+              Save AI Configuration
+            </button>
+          </form>
+        </Panel>
       <Panel title="AI API Key Setup" icon={KeyRound}>
         <div className="grid gap-4 lg:grid-cols-2">
           <ApiKeyGuide
@@ -174,6 +235,10 @@ export function SettingsView() {
           <span>API keys are secrets. Keep each key private, do not place it in screenshots or source control, and rotate it immediately if it is exposed.</span>
         </div>
       </Panel>
+        </>
+        )}
+        </div>
+      </div>
     </section>
   );
 }

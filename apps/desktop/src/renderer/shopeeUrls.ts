@@ -61,6 +61,14 @@ export function withShopeeProductDisplayModel(value: string, viewMode: ShopeeVie
   }
 }
 
+export function toDesktopUrl(value: string): string {
+  return withShopeeProductDisplayModel(value, "desktop");
+}
+
+export function toMobileUrl(value: string): string {
+  return withShopeeProductDisplayModel(value, "mobile");
+}
+
 function normalizePrice(value?: number): number | undefined {
   if (!Number.isFinite(value) || value === undefined || value < 0) {
     return undefined;

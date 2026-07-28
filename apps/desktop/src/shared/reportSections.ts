@@ -39,6 +39,42 @@ export type ReportSectionConfig = {
   requiredEvidence: string[];
 };
 
+export const REPORT_SECTION_GROUPS = [
+  { id: "summary", title: "Summary", sectionIds: ["summaryMetrics"] },
+  { id: "keyword-general", title: "Keyword General", sectionIds: ["keywordGeneral"] },
+  { id: "key-products", title: "Key Products", sectionIds: ["keyProducts"] },
+  {
+    id: "product-detail",
+    title: "Product Detail",
+    sectionIds: [
+      "productDetailFirstPage",
+      "productDetailSlides",
+      "productDetailDescription",
+      "productDetailReviews",
+      "productDetailUserMedia",
+      "productDetailShopHomePage"
+    ]
+  },
+  {
+    id: "key-store",
+    title: "Key Store",
+    sectionIds: [
+      "keyStoreHomePage",
+      "keyStoreProducts",
+      "keyStoreBestSellers",
+      "keyStoreVisualStyle"
+    ]
+  },
+  { id: "intelligence", title: "Intelligence", sectionIds: ["intelligence"] },
+  { id: "tiktok", title: "TikTok Evidence", sectionIds: ["tiktokEvidence"] }
+] as const satisfies ReadonlyArray<{
+  id: string;
+  title: string;
+  sectionIds: readonly ReportSectionId[];
+}>;
+
+export type ReportSectionGroupId = (typeof REPORT_SECTION_GROUPS)[number]["id"];
+
 export const DEFAULT_REPORT_SECTIONS: ReportSectionConfig[] = [
   {
     id: "summaryMetrics",

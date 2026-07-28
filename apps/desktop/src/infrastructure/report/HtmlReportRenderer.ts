@@ -12,25 +12,54 @@ export class ConsultingHtmlReportRenderer implements HtmlReportRenderer {
   async render(data: ReportData, payload: ReportGenerationPayload): Promise<string> {
     const enabled = new Set(payload.sections.filter((section) => section.enabled).map((section) => section.id));
     const include = (...ids: Array<(typeof payload.sections)[number]["id"]>) => ids.some((id) => enabled.has(id));
+    const sectionPosition = new Map(payload.sections.map((section, index) => [section.id, index]));
+    const position = (...ids: Array<(typeof payload.sections)[number]["id"]>) =>
+      Math.min(...ids.map((id) => sectionPosition.get(id) ?? Number.MAX_SAFE_INTEGER));
+    const blocks = [
+      {
+        position: position("summaryMetrics", "cover"),
+        html: include("summaryMetrics", "cover") ? summaryMetrics(data) : ""
+      },
+      {
+        position: position("keywordGeneral", "keywordRelevance", "topSales"),
+        html: include("keywordGeneral", "keywordRelevance", "topSales") ? keywordGeneral(data) : ""
+      },
+      {
+        position: position("keyProducts", "keyProductTable"),
+        html: include("keyProducts", "keyProductTable") ? keyProductTable(data) : ""
+      },
+      {
+        position: position("productDetailFirstPage", "productDossiers", "reviewEvidence"),
+        html: include(
+          "productDetailFirstPage",
+          "productDetailSlides",
+          "productDetailDescription",
+          "productDetailReviews",
+          "productDetailUserMedia",
+          "productDetailShopHomePage",
+          "productDossiers",
+          "reviewEvidence"
+        ) ? productDossiers(data, enabled) : ""
+      },
+      {
+        position: position("keyStoreHomePage", "storeOverview", "storeDossiers", "visualStyle"),
+        html: include("keyStoreHomePage", "keyStoreProducts", "keyStoreBestSellers", "keyStoreVisualStyle", "storeOverview", "storeDossiers", "visualStyle")
+          ? keyStoreReport(data, enabled)
+          : ""
+      },
+      {
+        position: position("intelligence", "aiRecommendations"),
+        html: include("intelligence", "aiRecommendations") ? aiRecommendations(data) : ""
+      },
+      {
+        position: position("tiktokEvidence", "crossPlatformEvidence"),
+        html: include("tiktokEvidence", "crossPlatformEvidence") ? crossPlatformEvidence(data) : ""
+      }
+    ].filter((block) => block.html).sort((left, right) => left.position - right.position);
     const parts = [
       documentStart(data.project.name, payload.theme ?? "light"),
       reportHeader(data),
-      include("summaryMetrics", "cover") ? summaryMetrics(data) : "",
-      include("keywordGeneral", "keywordRelevance", "topSales") ? keywordGeneral(data) : "",
-      include("keyProducts", "keyProductTable") ? keyProductTable(data) : "",
-      include(
-        "productDetailFirstPage",
-        "productDetailSlides",
-        "productDetailDescription",
-        "productDetailReviews",
-        "productDetailUserMedia",
-        "productDetailShopHomePage",
-        "productDossiers",
-        "reviewEvidence"
-      ) ? productDossiers(data, enabled) : "",
-      include("keyStoreHomePage", "keyStoreProducts", "keyStoreBestSellers", "keyStoreVisualStyle", "storeOverview", "storeDossiers", "visualStyle") ? keyStoreReport(data, enabled) : "",
-      include("intelligence", "aiRecommendations") ? aiRecommendations(data) : "",
-      include("tiktokEvidence", "crossPlatformEvidence") ? crossPlatformEvidence(data) : "",
+      ...blocks.map((block) => block.html),
       documentEnd()
     ];
     return parts.filter(Boolean).join("\n");
@@ -180,10 +209,15 @@ function documentEnd(): string {
 }
 
 function reportHeader(data: ReportData): string {
+  const filters = projectSearchFilters(data);
   return `<header class="inspector-header">
     <p class="kicker">MarketPlace Keyword Competitor Analysis</p>
     <h1>${escapeHtml(data.project.keyword)}</h1>
     <p class="muted">${escapeHtml(data.project.marketplace)} keyword competitor report generated from local guided evidence.</p>
+    <div class="grid two">
+      <div class="metric">Shop Type<b>${escapeHtml(filters.shopTypes)}</b></div>
+      <div class="metric">Price Range<b>${escapeHtml(filters.priceRange)}</b></div>
+    </div>
     <p class="small muted">Developer: Wildan Ega Pradana · <a href="https://www.linkedin.com/in/wildanegapradana/">https://www.linkedin.com/in/wildanegapradana/</a></p>
   </header>`;
 }

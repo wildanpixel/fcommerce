@@ -71,6 +71,7 @@ export type StoreProfile = {
     rating: number;
     reviewer: string;
     comment: string;
+    sellerResponse?: string;
     mediaUrls: string[];
     capturedAt?: string;
   }>;

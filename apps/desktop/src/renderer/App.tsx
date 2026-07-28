@@ -68,7 +68,13 @@ import type {
   StoreCollectionCandidate
 } from "../shared/contracts.js";
 import { SHOPEE_SHOP_TYPE_FILTERS } from "../shared/contracts.js";
-import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../shared/reportSections.js";
+import {
+  DEFAULT_REPORT_SECTIONS,
+  REPORT_SECTION_GROUPS,
+  type ReportSectionConfig,
+  type ReportSectionGroupId,
+  type ReportSectionId
+} from "../shared/reportSections.js";
 import {
   isValidStoreType,
   normalizeStoreType as normalizeStoreTypeValue,
@@ -89,7 +95,12 @@ import {
   storeProductsUrl,
   storeRatingsUrl
 } from "./collectionKeyStore.js";
-import { buildShopeeSearchUrl, withShopeeProductDisplayModel } from "./shopeeUrls.js";
+import {
+  buildShopeeSearchUrl,
+  toDesktopUrl,
+  toMobileUrl,
+  withShopeeProductDisplayModel
+} from "./shopeeUrls.js";
 import { type AppView, useUiStore } from "./store/uiStore.js";
 import { APP_LANGUAGES, type AppLanguage } from "./app/languages.js";
 import { EmptyState, Field, Panel } from "./components/ui.js";
@@ -354,7 +365,9 @@ function appPortalRoot(): Element {
 
 export default function App() {
   const activeView = useUiStore((state) => state.activeView);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("mio-sidebar-collapsed") === "true"
+  );
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [showSplash, setShowSplash] = useState(true);
   const [collectionPageActive, setCollectionPageActive] = useState(false);
@@ -367,6 +380,10 @@ export default function App() {
   useEffect(() => {
     restoreRendererFocus();
   }, [activeView]);
+
+  useEffect(() => {
+    window.localStorage.setItem("mio-sidebar-collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     const handleCollectionPageState = (event: Event) => {
@@ -383,19 +400,17 @@ export default function App() {
   return (
     <div className={`mio-app ${themeMode === "light" ? "mio-light" : "mio-dark"} min-h-screen bg-ink-950 text-ink-100`}>
       <AnimatePresence>{showSplash && <SplashScreen />}</AnimatePresence>
-      <div className={["grid min-h-screen transition-[grid-template-columns] duration-300 ease-out", sidebarVisible ? "grid-cols-[264px_minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)]"].join(" ")}>
-        <AnimatePresence>{sidebarVisible && <Sidebar onHide={() => setSidebarVisible(false)} />}</AnimatePresence>
+      <div
+        className={[
+          "grid min-h-screen transition-[grid-template-columns] duration-300 ease-out",
+          sidebarCollapsed ? "grid-cols-[76px_minmax(0,1fr)]" : "grid-cols-[264px_minmax(0,1fr)]"
+        ].join(" ")}
+      >
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed((current) => !current)}
+        />
         <main className="mio-main min-w-0 border-l border-white/8 bg-[linear-gradient(180deg,#10141d,#090b10_48%)]">
-          {!sidebarVisible && (
-            <button
-              type="button"
-              className="mio-sidebar-show secondary-button fixed left-4 top-4 z-[60] h-10 w-10 px-0"
-              aria-label="Show sidebar"
-              onClick={() => setSidebarVisible(true)}
-            >
-              <PanelLeftOpen size={17} />
-            </button>
-          )}
           <TopBar
             themeMode={themeMode}
             onThemeToggle={() => setThemeMode((value) => (value === "dark" ? "light" : "dark"))}
@@ -464,34 +479,54 @@ function SplashScreen() {
   );
 }
 
-function Sidebar({ onHide }: { onHide: () => void }) {
+function Sidebar({
+  collapsed,
+  onToggle
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   const activeView = useUiStore((state) => state.activeView);
   const setActiveView = useUiStore((state) => state.setActiveView);
 
   return (
     <motion.aside
-      className="mio-sidebar flex min-h-screen flex-col bg-ink-900 px-4 py-5 transition-all duration-300 ease-out"
+      className={[
+        "mio-sidebar flex min-h-screen flex-col bg-ink-900 py-5 transition-all duration-300 ease-out",
+        collapsed ? "mio-sidebar-collapsed px-2" : "px-4"
+      ].join(" ")}
       initial={false}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: -24, opacity: 0 }}
-      transition={{ duration: 0.18 }}
+      animate={{ width: "100%" }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
     >
-      <div className="mb-8 flex items-center gap-3 px-2">
+      <div
+        className={[
+          "mb-8 flex items-center gap-3",
+          collapsed ? "flex-col px-0" : "px-2"
+        ].join(" ")}
+      >
         <div className="mio-brand-mark flex h-9 w-9 items-center justify-center rounded-md bg-signal-blue/15 text-signal-blue">
           <Brain size={20} />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="mio-brand-title text-sm font-semibold leading-5">MarketPlace Keyword</div>
-          <div className="mio-brand-subtitle text-xs leading-5 text-ink-500">Competitor Analysis</div>
-        </div>
+        {!collapsed && (
+          <motion.div
+            className="min-w-0 flex-1"
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+          >
+            <div className="mio-brand-title text-sm font-semibold leading-5">MarketPlace Keyword</div>
+            <div className="mio-brand-subtitle text-xs leading-5 text-ink-500">Competitor Analysis</div>
+          </motion.div>
+        )}
         <button
           type="button"
           className="secondary-button mio-round-icon-button h-10 w-10 shrink-0 px-0"
-          aria-label="Hide sidebar"
-          title="Hide sidebar"
-          onClick={onHide}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={onToggle}
         >
-          <PanelLeftClose size={16} />
+          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
 
@@ -503,20 +538,25 @@ function Sidebar({ onHide }: { onHide: () => void }) {
             <button
               key={item.id}
               type="button"
+              aria-label={item.label}
+              aria-current={active ? "page" : undefined}
+              title={collapsed ? item.label : undefined}
+              data-tooltip={collapsed ? item.label : undefined}
               className={[
-                "mio-nav-button flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition",
+                "mio-nav-button flex h-10 w-full items-center rounded-md text-left text-sm transition",
+                collapsed ? "justify-center px-0" : "gap-3 px-3",
                 active ? "mio-nav-active bg-white/9 text-white shadow-glow" : "text-ink-300 hover:bg-white/6 hover:text-white"
               ].join(" ")}
               onClick={() => setActiveView(item.id)}
             >
-              <Icon size={17} />
-              {item.label}
+              <Icon size={17} className="shrink-0" />
+              {!collapsed && <span>{item.label}</span>}
             </button>
           );
         })}
       </nav>
 
-      <div className="mt-auto space-y-3">
+      {!collapsed && <div className="mt-auto space-y-3">
         <button
           type="button"
           className="w-full rounded-md border border-white/8 bg-white/5 p-3 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
@@ -537,9 +577,52 @@ function Sidebar({ onHide }: { onHide: () => void }) {
           Keyword projects, screenshots, reports, browser sessions, and keys stay on this machine.
         </div>
         </div>
-      </div>
+      </div>}
     </motion.aside>
   );
+}
+
+function useCompactTopBar(): boolean {
+  const [compact, setCompact] = useState(false);
+  const lastScrollY = useRef(0);
+
+  useEffect(() => {
+    let frame = 0;
+    const threshold = 12;
+
+    const update = () => {
+      const nextScrollY = Math.max(0, window.scrollY);
+      const delta = nextScrollY - lastScrollY.current;
+
+      if (nextScrollY < 24) {
+        setCompact(false);
+      } else if (delta > threshold) {
+        setCompact(true);
+        lastScrollY.current = nextScrollY;
+      } else if (delta < -threshold) {
+        setCompact(false);
+        lastScrollY.current = nextScrollY;
+      }
+      frame = 0;
+    };
+
+    const handleScroll = () => {
+      if (frame === 0) {
+        frame = window.requestAnimationFrame(update);
+      }
+    };
+
+    lastScrollY.current = window.scrollY;
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (frame !== 0) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, []);
+
+  return compact;
 }
 
 function TopBar({
@@ -553,8 +636,15 @@ function TopBar({
   showActivityButton?: boolean;
   onActivityToggle?: () => void;
 }) {
+  const compact = useCompactTopBar();
+
   return (
-    <header className="flex h-16 items-center justify-between px-8">
+    <header
+      className={[
+        "mio-top-bar sticky top-0 z-50 flex items-center justify-between px-8",
+        compact ? "mio-top-bar-compact h-12" : "h-16"
+      ].join(" ")}
+    >
       <h1 className="text-lg font-semibold text-white">Manual Evidence Collection</h1>
       <div className="flex items-center gap-2">
         <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onThemeToggle}>
@@ -670,10 +760,11 @@ function ManualResearchExperience() {
 
 function CreateAnalysisHome({ onCreate }: { onCreate: () => void }) {
   return (
-    <section className="flex min-h-[calc(100vh-120px)] items-center justify-center">
+    <section className="mio-new-research relative flex min-h-[calc(100vh-120px)] items-center justify-center overflow-hidden">
+      <NewResearchBackdrop />
       <motion.button
         type="button"
-        className="mio-create-button group flex min-h-[168px] w-full max-w-[520px] flex-col items-start justify-between rounded-[26px] border border-white/16 bg-white/8 p-8 text-left shadow-glow backdrop-blur-2xl transition"
+        className="mio-create-button relative z-10 group flex min-h-[168px] w-full max-w-[520px] flex-col items-start justify-between rounded-[26px] border border-white/16 bg-white/8 p-8 text-left shadow-glow backdrop-blur-2xl transition"
         whileHover={{ y: -4, scale: 1.01 }}
         whileTap={{ scale: 0.99 }}
         onClick={onCreate}
@@ -693,6 +784,57 @@ function CreateAnalysisHome({ onCreate }: { onCreate: () => void }) {
         </span>
       </motion.button>
     </section>
+  );
+}
+
+function NewResearchBackdrop() {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    const container = root?.parentElement;
+    if (!root || !container) return;
+
+    let frame = 0;
+    let pointerX = 50;
+    let pointerY = 50;
+
+    const paintPointer = () => {
+      root.style.setProperty("--mio-pointer-x", `${pointerX}%`);
+      root.style.setProperty("--mio-pointer-y", `${pointerY}%`);
+      frame = 0;
+    };
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      const bounds = container.getBoundingClientRect();
+      pointerX = ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * 100;
+      pointerY = ((event.clientY - bounds.top) / Math.max(bounds.height, 1)) * 100;
+      if (frame === 0) frame = window.requestAnimationFrame(paintPointer);
+    };
+    const handleVisibility = () => {
+      root.toggleAttribute("data-paused", document.hidden);
+    };
+
+    container.addEventListener("pointermove", handlePointerMove, { passive: true });
+    document.addEventListener("visibilitychange", handleVisibility);
+    handleVisibility();
+    return () => {
+      container.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  return (
+    <div ref={rootRef} className="mio-new-research-backdrop" aria-hidden="true">
+      <div className="mio-new-research-glow" />
+      <div className="mio-marketplace-icon mio-marketplace-icon-1"><ShoppingBag size={24} /></div>
+      <div className="mio-marketplace-icon mio-marketplace-icon-2"><Search size={22} /></div>
+      <div className="mio-marketplace-icon mio-marketplace-icon-3"><Store size={24} /></div>
+      <div className="mio-marketplace-icon mio-marketplace-icon-4"><Globe2 size={23} /></div>
+      <div className="mio-research-particles">
+        {Array.from({ length: 12 }, (_, index) => <span key={index} />)}
+      </div>
+    </div>
   );
 }
 
@@ -1700,9 +1842,9 @@ function GuidedBrowserCollector({
     const firstIncompleteIndex = stageSteps.findIndex((step) => !isCollectionStepComplete(step, collectedSteps));
     const nextIndex = firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0;
     setActiveStage(stage);
-    const nextViewMode = stage === "EVALUATION_KEY_STORE" ? "mobile" : viewMode;
+    const nextViewMode = stage === "EVALUATION_KEY_STORE" ? "desktop" : viewMode;
     if (stage === "EVALUATION_KEY_STORE") {
-      setViewMode("mobile");
+      switchBrowserViewMode("desktop");
     }
     setActiveStepIndex(nextIndex);
     setReviewingKeyProducts(false);
@@ -1890,6 +2032,23 @@ function GuidedBrowserCollector({
     });
   }
 
+  function switchBrowserViewMode(nextViewMode: PlatformViewMode) {
+    const nextUrl = nextViewMode === "mobile"
+      ? toMobileUrl(currentUrl)
+      : toDesktopUrl(currentUrl);
+    setViewMode(nextViewMode);
+    setAddress(nextUrl);
+    setCurrentUrl(nextUrl);
+    onBrowserUrlChange(nextUrl);
+    persistCollectionState({
+      viewMode: nextViewMode,
+      browserUrl: nextUrl
+    });
+    void webviewRef.current?.loadURL?.(nextUrl).catch((error: unknown) => {
+      appendLog(setActivityLog, error instanceof Error ? error.message : "Could not switch browser view.");
+    });
+  }
+
   function goToAddress() {
     if (address.trim().length === 0) {
       return;
@@ -1925,7 +2084,7 @@ function GuidedBrowserCollector({
       setReviewingEvaluation(enteringEvaluation);
       if (enteringEvaluation) {
         setExpanded(false);
-        setViewMode("mobile");
+        switchBrowserViewMode("desktop");
       }
       persistCollectionState({
         ...stateOverrides,
@@ -1936,7 +2095,7 @@ function GuidedBrowserCollector({
         completedStepIds: Object.keys(nextCollectedSteps),
         progressPercent: collectionProgress(allSteps, nextCollectedSteps),
         currentStepId: allSteps.find((step) => step.stage === nextStage)?.id,
-        viewMode: enteringEvaluation ? "mobile" : viewMode
+        viewMode: enteringEvaluation ? "desktop" : viewMode
       });
       appendLog(setActivityLog, `${collectionStageLabel(activeStage)} completed. Continue with ${collectionStageLabel(nextStage)}.`);
       if (activeStage === "PRODUCT_DETAILS" && enteringEvaluation) {
@@ -2049,8 +2208,8 @@ function GuidedBrowserCollector({
       return;
     }
     setStoreCollectionCandidates(candidates);
-    setViewMode("mobile");
-    const nextAllSteps = buildCollectionSteps(project, platform, currentUrl, "mobile", detail, candidates);
+    switchBrowserViewMode("desktop");
+    const nextAllSteps = buildCollectionSteps(project, platform, currentUrl, "desktop", detail, candidates);
     const stageSteps = nextAllSteps.filter((step) => step.stage === "EVALUATION_KEY_STORE");
     const nextCollectedSteps: Record<string, string> = { ...collectedSteps };
     let reusedHomepageCount = 0;
@@ -2074,7 +2233,7 @@ function GuidedBrowserCollector({
     }
     persistCollectionState({
       stage: "EVALUATION_KEY_STORE",
-      viewMode: "mobile",
+      viewMode: "desktop",
       storeCollectionCandidates: candidates,
       stepAssetPaths: nextCollectedSteps,
       completedStepIds: Object.keys(nextCollectedSteps),
@@ -2337,11 +2496,11 @@ function GuidedBrowserCollector({
             icon={Monitor}
             disabled={platform !== "SHOPEE_ID"}
             compact
-            onClick={() => platform === "SHOPEE_ID" && setViewMode("desktop")}
+            onClick={() => platform === "SHOPEE_ID" && switchBrowserViewMode("desktop")}
           >
             Desktop
           </SegmentButton>
-          <SegmentButton active={viewMode === "mobile"} icon={Smartphone} compact onClick={() => setViewMode("mobile")}>
+          <SegmentButton active={viewMode === "mobile"} icon={Smartphone} compact onClick={() => switchBrowserViewMode("mobile")}>
             Mobile
           </SegmentButton>
         </div>
@@ -2364,7 +2523,22 @@ function GuidedBrowserCollector({
       </div>
 
       <div
-        className={["mio-browser-frame relative min-h-0 overflow-hidden border border-white/12 bg-black", expanded ? "flex-1 rounded-none" : "rounded-[18px]", viewMode === "mobile" && !expanded ? "mx-auto h-[720px] max-w-[430px]" : expanded ? "h-full w-full" : "h-[720px] w-full"].join(" ")}
+        className={[
+          "mio-collection-workspace min-h-0",
+          viewMode === "mobile"
+            ? "flex flex-1 items-start justify-center gap-4 overflow-auto"
+            : "relative flex-1"
+        ].join(" ")}
+      >
+      <div
+        className={[
+          "mio-browser-frame relative min-h-0 shrink-0 overflow-hidden border border-white/12 bg-black",
+          viewMode === "mobile"
+            ? "h-[720px] w-[430px] max-w-full rounded-[18px]"
+            : expanded
+              ? "h-full w-full flex-1 rounded-none"
+              : "h-[720px] w-full rounded-[18px]"
+        ].join(" ")}
         onPointerDownCapture={(event) => {
           const target = event.target as Element | null;
           if (target?.closest(".mio-floating-collector")) {
@@ -2379,7 +2553,7 @@ function GuidedBrowserCollector({
             webviewRef.current = node as WebviewElement | null;
             applyWebviewShadowFrameLayout(webviewRef.current);
           }}
-          src={initialUrl}
+          src={currentUrl}
           partition={`persist:mio-${platform.toLowerCase()}`}
           allowpopups
           useragent={userAgent}
@@ -2422,6 +2596,8 @@ function GuidedBrowserCollector({
             />
           )}
         </AnimatePresence>
+      </div>
+      <div className={viewMode === "mobile" ? "relative h-[720px] w-[320px] shrink-0" : "contents"}>
         <FloatingStepController
           step={controllerStep}
           viewMode={viewMode}
@@ -2469,6 +2645,7 @@ function GuidedBrowserCollector({
           onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
           onNext={advanceGuidedCollection}
         />
+      </div>
       </div>
     </Panel>
   );
@@ -4003,6 +4180,7 @@ function ProjectsView() {
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-base font-semibold text-white">{project.name}</div>
+                      <ProjectFilterMetadata project={project} />
                       <div className="mt-1 text-xs text-ink-500">{formatDateTime(project.createdAt)}</div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -4189,6 +4367,7 @@ function ProjectInspectionPanel({
         </button>
         <div className="min-w-0 flex-1">
           <AnimatedProjectTitle title={detail.project.name} />
+          <ProjectFilterMetadata project={detail.project} />
           <div className="mio-project-subtitle">{marketplaceLabel(detail.project.marketplace)} | {formatDateTime(detail.project.createdAt)}</div>
         </div>
         <div className="mio-project-hero-actions">
@@ -4504,6 +4683,12 @@ function StoreRatingSamples({
             <span className="text-ink-400">{sample.rating} star{sample.capturedAt ? ` · ${sample.capturedAt}` : ""}</span>
           </div>
           <p className="mt-2 whitespace-pre-line text-sm leading-6 text-ink-300">{sample.comment}</p>
+          {sample.sellerResponse && (
+            <div className="mt-3 rounded border border-white/8 bg-black/10 px-3 py-2 text-sm text-ink-300">
+              <span className="font-semibold text-white">Seller response: </span>
+              <span className="whitespace-pre-line">{sample.sellerResponse}</span>
+            </div>
+          )}
           {sample.mediaUrls.length > 0 && (
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               {sample.mediaUrls.map((url) => (
@@ -5776,11 +5961,21 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   const queryClient = useQueryClient();
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
   const reports = useQuery({ queryKey: ["reports"], queryFn: apiClient.reports });
+  const settings = useQuery({ queryKey: ["settings"], queryFn: apiClient.settings });
   const [projectId, setProjectId] = useState("");
   const [sections, setSections] = useState<ReportSectionConfig[]>(DEFAULT_REPORT_SECTIONS);
+  const [groupOrder, setGroupOrder] = useState<ReportSectionGroupId[]>(
+    REPORT_SECTION_GROUPS.map((group) => group.id)
+  );
+  const [draggedGroupId, setDraggedGroupId] = useState<ReportSectionGroupId | null>(null);
+  const [reportFileName, setReportFileName] = useState("");
+  const [filenameTemplate, setFilenameTemplate] = useState("{projectName}_{storeType}_{priceRange}_{date}_{time}");
   const [previewReport, setPreviewReport] = useState<ReportHtmlPayload | null>(null);
   const [reportProgress, setReportProgress] = useState(0);
   const [reportMode, setReportMode] = useState<"single" | "bulk">("single");
+  const selectedProject =
+    dashboard.data?.projects.find((project) => project.id === projectId) ??
+    dashboard.data?.projects[0];
   const generateReport = useMutation({
     mutationFn: apiClient.generateReport,
     onMutate: () => {
@@ -5810,6 +6005,12 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
     mutationFn: apiClient.exportReportDocx,
     onSuccess: (result) => void apiClient.openPath(result.docxPath)
   });
+  const saveReportPreferences = useMutation({
+    mutationFn: apiClient.saveSettings,
+    onSuccess: (result) => {
+      queryClient.setQueryData(["settings"], result);
+    }
+  });
 
   useEffect(() => {
     if (!generateReport.isPending) {
@@ -5821,6 +6022,62 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
     return () => window.clearInterval(timer);
   }, [generateReport.isPending]);
 
+  useEffect(() => {
+    if (!settings.data) {
+      return;
+    }
+    setFilenameTemplate(settings.data.reportFilenameTemplate);
+    const savedOrder = settings.data.reportSectionOrder;
+    setSections((current) => orderReportSections(current, savedOrder));
+    setGroupOrder(orderReportSectionGroups(savedOrder));
+  }, [settings.data]);
+
+  useEffect(() => {
+    if (!selectedProject) {
+      setReportFileName("");
+      return;
+    }
+    setReportFileName(buildReportFileName(selectedProject, filenameTemplate));
+  }, [filenameTemplate, selectedProject?.id]);
+
+  function persistReportPreferences(nextSections: ReportSectionConfig[], nextTemplate = filenameTemplate) {
+    if (!settings.data) {
+      return;
+    }
+    const {
+      openAiKeyConfigured: _openAiKeyConfigured,
+      geminiKeyConfigured: _geminiKeyConfigured,
+      ...persistedSettings
+    } = settings.data;
+    saveReportPreferences.mutate({
+      ...persistedSettings,
+      reportFilenameTemplate: nextTemplate,
+      reportSectionOrder: nextSections.map((section) => section.id)
+    });
+  }
+
+  function moveReportGroup(targetGroupId: ReportSectionGroupId) {
+    if (!draggedGroupId || draggedGroupId === targetGroupId) {
+      return;
+    }
+    const nextGroupOrder = [...groupOrder];
+    const sourceIndex = nextGroupOrder.indexOf(draggedGroupId);
+    const targetIndex = nextGroupOrder.indexOf(targetGroupId);
+    nextGroupOrder.splice(sourceIndex, 1);
+    nextGroupOrder.splice(targetIndex, 0, draggedGroupId);
+    const nextSections = flattenReportSectionsByGroup(sections, nextGroupOrder);
+    setGroupOrder(nextGroupOrder);
+    setSections(nextSections);
+    setDraggedGroupId(null);
+    persistReportPreferences(nextSections);
+  }
+
+  function toggleReportSection(sectionId: ReportSectionId) {
+    setSections((current) =>
+      current.map((item) => (item.id === sectionId ? { ...item, enabled: !item.enabled } : item))
+    );
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
     const selectedProjectId = projectId || dashboard.data?.projects[0]?.id;
@@ -5831,7 +6088,9 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
       projectId: selectedProjectId,
       templateId: "marketplace-research-os-v1",
       theme: themeMode,
-      sections
+      sections,
+      fileName: reportFileName,
+      exportFolder: selectedProject?.exportFolder || settings.data?.exportFolder
     });
   }
 
@@ -5850,9 +6109,26 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
       {reportMode === "bulk" ? (
         <BulkReportWizard projects={dashboard.data?.projects ?? []} themeMode={themeMode} />
       ) : (
-      <div className="grid grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)] gap-5">
+      <div className="grid grid-cols-[220px_minmax(360px,0.8fr)_minmax(0,1.2fr)] items-start gap-5">
+      <Panel title="Sections" icon={ListChecks} className="sticky top-20">
+        <nav className="space-y-1" aria-label="Report workflow sections">
+          {groupOrder.map((groupId) => {
+            const group = REPORT_SECTION_GROUPS.find((item) => item.id === groupId);
+            return group ? (
+              <button
+                key={group.id}
+                className="secondary-button h-9 w-full justify-start border-0 px-3 text-xs"
+                type="button"
+                onClick={() => document.getElementById(`report-group-${group.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              >
+                {group.title}
+              </button>
+            ) : null;
+          })}
+        </nav>
+      </Panel>
       <div className="space-y-5">
-        <Panel title="Report Generator" icon={FileDown}>
+        <Panel title="Report Settings" icon={Settings}>
           <form className="space-y-4" onSubmit={submit}>
             <Field label="Project">
               <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="input">
@@ -5864,6 +6140,33 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
                 ))}
               </select>
             </Field>
+            {selectedProject && (
+              <div className="rounded-md border border-white/8 bg-white/5 p-3 text-xs text-ink-400">
+                <ProjectFilterMetadata project={selectedProject} />
+              </div>
+            )}
+            <Field label="Filename template">
+              <input
+                className="input"
+                value={filenameTemplate}
+                onChange={(event) => setFilenameTemplate(event.target.value)}
+                onBlur={() => persistReportPreferences(sections)}
+                title="Available placeholders: {projectName}, {storeType}, {priceRange}, {date}, {time}"
+              />
+            </Field>
+            <Field label="Filename preview">
+              <input
+                className="input"
+                value={reportFileName}
+                onChange={(event) => setReportFileName(sanitizeReportFileName(event.target.value))}
+              />
+            </Field>
+            <div className="rounded-md border border-white/8 bg-white/5 p-3 text-xs">
+              <div className="text-ink-500">Export destination</div>
+              <div className="mt-1 break-all text-ink-300">
+                {selectedProject?.exportFolder || settings.data?.exportFolder || "Default reports folder"}
+              </div>
+            </div>
             <button className="primary-button" type="submit" disabled={!dashboard.data?.projects.length || generateReport.isPending}>
               <FileDown size={16} />
               {generateReport.isPending ? "Generating Report" : "Generate Report"}
@@ -5895,20 +6198,25 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
                   </div>
                   <StatusPill status={report.status} />
                 </div>
+                {report.status === "DRAFT" && (
+                  <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-2 text-xs text-ink-500">
+                    This report is still being prepared. Final export actions will become available when generation completes.
+                  </div>
+                )}
                 <div className="mio-report-history-actions grid grid-cols-2 gap-2">
-                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.htmlPath || loadReportPreview.isPending} onClick={() => loadReportPreview.mutate(report.id)}>
+                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={report.status === "DRAFT" || !report.htmlPath || loadReportPreview.isPending} onClick={() => loadReportPreview.mutate(report.id)}>
                     <Eye size={14} />
                     Preview
                   </button>
-                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.pdfPath} onClick={() => report.pdfPath && void apiClient.openPath(report.pdfPath)}>
+                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={report.status === "DRAFT" || !report.pdfPath} onClick={() => report.pdfPath && void apiClient.openPath(report.pdfPath)}>
                     <FileDown size={14} />
                     PDF
                   </button>
-                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.htmlPath} onClick={() => report.htmlPath && void apiClient.openPath(report.htmlPath)}>
+                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={report.status === "DRAFT" || !report.htmlPath} onClick={() => report.htmlPath && void apiClient.openPath(report.htmlPath)}>
                     <FileText size={14} />
                     HTML
                   </button>
-                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.htmlPath || exportReportDocx.isPending} onClick={() => exportReportDocx.mutate(report.id)}>
+                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={report.status === "DRAFT" || !report.htmlPath || exportReportDocx.isPending} onClick={() => exportReportDocx.mutate(report.id)}>
                     <FileDown size={14} />
                     DOCX
                   </button>
@@ -5923,29 +6231,53 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
           </div>
         </Panel>
       </div>
-      <Panel title="Report Workflow Sections" icon={ListChecks}>
-        <div className="grid grid-cols-2 gap-3">
-          {sections.map((section) => (
-            <button
-              type="button"
-              key={section.id}
-              className={[
-                "rounded-md border p-4 text-left transition",
-                section.enabled ? "border-signal-blue/35 bg-signal-blue/10" : "border-white/8 bg-white/5 text-ink-500"
-              ].join(" ")}
-              onClick={() =>
-                setSections((current) =>
-                  current.map((item) => (item.id === section.id ? { ...item, enabled: !item.enabled } : item))
-                )
-              }
-            >
-              <div className="mb-2 flex items-center justify-between text-sm font-medium">
-                {section.label}
-                {section.enabled && <CheckCircle2 size={16} className="text-signal-blue" />}
-              </div>
-              <div className="text-xs leading-5 text-ink-500">{section.requiredEvidence.slice(0, 3).join(", ")}</div>
-            </button>
-          ))}
+      <Panel title="Report Workflow" icon={ListChecks}>
+        <div className="space-y-3">
+          {groupOrder.map((groupId) => {
+            const group = REPORT_SECTION_GROUPS.find((item) => item.id === groupId);
+            if (!group) return null;
+            const children = group.sectionIds
+              .map((sectionId) => sections.find((section) => section.id === sectionId))
+              .filter((section): section is ReportSectionConfig => Boolean(section));
+            return (
+              <section
+                id={`report-group-${group.id}`}
+                key={group.id}
+                draggable
+                onDragStart={() => setDraggedGroupId(group.id)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => moveReportGroup(group.id)}
+                className="scroll-mt-24 rounded-md border border-white/8 bg-white/5 p-3"
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-white">{group.title}</div>
+                    <div className="mt-1 text-xs text-ink-500">Drag this parent section to change report order.</div>
+                  </div>
+                  <Rows3 size={16} className="cursor-grab text-ink-500" aria-label={`Reorder ${group.title}`} />
+                </div>
+                <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                  {children.map((section) => (
+                    <button
+                      type="button"
+                      key={section.id}
+                      className={[
+                        "rounded-md border p-3 text-left transition",
+                        section.enabled ? "border-signal-blue/35 bg-signal-blue/10" : "border-white/8 bg-white/5 text-ink-500"
+                      ].join(" ")}
+                      onClick={() => toggleReportSection(section.id)}
+                    >
+                      <div className="mb-1 flex items-center justify-between text-sm font-medium">
+                        {section.label}
+                        {section.enabled && <CheckCircle2 size={16} className="text-signal-blue" />}
+                      </div>
+                      <div className="text-xs leading-5 text-ink-500">{section.requiredEvidence.slice(0, 3).join(", ")}</div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       </Panel>
       </div>
@@ -6223,6 +6555,116 @@ function defaultCollectionState(): CollectionState {
 
 function projectCollectionState(project: ProjectSummary): CollectionState {
   return (project as ProjectSummary & { collectionState?: CollectionState }).collectionState ?? defaultCollectionState();
+}
+
+function projectFilterMetadata(project: ProjectSummary): { storeType: string; priceRange: string } {
+  const filters = projectCollectionState(project).searchFilters;
+  const labels = (filters?.shopTypes ?? []).map(
+    (shopType) => SHOPEE_SHOP_TYPE_OPTIONS.find((option) => option.id === shopType)?.label ?? shopType
+  );
+  const priceMin = filters?.priceMin;
+  const priceMax = filters?.priceMax;
+  return {
+    storeType: labels.length > 0 ? labels.join(", ") : "All shop types",
+    priceRange:
+      priceMin !== undefined && priceMax !== undefined
+        ? `${formatCurrency(priceMin)} - ${formatCurrency(priceMax)}`
+        : priceMin !== undefined
+          ? `From ${formatCurrency(priceMin)}`
+          : priceMax !== undefined
+            ? `Up to ${formatCurrency(priceMax)}`
+            : "All prices"
+  };
+}
+
+function ProjectFilterMetadata({ project }: { project: ProjectSummary }) {
+  const metadata = projectFilterMetadata(project);
+  return (
+    <div className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-400">
+      <span className="truncate">{metadata.storeType}</span>
+      <span className="truncate">{metadata.priceRange}</span>
+    </div>
+  );
+}
+
+function orderReportSections(
+  sections: ReportSectionConfig[],
+  savedOrder: ReportSectionId[]
+): ReportSectionConfig[] {
+  const positions = new Map(savedOrder.map((id, index) => [id, index]));
+  return [...sections].sort(
+    (left, right) =>
+      (positions.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (positions.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
+function orderReportSectionGroups(savedOrder: ReportSectionId[]): ReportSectionGroupId[] {
+  const positions = new Map(savedOrder.map((id, index) => [id, index]));
+  return [...REPORT_SECTION_GROUPS]
+    .sort((left, right) => {
+      const leftPosition = Math.min(
+        ...left.sectionIds.map((id) => positions.get(id) ?? Number.MAX_SAFE_INTEGER)
+      );
+      const rightPosition = Math.min(
+        ...right.sectionIds.map((id) => positions.get(id) ?? Number.MAX_SAFE_INTEGER)
+      );
+      return leftPosition - rightPosition;
+    })
+    .map((group) => group.id);
+}
+
+function flattenReportSectionsByGroup(
+  sections: ReportSectionConfig[],
+  groupOrder: ReportSectionGroupId[]
+): ReportSectionConfig[] {
+  const sectionById = new Map(sections.map((section) => [section.id, section]));
+  const groupedIds = new Set<ReportSectionId>();
+  const ordered = groupOrder.flatMap((groupId) => {
+    const group = REPORT_SECTION_GROUPS.find((item) => item.id === groupId);
+    if (!group) {
+      return [];
+    }
+    return group.sectionIds.flatMap((sectionId) => {
+      groupedIds.add(sectionId);
+      const section = sectionById.get(sectionId);
+      return section ? [section] : [];
+    });
+  });
+  return [...ordered, ...sections.filter((section) => !groupedIds.has(section.id))];
+}
+
+function sanitizeReportFileName(value: string): string {
+  const sanitized = value
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/[.\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${sanitized.replace(/(?:\.pdf)+$/i, "") || "marketplace-report"}.pdf`;
+}
+
+function buildReportFileName(project: ProjectSummary, template: string): string {
+  const metadata = projectFilterMetadata(project);
+  const timestamp = new Date();
+  const replacements: Record<string, string> = {
+    projectName: project.name,
+    storeType: metadata.storeType,
+    priceRange: metadata.priceRange,
+    date: [
+      timestamp.getFullYear(),
+      String(timestamp.getMonth() + 1).padStart(2, "0"),
+      String(timestamp.getDate()).padStart(2, "0")
+    ].join("-"),
+    time: [
+      String(timestamp.getHours()).padStart(2, "0"),
+      String(timestamp.getMinutes()).padStart(2, "0")
+    ].join("-")
+  };
+  const resolved = template.replace(
+    /\{(projectName|storeType|priceRange|date|time)\}/g,
+    (_match, key: string) => replacements[key] ?? ""
+  );
+  return sanitizeReportFileName(resolved);
 }
 
 function isProjectComplete(project: ProjectSummary): boolean {
@@ -6935,30 +7377,44 @@ function selectKeyProductCandidates(
   return candidates
     .filter((product) => selectionDiagnostics(product, candidates, keyword).classification !== "Not Recommended")
     .sort((left, right) => {
-      const sourceDelta = Number(hasTopSalesPlacement(right)) - Number(hasTopSalesPlacement(left));
-      if (sourceDelta !== 0) {
-        return sourceDelta;
+      const salesDifference =
+        normalizeSelectionNumber(right.monthlySold ?? right.monthlySoldText) -
+        normalizeSelectionNumber(left.monthlySold ?? left.monthlySoldText);
+      if (salesDifference !== 0) {
+        return salesDifference;
       }
-      const rightDiagnostics = selectionDiagnostics(right, candidates, keyword);
-      const leftDiagnostics = selectionDiagnostics(left, candidates, keyword);
-      const tierDelta = selectionTier(rightDiagnostics.classification) - selectionTier(leftDiagnostics.classification);
-      if (tierDelta !== 0) {
-        return tierDelta;
+
+      const relevanceDifference =
+        selectionDiagnostics(right, candidates, keyword).relevanceScore -
+        selectionDiagnostics(left, candidates, keyword).relevanceScore;
+      if (relevanceDifference !== 0) {
+        return relevanceDifference;
       }
-      return rightDiagnostics.finalScore - leftDiagnostics.finalScore ||
-        rightDiagnostics.relevanceScore - leftDiagnostics.relevanceScore ||
-        (right.monthlySold ?? 0) - (left.monthlySold ?? 0) ||
-        (right.totalSold ?? 0) - (left.totalSold ?? 0) ||
-        rightDiagnostics.commercialValueScore - leftDiagnostics.commercialValueScore ||
-        rightDiagnostics.thumbnailScore - leftDiagnostics.thumbnailScore ||
-        (right.rating ?? 0) - (left.rating ?? 0) ||
-        (right.reviewCount ?? 0) - (left.reviewCount ?? 0);
+
+      return String(left.title ?? "").localeCompare(String(right.title ?? ""));
     })
     .slice(0, limit)
     .map((product) => ({
       ...product,
       selectionReason: selectionReasonForDisplay(product, candidates, keyword)
     }));
+}
+
+function normalizeSelectionNumber(value: number | string | null | undefined): number {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (!value) {
+    return 0;
+  }
+  const upper = value.toUpperCase();
+  const multiplier = /\b(?:JT|JUTA|M)\b/u.test(upper)
+    ? 1_000_000
+    : /\b(?:RB|RIBU|K)\b/u.test(upper)
+      ? 1_000
+      : 1;
+  const match = upper.replace(/\./gu, "").replace(",", ".").match(/\d+(?:\.\d+)?/u);
+  return match ? Number(match[0]) * multiplier : 0;
 }
 
 function isExcludedCommerceProductTitle(title: string): boolean {
@@ -8733,7 +9189,7 @@ async function extractRenderedPageSnapshot(
         ".shopee-product-rating, [class*='shop-rating'], [class*='product-rating'], [class*='rating-item'], [class*='review-item']"
       ));
       const storeRatingSamples = storeRatingRowCandidates
-        .map((row) => {
+        .map((row, sourceIndex) => {
           const rowText = blockTextFromHtml(row);
           const rowLines = rowText.split("\\n").map(compact).filter(Boolean);
           const mediaElements = Array.from(row.querySelectorAll("video, picture, img[src], img[srcset], source[srcset]"));
@@ -8752,17 +9208,34 @@ async function extractRenderedPageSnapshot(
           ) || "Shopee buyer";
           const capturedAt = rowText.match(/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u)?.[0];
           const comment = cleanReviewComment(rowText);
+          const sellerResponseElement = row.querySelector(
+            "[class*='seller-response'], [class*='seller-reply'], [class*='shop-reply'], [class*='reply-content']"
+          );
+          const sellerResponseMatch = rowText.match(
+            /(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual)\\s*:?\\s*([\\s\\S]+?)(?=(?:Report Abuse|Laporkan Penyalahgunaan|Helpful|Membantu)\\b|$)/iu
+          );
+          const sellerResponse = compact(textFrom(sellerResponseElement) || sellerResponseMatch?.[1] || "");
           return {
             rating: detectedRating || requestedStoreRating || 5,
             reviewer,
             comment,
+            sellerResponse: sellerResponse || undefined,
             mediaUrls,
-            capturedAt
+            capturedAt,
+            sourceIndex
           };
         })
-        .filter((sample) => sample.mediaUrls.length > 0 && sample.comment.length >= 20)
+        .filter((sample) => sample.comment.length >= 20)
         .filter((sample) => !requestedStoreRating || sample.rating === requestedStoreRating)
-        .slice(0, 5);
+        .sort((left, right) => {
+          const priority = (sample) =>
+            Number(sample.mediaUrls.length > 0) * 4 +
+            Number(Boolean(sample.comment.trim())) * 2 +
+            Number(Boolean(sample.sellerResponse?.trim()));
+          return priority(right) - priority(left) || left.sourceIndex - right.sourceIndex;
+        })
+        .slice(0, 5)
+        .map(({ sourceIndex, ...sample }) => sample);
       const storeProfile = {
         name: profileName,
         url: location.href,

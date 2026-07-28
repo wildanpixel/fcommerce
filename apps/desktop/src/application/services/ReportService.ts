@@ -93,7 +93,10 @@ export interface PdfExporter {
 }
 
 export interface ReportWorkspace {
-  ensureReportPaths(projectId: string, templateId: string): Promise<{
+  ensureReportPaths(projectId: string, templateId: string, options?: {
+    fileName?: string;
+    exportFolder?: string;
+  }): Promise<{
     htmlPath: string;
     pdfPath: string;
   }>;
@@ -114,7 +117,10 @@ export class ReportService {
     try {
       const data = await this.loader.load(payload.projectId);
       const html = await this.renderer.render(data, payload);
-      const paths = await this.workspace.ensureReportPaths(payload.projectId, payload.templateId);
+      const paths = await this.workspace.ensureReportPaths(payload.projectId, payload.templateId, {
+        fileName: payload.fileName,
+        exportFolder: payload.exportFolder
+      });
       await this.workspace.writeHtml(paths.htmlPath, html);
       await this.exporter.export(html, paths.pdfPath);
       await this.reports.markGenerated(reportId, paths.htmlPath, paths.pdfPath);

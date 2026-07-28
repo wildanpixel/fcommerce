@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { access } from "node:fs/promises";
 import type {
   CollectionState,
   CreateJobPayload,
@@ -40,6 +41,8 @@ function defaultSettings(): SettingsPayload {
     screenshotFolder: directories.screenshots,
     language: "id-ID",
     concurrency: 1,
+    reportFilenameTemplate: "{projectName}_{storeType}_{priceRange}_{date}_{time}",
+    reportSectionOrder: DEFAULT_REPORT_SECTIONS.map((section) => section.id),
     openAiKeyConfigured: false,
     geminiKeyConfigured: false
   };
@@ -531,8 +534,11 @@ export class PrismaSettingsRepository implements SettingsRepository {
     const value = row
       ? ({ ...defaultSettings(), ...JSON.parse(row.valueJson) } as SettingsPayload)
       : defaultSettings();
+    const defaults = defaultSettings();
     return {
       ...value,
+      exportFolder: await accessibleFolder(value.exportFolder, defaults.exportFolder),
+      screenshotFolder: await accessibleFolder(value.screenshotFolder, defaults.screenshotFolder),
       openAiKeyConfigured: Boolean(await this.secrets.get("openai")),
       geminiKeyConfigured: Boolean(await this.secrets.get("gemini"))
     };
@@ -546,7 +552,9 @@ export class PrismaSettingsRepository implements SettingsRepository {
       exportFolder: settings.exportFolder,
       screenshotFolder: settings.screenshotFolder,
       language: settings.language,
-      concurrency: settings.concurrency
+      concurrency: settings.concurrency,
+      reportFilenameTemplate: settings.reportFilenameTemplate,
+      reportSectionOrder: settings.reportSectionOrder
     });
     await this.db.appSetting.upsert({
       where: { key: "settings" },
@@ -564,6 +572,15 @@ export class PrismaSettingsRepository implements SettingsRepository {
 
   async getSecret(name: "openai" | "gemini"): Promise<string | null> {
     return this.secrets.get(name);
+  }
+}
+
+async function accessibleFolder(value: string, fallback: string): Promise<string> {
+  try {
+    await access(value);
+    return value;
+  } catch {
+    return fallback;
   }
 }
 
@@ -979,6 +996,7 @@ function extractStoreRatingSamples(value?: string | null): StoreProfile["ratingS
       rating: typeof sample.rating === "number" ? sample.rating : Number(sample.rating),
       reviewer: typeof sample.reviewer === "string" ? sample.reviewer : "Shopee buyer",
       comment: typeof sample.comment === "string" ? sample.comment : "",
+      sellerResponse: typeof sample.sellerResponse === "string" ? sample.sellerResponse : undefined,
       mediaUrls: Array.isArray(sample.mediaUrls)
         ? sample.mediaUrls.filter((item): item is string => typeof item === "string")
         : [],
