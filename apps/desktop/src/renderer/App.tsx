@@ -1426,7 +1426,7 @@ function GuidedBrowserCollector({
     [currentUrl, platform, project, projectDetail.data, storeCollectionCandidates, viewMode]
   );
   const steps = useMemo(() => allSteps.filter((step) => step.stage === activeStage), [activeStage, allSteps]);
-  const activeStep = steps[activeStepIndex] ?? steps[0] ?? allSteps[0];
+  const activeStep = steps[activeStepIndex] ?? steps[0];
   const activeSubAction = activeStep?.subActions?.find((action) => action.id === activeSubActionId) ?? activeStep?.subActions?.[0];
   const activeSubActionReady = activeSubAction?.id === "shop-homepage" || activeSubAction?.id === "store-homepage"
     ? isShopeeStorePage(currentUrl)
@@ -1458,10 +1458,11 @@ function GuidedBrowserCollector({
     [project.keyword, projectDetail.data?.products]
   );
   const selectedKeyProducts = useMemo(() => {
-    const selectedIds = qualifiedProductIds.length > 0
-      ? qualifiedProductIds
-      : qualifiedProductPool.slice(0, 10).map((product) => product.id);
     const byId = new Map(qualifiedProductPool.map((product) => [product.id, product]));
+    const resolvedIds = qualifiedProductIds.filter((id) => byId.has(id));
+    const selectedIds = resolvedIds.length > 0
+      ? resolvedIds
+      : qualifiedProductPool.slice(0, 10).map((product) => product.id);
     return selectedIds.map((id) => byId.get(id)).filter((product): product is ProjectProductEvidence => Boolean(product));
   }, [qualifiedProductIds, qualifiedProductPool]);
   const collectedCount = allSteps.filter((step) => isCollectionStepComplete(step, collectedSteps)).length;
@@ -1503,11 +1504,15 @@ function GuidedBrowserCollector({
   }, [allSteps, projectDetail.data]);
 
   useEffect(() => {
-    if (qualifiedProductIds.length > 0 || qualifiedProductPool.length === 0) {
+    if (qualifiedProductPool.length === 0) {
+      return;
+    }
+    const availableIds = new Set(qualifiedProductPool.map((product) => product.id));
+    if (qualifiedProductIds.some((id) => availableIds.has(id))) {
       return;
     }
     setQualifiedProductIds(qualifiedProductPool.slice(0, 10).map((product) => product.id));
-  }, [qualifiedProductIds.length, qualifiedProductPool]);
+  }, [qualifiedProductIds, qualifiedProductPool]);
 
   useEffect(() => {
     if (selectedKeyProducts.length === 0 || storeCollectionCandidates.length > 0) {
@@ -1841,12 +1846,18 @@ function GuidedBrowserCollector({
     const stageSteps = allSteps.filter((step) => step.stage === stage);
     const firstIncompleteIndex = stageSteps.findIndex((step) => !isCollectionStepComplete(step, collectedSteps));
     const nextIndex = firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0;
+    const nextStep = stageSteps[nextIndex];
+    const nextSubAction =
+      nextStep?.subActions?.find(
+        (action) => !collectedSteps[stepProgressKey(nextStep, action.id)],
+      ) ?? nextStep?.subActions?.[0];
     setActiveStage(stage);
     const nextViewMode = stage === "EVALUATION_KEY_STORE" ? "desktop" : viewMode;
     if (stage === "EVALUATION_KEY_STORE") {
       switchBrowserViewMode("desktop");
     }
     setActiveStepIndex(nextIndex);
+    setActiveSubActionId(nextSubAction?.id);
     setReviewingKeyProducts(false);
     const showEvaluation = stage === "EVALUATION_KEY_STORE";
     setReviewingEvaluation(showEvaluation);
@@ -1856,7 +1867,7 @@ function GuidedBrowserCollector({
     persistCollectionState({
       stage,
       stageLabel: collectionStageLabel(stage),
-      currentStepId: stageSteps[nextIndex]?.id,
+      currentStepId: nextStep?.id,
       browserUrl: currentUrl,
       viewMode: nextViewMode
     });
@@ -1883,9 +1894,15 @@ function GuidedBrowserCollector({
         .find((action) => (activeSubActionStates[action.id] ?? "pending") === "pending");
       if (nextPendingAction) {
         selectSubAction(nextPendingAction.id);
-        if (nextPendingAction.targetUrl ?? activeStep.targetUrl) {
+        if (activeStage === "EVALUATION_KEY_STORE" && (nextPendingAction.targetUrl ?? activeStep.targetUrl)) {
           navigateTo(nextPendingAction.targetUrl ?? activeStep.targetUrl!);
         }
+        return;
+      }
+      if (activeStage === "EVALUATION_KEY_STORE") {
+        return;
+      }
+      if (activeStage === "PRODUCT_DETAILS" && activeSubAction?.id !== "shop-homepage") {
         return;
       }
       const nextStepIndex = Math.min(activeStepIndex + 1, steps.length - 1);
@@ -2636,6 +2653,15 @@ function GuidedBrowserCollector({
               openKeyProductTableReview();
               return;
             }
+            if (activeStep.stage === "EVALUATION_KEY_STORE" && viewMode !== "mobile") {
+              switchBrowserViewMode("mobile");
+              const mobileTarget = selectedSubAction?.targetUrl ?? activeStep.targetUrl;
+              if (mobileTarget) {
+                navigateTo(toMobileUrl(mobileTarget));
+              }
+              setCaptureStatus({ message: "Part 3 switched to Mobile view. Collect when the page is ready.", state: "working", progress: 25 });
+              return;
+            }
             void captureAndSaveEvidence(activeStep, selectedSubAction);
           }}
           onReset={(subActionId) => void resetCollectedEvidence(activeStep, subActionId)}
@@ -2916,7 +2942,19 @@ function CollectionStepPreview({
         <div className="mb-3 grid grid-cols-2 gap-2 rounded-md border border-white/8 bg-white/[0.04] p-2 text-[11px]">
           <InfoLine label="Source" value={productSourcePlacement(product)} />
           <InfoLine label="Store" value={product.storeName ?? "-"} />
-          <InfoLine label="Store Type" value={product.storeType ?? "-"} />
+          <div>
+            <div className="text-[10px] uppercase text-ink-500">Store Type</div>
+            {storeTypeImage(product.storeType) ? (
+              <img
+                className="mt-1 h-5 w-auto max-w-[72px] object-contain"
+                src={storeTypeImage(product.storeType) ?? undefined}
+                alt={storeTypeLabel(product)}
+                loading="lazy"
+              />
+            ) : (
+              <div className="mt-1 text-ink-200">-</div>
+            )}
+          </div>
           <InfoLine label="Rating" value={product.ratingText ?? (product.rating ? String(product.rating) : "-")} />
           <InfoLine label="Reviews" value={product.reviewText ?? product.reviewCount?.toLocaleString() ?? "-"} />
           <InfoLine label="Sold" value={product.totalSoldText ?? product.monthlySoldText ?? "-"} />
@@ -3308,7 +3346,9 @@ function FloatingStepController({
   const compactInstruction = step.stage === "PRODUCT_DETAILS"
     ? "Choose the sub-action, confirm the target page, then collect."
     : step.instruction;
-  const usesSubActionCollectButtons = step.stage === "PRODUCT_DETAILS" && Boolean(step.subActions?.length);
+  const usesSubActionCollectButtons =
+    (step.stage === "PRODUCT_DETAILS" || step.stage === "EVALUATION_KEY_STORE") &&
+    Boolean(step.subActions?.length);
   useEffect(() => {
     if (collapseSignal > 0) {
       setCompact(true);
@@ -3377,7 +3417,7 @@ function FloatingStepController({
               <ChevronLeft size={13} />
             </button>
           )}
-          {(!usesSubActionCollectButtons || activeSubAction?.id === "shop-homepage") && (
+          {(!usesSubActionCollectButtons || activeSubAction?.id === "shop-homepage" || step.stage === "EVALUATION_KEY_STORE") && (
             <button
               className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
               type="button"
@@ -3510,7 +3550,7 @@ function FloatingStepController({
                   </div>
                   <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2">
                     <div className="truncate text-[10px] text-ink-500">{action.description}</div>
-                    {(!usesSubActionCollectButtons || action.id === "shop-homepage") && (
+                    {(!usesSubActionCollectButtons || action.id === "shop-homepage" || step.stage === "EVALUATION_KEY_STORE") && (
                       <button
                         className="secondary-button mio-round-icon-button h-8 w-8 px-0 text-[10px]"
                         type="button"
@@ -5290,6 +5330,18 @@ function KeyProductTableReview({
         >
           <Plus size={16} />
           Add Product
+        </button>
+        <button
+          className="secondary-button h-10 w-auto px-4"
+          type="button"
+          disabled={products.length >= 20 || availableProducts.length === 0}
+          onClick={() => {
+            const remainingSlots = Math.max(0, 20 - products.length);
+            onAddProducts(availableProducts.slice(0, Math.min(5, remainingSlots)).map((product) => product.id));
+          }}
+        >
+          <Plus size={16} />
+          Add 5 more product
         </button>
         <span className="pb-3 text-xs text-ink-500">{products.length}/20</span>
       </div>
@@ -7360,7 +7412,7 @@ function selectKeyProductCandidates(
   const merged = new Map<string, ProjectProductEvidence>();
   for (const rawProduct of products.filter(isQualifiedProductSource)) {
     const product = normalizeProductSelectionSignals(rawProduct);
-    if (isExcludedCommerceProductTitle(product.title) || !isRelevantProductCandidate(product, keyword)) {
+    if (isExcludedCommerceProductTitle(product.title)) {
       continue;
     }
     const key = normalizeProductKey(product);
@@ -7372,11 +7424,23 @@ function selectKeyProductCandidates(
     }
   }
   const candidates = Array.from(merged.values()).filter(
-    (product) => product.title && product.productUrl && isValidStoreType(product.storeType)
+    (product) => product.title && product.productUrl
   );
   return candidates
-    .filter((product) => selectionDiagnostics(product, candidates, keyword).classification !== "Not Recommended")
     .sort((left, right) => {
+      const storeTypeDifference =
+        Number(isValidStoreType(right.storeType)) - Number(isValidStoreType(left.storeType));
+      if (storeTypeDifference !== 0) {
+        return storeTypeDifference;
+      }
+
+      const recommendationDifference =
+        Number(selectionDiagnostics(right, candidates, keyword).classification !== "Not Recommended") -
+        Number(selectionDiagnostics(left, candidates, keyword).classification !== "Not Recommended");
+      if (recommendationDifference !== 0) {
+        return recommendationDifference;
+      }
+
       const salesDifference =
         normalizeSelectionNumber(right.monthlySold ?? right.monthlySoldText) -
         normalizeSelectionNumber(left.monthlySold ?? left.monthlySoldText);
@@ -7494,7 +7558,17 @@ function hasPdpDetailSignal(product: ProjectProductEvidence): boolean {
 }
 
 function mergeStoreType(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): StoreType | undefined {
-  return normalizeStoreTypeValue(preferred.storeType) ?? normalizeStoreTypeValue(base?.storeType) ?? undefined;
+  const detectedTypes = [
+    normalizeStoreTypeValue(preferred.storeBadgeImageUrl),
+    normalizeStoreTypeValue(preferred.storeType),
+    normalizeStoreTypeValue(base?.storeBadgeImageUrl),
+    normalizeStoreTypeValue(base?.storeType),
+  ].filter((value): value is StoreType => Boolean(value));
+
+  if (detectedTypes.includes("shopee_mall")) return "shopee_mall";
+  if (detectedTypes.includes("star_plus")) return "star_plus";
+  if (detectedTypes.includes("star")) return "star";
+  return undefined;
 }
 
 function mergeRatingText(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): string | undefined {
@@ -8382,7 +8456,6 @@ async function extractRenderedPageSnapshot(
         if (url.includes("id-11134258-7r98o-lyam4dmlnqcoba")) return "star";
         if (url.includes("id-11134258-7r98r-lyalscj1g30l0b")) return "star_plus";
         if (url.includes("id-11134258-7r98z-lykpu80ygbvs76")) return "shopee_mall";
-        if (url) return undefined;
         const value = compact(text).toLowerCase();
         if (/^(star\\s*\\+|starplus|star-plus)$/u.test(value)) return "star_plus";
         if (/^(mall\\s*ori|shopee\\s*mall)$/u.test(value)) return "shopee_mall";
@@ -8589,7 +8662,7 @@ async function extractRenderedPageSnapshot(
             .find((element) => compact(element.textContent || "") === title);
           const badgeImage = findStoreBadgeImage(card, productImageUrl, titleElement || anchor);
           const badgeImageUrl = imageUrlFrom(badgeImage);
-          const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title, badgeImage?.outerHTML].filter(Boolean).join(" "));
+          const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title].filter(Boolean).join(" "));
           const storeType = inferStoreType(badgeText, badgeImageUrl);
           const priceText = extractPriceText(text);
           const soldText = extractSoldText(text);
