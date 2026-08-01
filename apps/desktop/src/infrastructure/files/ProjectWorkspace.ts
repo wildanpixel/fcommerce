@@ -51,8 +51,11 @@ export class ProjectWorkspace implements WorkspaceLocator, ReportWorkspace {
 }
 
 export function sanitizeReportFileName(value: string): string {
-  const cleaned = value
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+  const withoutControlCharacters = Array.from(value, (character) =>
+    character.charCodeAt(0) <= 31 ? "-" : character,
+  ).join("");
+  const cleaned = withoutControlCharacters
+    .replace(/[<>:"/\\|?*]/g, "-")
     .replace(/[. ]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();

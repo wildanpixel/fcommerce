@@ -26,7 +26,6 @@ import {
   Maximize2,
   Minimize2,
   Monitor,
-  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -38,7 +37,6 @@ import {
   Sparkles,
   Smartphone,
   Store,
-  Sun,
   Table2,
   TerminalSquare,
   Trash2,
@@ -79,12 +77,12 @@ import {
   isValidStoreType,
   normalizeStoreType as normalizeStoreTypeValue,
   STORE_TYPE_IMAGES,
-  storeTypeFromBadgeContext,
   storeTypeImage,
   storeTypeLabel as storeTypeDisplayLabel,
   type StoreType
 } from "../shared/storeTypes.js";
 import { apiClient } from "./api/client.js";
+import { AppTopBar } from "./components/AppTopBar.js";
 import {
   buildStoreCollectionCandidates,
   extractShopeeShopId,
@@ -411,7 +409,7 @@ export default function App() {
           onToggle={() => setSidebarCollapsed((current) => !current)}
         />
         <main className="mio-main min-w-0 border-l border-white/8 bg-[linear-gradient(180deg,#10141d,#090b10_48%)]">
-          <TopBar
+          <AppTopBar
             themeMode={themeMode}
             onThemeToggle={() => setThemeMode((value) => (value === "dark" ? "light" : "dark"))}
             showActivityButton={collectionPageActive}
@@ -579,85 +577,6 @@ function Sidebar({
         </div>
       </div>}
     </motion.aside>
-  );
-}
-
-function useCompactTopBar(): boolean {
-  const [compact, setCompact] = useState(false);
-  const lastScrollY = useRef(0);
-
-  useEffect(() => {
-    let frame = 0;
-    const threshold = 12;
-
-    const update = () => {
-      const nextScrollY = Math.max(0, window.scrollY);
-      const delta = nextScrollY - lastScrollY.current;
-
-      if (nextScrollY < 24) {
-        setCompact(false);
-      } else if (delta > threshold) {
-        setCompact(true);
-        lastScrollY.current = nextScrollY;
-      } else if (delta < -threshold) {
-        setCompact(false);
-        lastScrollY.current = nextScrollY;
-      }
-      frame = 0;
-    };
-
-    const handleScroll = () => {
-      if (frame === 0) {
-        frame = window.requestAnimationFrame(update);
-      }
-    };
-
-    lastScrollY.current = window.scrollY;
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-      if (frame !== 0) {
-        window.cancelAnimationFrame(frame);
-      }
-    };
-  }, []);
-
-  return compact;
-}
-
-function TopBar({
-  themeMode,
-  onThemeToggle,
-  showActivityButton,
-  onActivityToggle
-}: {
-  themeMode: ThemeMode;
-  onThemeToggle: () => void;
-  showActivityButton?: boolean;
-  onActivityToggle?: () => void;
-}) {
-  const compact = useCompactTopBar();
-
-  return (
-    <header
-      className={[
-        "mio-top-bar sticky top-0 z-50 flex items-center justify-between px-8",
-        compact ? "mio-top-bar-compact h-12" : "h-16"
-      ].join(" ")}
-    >
-      <h1 className="text-lg font-semibold text-white">Manual Evidence Collection</h1>
-      <div className="flex items-center gap-2">
-        <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onThemeToggle}>
-          {themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-          {themeMode === "dark" ? "Light" : "Dark"}
-        </button>
-        {showActivityButton && (
-          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={onActivityToggle} aria-label="Toggle activity" title="Activity">
-            <Gauge size={15} />
-          </button>
-        )}
-      </div>
-    </header>
   );
 }
 
@@ -6090,7 +6009,7 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
       return;
     }
     setReportFileName(buildReportFileName(selectedProject, filenameTemplate));
-  }, [filenameTemplate, selectedProject?.id]);
+  }, [filenameTemplate, selectedProject]);
 
   function persistReportPreferences(nextSections: ReportSectionConfig[], nextTemplate = filenameTemplate) {
     if (!settings.data) {
@@ -6687,8 +6606,11 @@ function flattenReportSectionsByGroup(
 }
 
 function sanitizeReportFileName(value: string): string {
-  const sanitized = value
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+  const withoutControlCharacters = Array.from(value, (character) =>
+    character.charCodeAt(0) <= 31 ? "-" : character,
+  ).join("");
+  const sanitized = withoutControlCharacters
+    .replace(/[<>:"/\\|?*]/g, "-")
     .replace(/[.\s]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -7485,10 +7407,6 @@ function isExcludedCommerceProductTitle(title: string): boolean {
   return /\b(?:GIMMICK|NOT\s+FOR\s+SALE|FREE\s+GIFT)\b/iu.test(title);
 }
 
-function hasTopSalesPlacement(product: ProjectProductEvidence): boolean {
-  return product.source === "Top Sales" || /\b(?:top\s+)?\d+\s+in\s+sales\b/iu.test(productSourcePlacement(product));
-}
-
 function isQualifiedProductSource(product: ProjectProductEvidence): boolean {
   return !product.source?.startsWith("Store Products") && !product.source?.startsWith("Store Best Sellers");
 }
@@ -7598,25 +7516,6 @@ function productQualityScore(product: ProjectProductEvidence): number {
   const priceScore = product.priceAverage ? 8 : 0;
   const imageScore = product.imageUrl ? 8 : 0;
   return topSalesBoost + monthlySoldScore + totalSoldScore + reviewScore + ratingScore + priceScore + imageScore;
-}
-
-function selectionTier(classification: ProductSelectionClassification): number {
-  switch (classification) {
-    case "Priority":
-      return 5;
-    case "High":
-      return 4;
-    case "Platform recommended":
-      return 3;
-    case "Average - Emerging Product":
-      return 2;
-    case "Average - Established but Slowing":
-      return 1;
-    case "Not Recommended":
-      return -1;
-    default:
-      return 0;
-  }
 }
 
 function selectionReasonForDisplay(product: ProjectProductEvidence, pool: ProjectProductEvidence[], keyword = ""): string {
@@ -7811,22 +7710,6 @@ function normalizeSearchTerms(keyword: string): string[] {
     .filter((term) => term.length >= 2);
 }
 
-function isRelevantProductCandidate(product: ProjectProductEvidence, keyword = ""): boolean {
-  if (!product.title || !product.productUrl) {
-    return false;
-  }
-  const terms = normalizeSearchTerms(keyword);
-  if (terms.length === 0) {
-    return true;
-  }
-  const title = [product.title, product.productType].filter(Boolean).join(" ").toLowerCase();
-  const matched = terms.filter((term) => title.includes(term)).length;
-  if (matched > 0) {
-    return true;
-  }
-  return product.source === "Top Sales" && Boolean(product.monthlySold || product.totalSold) && relevanceScoreForProduct(product, keyword) >= 52;
-}
-
 function thumbnailHeuristicScore(product: ProjectProductEvidence, keyword = ""): number {
   let score = 48;
   if (product.imageUrl) {
@@ -7946,21 +7829,6 @@ function uniqueInlineLabels(values: Array<string | null | undefined>): string[] 
   return output;
 }
 
-function uniqueStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const output: string[] = [];
-  for (const value of values) {
-    const normalized = String(value ?? "").replace(/\s+/gu, " ").trim();
-    const key = normalized.toLowerCase();
-    if (!normalized || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    output.push(normalized);
-  }
-  return output;
-}
-
 function shortProductTitle(title: string): string {
   return title.length > 54 ? `${title.slice(0, 51).trim()}...` : title;
 }
@@ -8070,128 +7938,8 @@ function isMonthlySoldProductSource(source?: string | null): boolean {
   return source === "Top Sales" || Boolean(source?.startsWith("Store Best Sellers"));
 }
 
-type StoreEvaluationCandidate = {
-  key: string;
-  name: string;
-  url?: string;
-  type: string;
-  score: number;
-  productCount: number;
-  gmvEstimate: number;
-  monthlySoldEstimate: number;
-  promotionCount: number;
-  thumbnail?: string;
-  hasStoreEvidence: boolean;
-};
-
-function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluationCandidate[] {
-  const storeEvidenceKinds: Array<ProjectDetailPayload["assets"][number]["kind"]> = [
-    "STORE_HOME",
-    "STORE_FEATURED_PRODUCTS",
-    "STORE_BEST_SELLER",
-    "STORE_BANNER",
-    "STORE_PROMOTION",
-    "STORE_VOUCHER"
-  ];
-  const hasStoreEvidence = hasAnyAsset(detail, storeEvidenceKinds);
-  const grouped = new Map<string, StoreEvaluationCandidate & { qualityTotal: number }>();
-  for (const product of selectKeyProductCandidates(detail.products, detail.project.keyword).filter((item) => item.storeName || item.storeUrl)) {
-    const key = normalizeStoreKey(product);
-    const existing = grouped.get(key);
-    const monthlySold = product.monthlySold ?? 0;
-    const price = product.priceAverage ?? 0;
-    const promotionCount = product.promotionCount ?? product.shopVouchers.length + product.bundleDeals.length;
-    const candidate = existing ?? {
-      key,
-      name: product.storeName ?? product.storeUrl ?? "Store pending PDP capture",
-      url: product.storeUrl ?? undefined,
-      type: storeTypeLabel(product),
-      score: 0,
-      productCount: 0,
-      gmvEstimate: 0,
-      monthlySoldEstimate: 0,
-      promotionCount: 0,
-      thumbnail: product.imageUrl ?? undefined,
-      hasStoreEvidence,
-      qualityTotal: 0
-    };
-    candidate.productCount += 1;
-    candidate.gmvEstimate += price * monthlySold;
-    candidate.monthlySoldEstimate += monthlySold;
-    candidate.promotionCount += promotionCount;
-    candidate.qualityTotal += productQualityScore(product) + Math.min(18, promotionCount * 3);
-    candidate.score = Math.min(100, Math.round(candidate.qualityTotal / candidate.productCount));
-    if (!candidate.thumbnail && product.imageUrl) {
-      candidate.thumbnail = product.imageUrl;
-    }
-    if (!candidate.url && product.storeUrl) {
-      candidate.url = product.storeUrl;
-    }
-    grouped.set(key, candidate);
-  }
-  const candidates = [...grouped.values()];
-  if (detail.analyses.length > 0) {
-    candidates.sort((left, right) => right.gmvEstimate - left.gmvEstimate || right.score - left.score);
-  }
-  return candidates
-    .slice(0, 10)
-    .map((candidate) => ({
-      key: candidate.key,
-      name: candidate.name,
-      url: candidate.url,
-      type: candidate.type,
-      score: candidate.score,
-      productCount: candidate.productCount,
-      gmvEstimate: candidate.gmvEstimate,
-      monthlySoldEstimate: candidate.monthlySoldEstimate,
-      promotionCount: candidate.promotionCount,
-      thumbnail: candidate.thumbnail,
-      hasStoreEvidence: candidate.hasStoreEvidence
-    }));
-}
-
 function normalizeStoreKey(product: ProjectProductEvidence): string {
   return (canonicalStoreUrl(product.storeUrl) ?? product.storeName ?? product.title).toLowerCase().replace(/\s+/g, "-");
-}
-
-function keyStoreOverallConclusions(candidate: StoreEvaluationCandidate, resultJson?: string): string[] {
-  const parsed = resultJson ? parseRecord(resultJson) : null;
-  const candidates = [
-    textFromAnalysisValue(parsed?.executiveSummary),
-    textFromAnalysisValue(parsed?.summary),
-    textFromAnalysisValue(parsed?.storeAnalysis),
-    textFromAnalysisValue(parsed?.competitivePosition),
-    textFromAnalysisValue(parsed?.recommendations)
-  ].filter(Boolean) as string[];
-  const evidenceSentence = `${candidate.name} is selected as the Key Store because it has the strongest combined signal across estimated monthly GMV, sold-per-month volume, promotion activity, store type, and captured evidence readiness.`;
-  const benchmarkSentence = `Use ${candidate.name} as the benchmark for homepage structure, product matrix, best-seller presentation, banner style, voucher strategy, and TikTok brand presence.`;
-  const scoreSentence = `The current local score is ${candidate.score}/100 from ${candidate.productCount} qualified product signal${candidate.productCount === 1 ? "" : "s"}, estimated GMV ${formatCurrency(candidate.gmvEstimate)}, and ${candidate.promotionCount} promotion signal${candidate.promotionCount === 1 ? "" : "s"}.`;
-  return uniqueStrings([evidenceSentence, ...candidates, scoreSentence, benchmarkSentence]).slice(0, 5);
-}
-
-function textFromAnalysisValue(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return value.trim() || undefined;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => (typeof item === "string" ? item : undefined)).filter(Boolean).join(" ").slice(0, 360) || undefined;
-  }
-  if (isRecord(value)) {
-    const summary = value.summary ?? value.overall ?? value.rationale ?? value.recommendation ?? value.description;
-    if (typeof summary === "string" && summary.trim()) {
-      return summary.trim();
-    }
-  }
-  return undefined;
-}
-
-function parseRecord(value: string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -8236,10 +7984,6 @@ function formatFileSize(bytes: number): string {
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   }
   return `${Math.round(bytes / (1024 * 1024))} MB`;
-}
-
-function hasAnyAsset(detail: ProjectDetailPayload, kinds: Array<ProjectDetailPayload["assets"][number]["kind"]>): boolean {
-  return detail.assets.some((asset) => kinds.includes(asset.kind));
 }
 
 function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): string {

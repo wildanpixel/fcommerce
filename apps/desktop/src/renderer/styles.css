@@ -1965,3 +1965,158 @@ button[aria-label="Next step"] {
     display: none;
   }
 }
+/* Google AI Studio-inspired application shell */
+:root {
+  --mio-shell-bg: #ffffff;
+  --mio-surface: #f8f9fa;
+  --mio-surface-raised: #ffffff;
+  --mio-border: #e1e4e8;
+  --mio-text: #202124;
+  --mio-muted: #5f6368;
+  --mio-accent: #1a73e8;
+  --mio-accent-soft: #e8f0fe;
+}
+
+body {
+  background: var(--mio-shell-bg);
+  color: var(--mio-text);
+}
+
+.mio-app,
+.mio-main,
+.mio-light,
+.mio-light .mio-main {
+  background: var(--mio-shell-bg);
+  color: var(--mio-text);
+}
+
+.mio-main::before,
+.mio-light .mio-main::before {
+  background: transparent;
+}
+
+.mio-sidebar,
+.mio-light .mio-sidebar {
+  background: var(--mio-surface);
+  border-color: var(--mio-border);
+  box-shadow: none;
+}
+
+.mio-panel,
+.mio-light .mio-panel,
+.mio-glass,
+.mio-light .mio-glass {
+  background: var(--mio-surface-raised);
+  border-color: var(--mio-border);
+  box-shadow: none;
+}
+
+.input,
+.mio-light .input,
+.secondary-button,
+.mio-light .secondary-button {
+  background: var(--mio-surface-raised);
+  border-color: var(--mio-border);
+  color: var(--mio-text);
+  box-shadow: none;
+  border-radius: 8px;
+}
+
+.primary-button,
+.mio-light .primary-button {
+  background: var(--mio-accent);
+  border-color: var(--mio-accent);
+  color: #ffffff;
+  box-shadow: none;
+  border-radius: 8px;
+}
+
+.primary-button:hover,
+.mio-light .primary-button:hover {
+  background: #1765cc;
+  border-color: #1765cc;
+}
+
+.mio-nav-button {
+  border-radius: 8px;
+  color: var(--mio-muted);
+}
+
+.mio-nav-button:hover,
+.mio-nav-button[aria-current="page"] {
+  background: var(--mio-accent-soft);
+  color: var(--mio-accent);
+}
+
+.mio-top-bar,
+.mio-light .mio-top-bar {
+  background: color-mix(in srgb, var(--mio-shell-bg) 88%, transparent);
+  border-color: var(--mio-border);
+  box-shadow: none;
+  backdrop-filter: blur(16px);
+}
+
+.mio-round-icon-button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.mio-app *,
+.mio-app *::before,
+.mio-app *::after {
+  transition-duration: 200ms;
+}
+
+.mio-dark {
+  --mio-shell-bg: #181818;
+  --mio-surface: #1f1f1f;
+  --mio-surface-raised: #242424;
+  --mio-border: #353535;
+  --mio-text: #e8eaed;
+  --mio-muted: #9aa0a6;
+  --mio-accent: #8ab4f8;
+  --mio-accent-soft: #263850;
+}
+
+.mio-dark,
+.mio-dark .mio-main {
+  background: var(--mio-shell-bg);
+  color: var(--mio-text);
+}
+
+.mio-dark .mio-sidebar,
+.mio-dark .mio-panel,
+.mio-dark .mio-glass,
+.mio-dark .input,
+.mio-dark .secondary-button {
+  background: var(--mio-surface);
+  border-color: var(--mio-border);
+  color: var(--mio-text);
+  box-shadow: none;
+}
+
+.mio-dark .mio-top-bar {
+  background: color-mix(in srgb, var(--mio-shell-bg) 88%, transparent);
+  border-color: var(--mio-border);
+}
+
+.mio-dark .primary-button {
+  background: #8ab4f8;
+  border-color: #8ab4f8;
+  color: #202124;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mio-app *,
+  .mio-app *::before,
+  .mio-app *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
