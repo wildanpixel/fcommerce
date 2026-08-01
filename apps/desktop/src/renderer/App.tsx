@@ -1,4 +1,4 @@
-import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent, ReactNode, WheelEvent, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent, ReactNode, WheelEvent, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -32,7 +32,6 @@ import {
   RefreshCcw,
   Search,
   Settings,
-  ShieldCheck,
   ShoppingBag,
   Sparkles,
   Smartphone,
@@ -82,6 +81,8 @@ import {
   type StoreType
 } from "../shared/storeTypes.js";
 import { apiClient } from "./api/client.js";
+import { APP_AUTHOR_NAME } from "./app/appMetadata.js";
+import { AppSidebar } from "./components/AppSidebar.js";
 import { AppTopBar } from "./components/AppTopBar.js";
 import {
   buildStoreCollectionCandidates,
@@ -99,15 +100,13 @@ import {
   toMobileUrl,
   withShopeeProductDisplayModel
 } from "./shopeeUrls.js";
-import { type AppView, useUiStore } from "./store/uiStore.js";
+import { useUiStore } from "./store/uiStore.js";
 import { APP_LANGUAGES, type AppLanguage } from "./app/languages.js";
 import { EmptyState, Field, Panel } from "./components/ui.js";
 import { SettingsView } from "./pages/SettingsView.js";
 
 const SHOPEE_HOME_URL = "https://shopee.co.id/";
 const TIKTOK_SHOP_URL = "https://www.tiktok.com/shop";
-const APP_AUTHOR_NAME = "Wildan Ega Pradana";
-const APP_AUTHOR_LINKEDIN = "https://www.linkedin.com/in/wildanegapradana/";
 const PROJECT_DETAIL_STALE_TIME_MS = 5 * 60_000;
 const PROJECT_DETAIL_GC_TIME_MS = 30 * 60_000;
 
@@ -128,13 +127,6 @@ const SHOPEE_SHOP_TYPE_OPTIONS: Array<{ id: ShopeeShopTypeFilter; label: string 
   { id: "OFFICIAL_MALL", label: "Shopee Mall" },
   { id: "PREFERRED_PLUS", label: "Star+" },
   { id: "PREFERRED", label: "Star" }
-];
-
-const navItems: Array<{ id: AppView; label: string; icon: LucideIcon }> = [
-  { id: "research", label: "New Research", icon: Search },
-  { id: "projects", label: "Keyword Projects", icon: Table2 },
-  { id: "reports", label: "Reports", icon: FileDown },
-  { id: "settings", label: "Settings", icon: Settings }
 ];
 
 type ResearchPlatform = Extract<MarketplaceId, "SHOPEE_ID" | "TIKTOK_SHOP">;
@@ -370,6 +362,18 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [collectionPageActive, setCollectionPageActive] = useState(false);
 
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((current) => !current);
+  }, []);
+
+  const toggleThemeMode = useCallback(() => {
+    setThemeMode((value) => (value === "dark" ? "light" : "dark"));
+  }, []);
+
+  const requestActivityToggle = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("mio:toggle-activity"));
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => setShowSplash(false), 1800);
     return () => window.clearTimeout(timer);
@@ -391,10 +395,6 @@ export default function App() {
     return () => window.removeEventListener("mio:collection-page-state", handleCollectionPageState);
   }, []);
 
-  function requestActivityToggle() {
-    window.dispatchEvent(new CustomEvent("mio:toggle-activity"));
-  }
-
   return (
     <div className={`mio-app ${themeMode === "light" ? "mio-light" : "mio-dark"} min-h-screen bg-ink-950 text-ink-100`}>
       <AnimatePresence>{showSplash && <SplashScreen />}</AnimatePresence>
@@ -404,14 +404,14 @@ export default function App() {
           sidebarCollapsed ? "grid-cols-[76px_minmax(0,1fr)]" : "grid-cols-[264px_minmax(0,1fr)]"
         ].join(" ")}
       >
-        <Sidebar
+        <AppSidebar
           collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed((current) => !current)}
+          onToggle={toggleSidebar}
         />
         <main className="mio-main min-w-0 border-l border-white/8 bg-[linear-gradient(180deg,#10141d,#090b10_48%)]">
           <AppTopBar
             themeMode={themeMode}
-            onThemeToggle={() => setThemeMode((value) => (value === "dark" ? "light" : "dark"))}
+            onThemeToggle={toggleThemeMode}
             showActivityButton={collectionPageActive}
             onActivityToggle={requestActivityToggle}
           />
@@ -474,109 +474,6 @@ function SplashScreen() {
         </div>
       </motion.div>
     </motion.div>
-  );
-}
-
-function Sidebar({
-  collapsed,
-  onToggle
-}: {
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  const activeView = useUiStore((state) => state.activeView);
-  const setActiveView = useUiStore((state) => state.setActiveView);
-
-  return (
-    <motion.aside
-      className={[
-        "mio-sidebar flex min-h-screen flex-col bg-ink-900 py-5 transition-all duration-300 ease-out",
-        collapsed ? "mio-sidebar-collapsed px-2" : "px-4"
-      ].join(" ")}
-      initial={false}
-      animate={{ width: "100%" }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
-    >
-      <div
-        className={[
-          "mb-8 flex items-center gap-3",
-          collapsed ? "flex-col px-0" : "px-2"
-        ].join(" ")}
-      >
-        <div className="mio-brand-mark flex h-9 w-9 items-center justify-center rounded-md bg-signal-blue/15 text-signal-blue">
-          <Brain size={20} />
-        </div>
-        {!collapsed && (
-          <motion.div
-            className="min-w-0 flex-1"
-            initial={{ opacity: 0, x: -6 }}
-            animate={{ opacity: 1, x: 0 }}
-          >
-            <div className="mio-brand-title text-sm font-semibold leading-5">MarketPlace Keyword</div>
-            <div className="mio-brand-subtitle text-xs leading-5 text-ink-500">Competitor Analysis</div>
-          </motion.div>
-        )}
-        <button
-          type="button"
-          className="secondary-button mio-round-icon-button h-10 w-10 shrink-0 px-0"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-expanded={!collapsed}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          onClick={onToggle}
-        >
-          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-        </button>
-      </div>
-
-      <nav className="space-y-1">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = activeView === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              aria-label={item.label}
-              aria-current={active ? "page" : undefined}
-              title={collapsed ? item.label : undefined}
-              data-tooltip={collapsed ? item.label : undefined}
-              className={[
-                "mio-nav-button flex h-10 w-full items-center rounded-md text-left text-sm transition",
-                collapsed ? "justify-center px-0" : "gap-3 px-3",
-                active ? "mio-nav-active bg-white/9 text-white shadow-glow" : "text-ink-300 hover:bg-white/6 hover:text-white"
-              ].join(" ")}
-              onClick={() => setActiveView(item.id)}
-            >
-              <Icon size={17} className="shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </button>
-          );
-        })}
-      </nav>
-
-      {!collapsed && <div className="mt-auto space-y-3">
-        <button
-          type="button"
-          className="w-full rounded-md border border-white/8 bg-white/5 p-3 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
-          onClick={() => void apiClient.openUrl(APP_AUTHOR_LINKEDIN)}
-        >
-          <div className="mb-1 flex items-center gap-2 text-xs font-medium text-ink-300">
-            <ExternalLink size={14} />
-            Developer
-          </div>
-          <div className="text-xs leading-5 text-ink-500">{APP_AUTHOR_NAME}</div>
-        </button>
-        <div className="rounded-md border border-white/8 bg-white/5 p-3 transition-opacity duration-300">
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-ink-300">
-          <ShieldCheck size={14} />
-          Local Evidence Vault
-        </div>
-        <div className="text-xs leading-5 text-ink-500">
-          Keyword projects, screenshots, reports, browser sessions, and keys stay on this machine.
-        </div>
-        </div>
-      </div>}
-    </motion.aside>
   );
 }
 
