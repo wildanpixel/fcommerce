@@ -70,6 +70,34 @@ test("shows TikTok as a coming-soon platform", async ({ page }) => {
   await expect(tiktokButton).toContainText("Coming soon");
 });
 
+test("keeps the refined shell usable at a narrow desktop width", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 720 });
+  await page.goto(e2eApiOverride);
+
+  const vaultButton = page.getByRole("button", { name: "Local Evidence Vault" });
+  await vaultButton.click();
+  const popover = page.locator(".mio-popover");
+  await expect(popover).toBeVisible();
+  const popoverBox = await popover.boundingBox();
+  expect(popoverBox).not.toBeNull();
+  expect((popoverBox?.x ?? -1) + (popoverBox?.width ?? 0)).toBeLessThanOrEqual(1100);
+  expect((popoverBox?.y ?? -1) + (popoverBox?.height ?? 0)).toBeLessThanOrEqual(720);
+  await page.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
+
+  await page.getByRole("button", { name: /Create Analysis/ }).click();
+  await page.getByLabel("Desired Keyword").fill("responsive research");
+  await page.getByLabel("Product Category").fill("responsive category");
+  await page.getByRole("checkbox", { name: "Shopee Mall" }).check();
+  await expect(page.getByRole("checkbox", { name: "Shopee Mall" })).toBeChecked();
+  await expect(page.getByRole("button", { name: /Proceed to Browser/ })).toBeEnabled();
+  expect(await page.evaluate(() => document.body.scrollWidth - document.body.clientWidth)).toBe(0);
+
+  await page.getByRole("button", { name: "Light" }).click();
+  await expect(page.locator(".mio-app")).toHaveClass(/mio-light/);
+  expect(await page.evaluate(() => document.body.scrollWidth - document.body.clientWidth)).toBe(0);
+});
+
 test("keeps New Research inputs responsive after deleting a project", async ({ page }) => {
   const projectName = `delete-input-regression-${Date.now()}`;
   await page.goto(e2eApiOverride);

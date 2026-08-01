@@ -5,6 +5,7 @@ import type { SaveSettingsPayload, SettingsPayload } from "../../shared/contract
 import { apiClient } from "../api/client.js";
 import { APP_LANGUAGES } from "../app/languages.js";
 import { EmptyState, Field, Panel, StatusLine } from "../components/ui.js";
+import { Button, IconButton, Input, SegmentedControl, Select } from "../components/primitives.js";
 
 const APP_DISPLAY_NAME = "Marketplace Intelligence OS";
 
@@ -74,15 +75,17 @@ export function SettingsView() {
   return (
     <section className="mio-settings-view space-y-5">
       <div className="grid grid-cols-[220px_minmax(0,1fr)] gap-5">
-        <nav className="mio-panel h-fit space-y-2 rounded-[24px] p-3" aria-label="Settings sections">
-          <button className={activeSection === "general" ? "primary-button w-full justify-start" : "secondary-button w-full justify-start border-0"} type="button" onClick={() => setActiveSection("general")}>
-            <SlidersHorizontal size={16} />
-            General
-          </button>
-          <button className={activeSection === "ai" ? "primary-button w-full justify-start" : "secondary-button w-full justify-start border-0"} type="button" onClick={() => setActiveSection("ai")}>
-            <Bot size={16} />
-            AI Configuration
-          </button>
+        <nav className="mio-settings-nav h-fit" aria-label="Settings sections">
+          <SegmentedControl
+            value={activeSection}
+            options={[
+              { value: "general", label: "General", icon: SlidersHorizontal },
+              { value: "ai", label: "AI Configuration", icon: Bot }
+            ]}
+            onChange={setActiveSection}
+            label="Settings sections"
+            orientation="vertical"
+          />
         </nav>
         <div className="space-y-5">
         {activeSection === "general" ? (
@@ -90,70 +93,69 @@ export function SettingsView() {
         <Panel title="Settings" icon={Settings}>
         <form className="grid grid-cols-2 gap-4" onSubmit={submit}>
           <Field label="Theme">
-            <select value={value.theme} onChange={(event) => update({ theme: event.target.value as SaveSettingsPayload["theme"] })} className="input">
+            <Select value={value.theme} onChange={(event) => update({ theme: event.target.value as SaveSettingsPayload["theme"] })}>
               <option value="dark">Dark</option>
               <option value="light">Light</option>
               <option value="system">System</option>
-            </select>
+            </Select>
           </Field>
           <Field label="Preferred Browser">
-            <select value={value.browser} onChange={(event) => update({ browser: event.target.value as SaveSettingsPayload["browser"] })} className="input">
+            <Select value={value.browser} onChange={(event) => update({ browser: event.target.value as SaveSettingsPayload["browser"] })}>
               {(browsers.data ?? [{ id: "chromium" as const, name: "Bundled Chromium", available: true, profilePath: "" }]).map((browser) => (
                 <option key={browser.id} value={browser.id} disabled={!browser.available}>
                   {browser.name}
                   {browser.available ? "" : " (not detected)"}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Export folder">
             <div className="flex gap-2">
-              <input value={value.exportFolder} readOnly className="input min-w-0 flex-1" title={value.exportFolder} />
-              <button className="secondary-button mio-round-icon-button h-11 w-11 shrink-0 px-0" type="button" onClick={() => void chooseFolder("exportFolder")} aria-label="Choose report export folder" title="Choose report export folder">
+              <Input value={value.exportFolder} readOnly className="min-w-0 flex-1" title={value.exportFolder} />
+              <IconButton label="Choose report export folder" className="shrink-0" onClick={() => void chooseFolder("exportFolder")}>
                 <FolderOpen size={16} />
-              </button>
-              <button className="secondary-button mio-round-icon-button h-11 w-11 shrink-0 px-0" type="button" onClick={() => resetFolder("exportFolder")} aria-label="Reset report export folder" title="Reset to default">
+              </IconButton>
+              <IconButton label="Reset report export folder to default" className="shrink-0" onClick={() => resetFolder("exportFolder")}>
                 <RotateCcw size={16} />
-              </button>
+              </IconButton>
             </div>
           </Field>
           <Field label="Screenshot folder">
             <div className="flex gap-2">
-              <input value={value.screenshotFolder} readOnly className="input min-w-0 flex-1" title={value.screenshotFolder} />
-              <button className="secondary-button mio-round-icon-button h-11 w-11 shrink-0 px-0" type="button" onClick={() => void chooseFolder("screenshotFolder")} aria-label="Choose screenshot folder" title="Choose screenshot folder">
+              <Input value={value.screenshotFolder} readOnly className="min-w-0 flex-1" title={value.screenshotFolder} />
+              <IconButton label="Choose screenshot folder" className="shrink-0" onClick={() => void chooseFolder("screenshotFolder")}>
                 <FolderOpen size={16} />
-              </button>
-              <button className="secondary-button mio-round-icon-button h-11 w-11 shrink-0 px-0" type="button" onClick={() => resetFolder("screenshotFolder")} aria-label="Reset screenshot folder" title="Reset to default">
+              </IconButton>
+              <IconButton label="Reset screenshot folder to default" className="shrink-0" onClick={() => resetFolder("screenshotFolder")}>
                 <RotateCcw size={16} />
-              </button>
+              </IconButton>
             </div>
           </Field>
           <Field label="Language">
-            <select value={value.language} onChange={(event) => update({ language: event.target.value })} className="input">
+            <Select value={value.language} onChange={(event) => update({ language: event.target.value })}>
               {APP_LANGUAGES.map((language) => (
                 <option key={language.id} value={language.id}>
                   {language.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Concurrency">
-            <input
+            <Input
               type="number"
               min={1}
               max={5}
               value={value.concurrency}
               onChange={(event) => update({ concurrency: Number(event.target.value) })}
-              className="input"
             />
           </Field>
           <Field label="Report filename template">
-            <input value={value.reportFilenameTemplate} onChange={(event) => update({ reportFilenameTemplate: event.target.value })} className="input" />
+            <Input value={value.reportFilenameTemplate} onChange={(event) => update({ reportFilenameTemplate: event.target.value })} />
           </Field>
-          <button className="primary-button col-span-2" type="submit" disabled={save.isPending}>
+          <Button variant="primary" className="col-span-2" type="submit" loading={save.isPending}>
             <KeyRound size={16} />
             Save Settings
-          </button>
+          </Button>
         </form>
         </Panel>
         <Panel title="Runtime" icon={TerminalSquare}>
@@ -178,10 +180,10 @@ export function SettingsView() {
               <div>Browser profiles: {platform.data?.directories.browserProfiles ?? "-"}</div>
             </div>
             {platform.data?.directories.appData && (
-              <button className="primary-button mt-3" type="button" onClick={() => void apiClient.openPath(platform.data.directories.appData)}>
+              <Button variant="secondary" className="mt-3" onClick={() => void apiClient.openPath(platform.data.directories.appData)}>
                 <Archive size={16} />
                 Open App Folder
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -192,15 +194,15 @@ export function SettingsView() {
         <Panel title="AI Configuration" icon={KeyRound}>
           <form className="grid gap-4 lg:grid-cols-2" onSubmit={submit}>
             <Field label="OpenAI API key">
-              <input type="password" onChange={(event) => update({ openAiApiKey: event.target.value })} className="input" placeholder={value.openAiKeyConfigured ? "Configured" : ""} />
+              <Input type="password" onChange={(event) => update({ openAiApiKey: event.target.value })} placeholder={value.openAiKeyConfigured ? "Configured" : ""} />
             </Field>
             <Field label="Gemini API key">
-              <input type="password" onChange={(event) => update({ geminiApiKey: event.target.value })} className="input" placeholder={value.geminiKeyConfigured ? "Configured" : ""} />
+              <Input type="password" onChange={(event) => update({ geminiApiKey: event.target.value })} placeholder={value.geminiKeyConfigured ? "Configured" : ""} />
             </Field>
-            <button className="primary-button lg:col-span-2" type="submit" disabled={save.isPending}>
+            <Button variant="primary" className="lg:col-span-2" type="submit" loading={save.isPending}>
               <KeyRound size={16} />
               Save AI Configuration
-            </button>
+            </Button>
           </form>
         </Panel>
       <Panel title="AI API Key Setup" icon={KeyRound}>
@@ -276,14 +278,14 @@ function ApiKeyGuide({
         ))}
       </ol>
       <div className="mt-5 flex flex-wrap gap-2">
-        <button className="primary-button h-10 w-auto rounded-full px-4 text-sm" type="button" onClick={() => void apiClient.openUrl(primaryUrl)}>
+        <Button variant="primary" className="mio-pill-button" onClick={() => void apiClient.openUrl(primaryUrl)}>
           <ExternalLink size={15} />
           {primaryLabel}
-        </button>
-        <button className="secondary-button h-10 w-auto rounded-full px-4 text-sm" type="button" onClick={() => void apiClient.openUrl(documentationUrl)}>
+        </Button>
+        <Button variant="secondary" className="mio-pill-button" onClick={() => void apiClient.openUrl(documentationUrl)}>
           <FileText size={15} />
           Official guide
-        </button>
+        </Button>
       </div>
     </article>
   );

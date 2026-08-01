@@ -103,6 +103,8 @@ import {
 import { useUiStore } from "./store/uiStore.js";
 import { APP_LANGUAGES, type AppLanguage } from "./app/languages.js";
 import { EmptyState, Field, Panel } from "./components/ui.js";
+import { MarketplaceIllustration } from "./components/MarketplaceIllustration.js";
+import { Button, Checkbox, Chip, Input, Modal, SegmentedControl, Select } from "./components/primitives.js";
 import { SettingsView } from "./pages/SettingsView.js";
 
 const SHOPEE_HOME_URL = "https://shopee.co.id/";
@@ -579,21 +581,22 @@ function CreateAnalysisHome({ onCreate }: { onCreate: () => void }) {
       <NewResearchBackdrop />
       <motion.button
         type="button"
-        className="mio-create-button relative z-10 group flex min-h-[168px] w-full max-w-[520px] flex-col items-start justify-between rounded-[26px] border border-white/16 bg-white/8 p-8 text-left shadow-glow backdrop-blur-2xl transition"
-        whileHover={{ y: -4, scale: 1.01 }}
+        className="mio-create-button mio-ambient-border relative z-10 group flex min-h-[168px] w-full max-w-[520px] flex-col items-start justify-between text-left"
+        whileHover={{ y: -1 }}
         whileTap={{ scale: 0.99 }}
         onClick={onCreate}
+        aria-describedby="create-analysis-description"
       >
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-signal-blue/18 text-signal-blue">
-          <ShoppingBag size={24} />
+        <span className="mio-create-illustration" aria-hidden="true">
+          <MarketplaceIllustration variant="research" label="Marketplace research workspace" />
         </span>
         <span>
           <span className="block text-3xl font-semibold text-white">Create Analysis</span>
-          <span className="mt-3 block max-w-[420px] text-sm leading-6 text-ink-300">
+          <span id="create-analysis-description" className="mt-3 block max-w-[420px] text-sm leading-6 text-ink-300">
             Start a guided marketplace evidence session. You control the browser, the app captures each required report step.
           </span>
         </span>
-        <span className="inline-flex items-center gap-2 text-sm font-medium text-signal-blue">
+        <span className="mio-create-action inline-flex items-center gap-2 text-sm font-medium">
           Open setup
           <ChevronRight size={16} />
         </span>
@@ -603,53 +606,8 @@ function CreateAnalysisHome({ onCreate }: { onCreate: () => void }) {
 }
 
 function NewResearchBackdrop() {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const root = rootRef.current;
-    const container = root?.parentElement;
-    if (!root || !container) return;
-
-    let frame = 0;
-    let pointerX = 50;
-    let pointerY = 50;
-
-    const paintPointer = () => {
-      root.style.setProperty("--mio-pointer-x", `${pointerX}%`);
-      root.style.setProperty("--mio-pointer-y", `${pointerY}%`);
-      frame = 0;
-    };
-    const handlePointerMove = (event: globalThis.PointerEvent) => {
-      const bounds = container.getBoundingClientRect();
-      pointerX = ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * 100;
-      pointerY = ((event.clientY - bounds.top) / Math.max(bounds.height, 1)) * 100;
-      if (frame === 0) frame = window.requestAnimationFrame(paintPointer);
-    };
-    const handleVisibility = () => {
-      root.toggleAttribute("data-paused", document.hidden);
-    };
-
-    container.addEventListener("pointermove", handlePointerMove, { passive: true });
-    document.addEventListener("visibilitychange", handleVisibility);
-    handleVisibility();
-    return () => {
-      container.removeEventListener("pointermove", handlePointerMove);
-      document.removeEventListener("visibilitychange", handleVisibility);
-      if (frame !== 0) window.cancelAnimationFrame(frame);
-    };
-  }, []);
-
   return (
-    <div ref={rootRef} className="mio-new-research-backdrop" aria-hidden="true">
-      <div className="mio-new-research-glow" />
-      <div className="mio-marketplace-icon mio-marketplace-icon-1"><ShoppingBag size={24} /></div>
-      <div className="mio-marketplace-icon mio-marketplace-icon-2"><Search size={22} /></div>
-      <div className="mio-marketplace-icon mio-marketplace-icon-3"><Store size={24} /></div>
-      <div className="mio-marketplace-icon mio-marketplace-icon-4"><Globe2 size={23} /></div>
-      <div className="mio-research-particles">
-        {Array.from({ length: 12 }, (_, index) => <span key={index} />)}
-      </div>
-    </div>
+    <div className="mio-new-research-backdrop" aria-hidden="true" />
   );
 }
 
@@ -712,10 +670,10 @@ function AnalysisSetupForm({
 
   return (
     <section className="mio-analysis-setup mx-auto max-w-4xl">
-      <Panel title="Create Analysis" icon={ClipboardCheck}>
-        <form className="grid grid-cols-2 gap-5" onSubmit={onSubmit}>
+      <Panel title="Create Analysis" icon={ClipboardCheck} className="mio-analysis-panel mio-ambient-panel">
+        <form className="mio-analysis-form grid grid-cols-2 gap-5" onSubmit={onSubmit}>
           <Field label="Desired Keyword">
-            <input
+            <Input
               ref={keywordInputRef}
               data-research-keyword-input
               aria-label="Desired Keyword"
@@ -726,7 +684,7 @@ function AnalysisSetupForm({
             />
           </Field>
           <Field label="Product Category">
-            <input
+            <Input
               aria-label="Product Category"
               className="input"
               value={form.productCategory}
@@ -735,12 +693,11 @@ function AnalysisSetupForm({
             />
           </Field>
           <Field label="Date Created">
-            <input aria-label="Date Created" className="input" value={formatDateTime(form.createdAt)} readOnly />
+            <Input aria-label="Date Created" value={formatDateTime(form.createdAt)} readOnly />
           </Field>
           <Field label="Language">
-            <select
+            <Select
               aria-label="Language"
-              className="input"
               value={form.language}
               onChange={(event) => onChange({ language: event.target.value as AppLanguage })}
             >
@@ -749,7 +706,7 @@ function AnalysisSetupForm({
                   {language.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Collection Platform">
             <div className="grid grid-cols-2 gap-2">
@@ -772,34 +729,24 @@ function AnalysisSetupForm({
           {form.marketplace === "SHOPEE_ID" && (
             <>
               <Field label="Shop Type">
-                <div className="grid grid-cols-2 gap-2" aria-label="Shopee Shop Type">
+                <div className="mio-shop-type-grid grid grid-cols-2 gap-2" aria-label="Shopee Shop Type">
                   {SHOPEE_SHOP_TYPE_OPTIONS.map((option) => {
                     const checked = form.searchFilters.shopTypes.includes(option.id);
                     return (
-                      <label
+                      <Checkbox
                         key={option.id}
-                        className={[
-                          "flex min-h-11 cursor-pointer items-center gap-3 rounded-md border px-3 text-sm transition",
-                          checked
-                            ? "border-signal-blue/45 bg-signal-blue/10 text-signal-blue"
-                            : "border-white/10 bg-white/4 text-ink-300 hover:border-signal-blue/30"
-                        ].join(" ")}
-                      >
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-signal-blue"
-                          checked={checked}
-                          onChange={() => toggleShopeeShopType(option.id)}
-                        />
-                        {option.label}
-                      </label>
+                        label={option.label}
+                        tile
+                        checked={checked}
+                        onChange={() => toggleShopeeShopType(option.id)}
+                      />
                     );
                   })}
                 </div>
               </Field>
               <Field label="Price Range (IDR)">
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                  <input
+                <div className="mio-price-range grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <Input
                     aria-label="Minimum Price"
                     className="input"
                     type="number"
@@ -810,7 +757,7 @@ function AnalysisSetupForm({
                     placeholder="Minimum"
                   />
                   <span className="text-sm text-ink-500">to</span>
-                  <input
+                  <Input
                     aria-label="Maximum Price"
                     className="input"
                     type="number"
@@ -828,14 +775,14 @@ function AnalysisSetupForm({
             </>
           )}
           <div className="col-span-2 grid grid-cols-[180px_minmax(0,1fr)] gap-3">
-            <button className="secondary-button" type="button" onClick={onBack}>
+            <Button variant="ghost" type="button" onClick={onBack}>
               <ChevronLeft size={16} />
               Back
-            </button>
-            <button className="primary-button" type="submit" disabled={!canProceed}>
+            </Button>
+            <Button variant="primary" type="submit" disabled={!canProceed}>
               <ChevronRight size={16} />
               Proceed to Browser
-            </button>
+            </Button>
           </div>
           {error && (
             <div className="col-span-2 rounded-md border border-signal-rose/30 bg-signal-rose/10 p-3 text-sm text-signal-rose">
@@ -4121,52 +4068,40 @@ function ProjectDeleteDialog({
     return null;
   }
 
-  return createPortal(
-    <motion.div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-5 backdrop-blur-sm"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.5, ease: "easeInOut" }}
-      onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
+  return (
+    <Modal
+      open
+      title="Delete keyword project?"
+      description={(
+        <span className="mio-delete-dialog-copy">
+          This permanently removes the project, evidence, reports, and local files. Type <strong>{project.name}</strong> to confirm.
+        </span>
+      )}
+      onClose={onCancel}
+      className="mio-delete-dialog"
+      actions={(
+        <>
+          <Button variant="ghost" onClick={onCancel} disabled={deleting}>Cancel</Button>
+          <Button
+            variant="danger"
+            onClick={onDelete}
+            loading={deleting}
+            disabled={confirmationName !== project.name}
+          >
+            <Trash2 size={15} />
+            {deleting ? "Deleting" : "Delete"}
+          </Button>
+        </>
+      )}
     >
-      <motion.div
-        className="mio-panel mio-delete-dialog w-full max-w-md rounded-[28px] border p-6 shadow-glow"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="delete-project-dialog-title"
-        initial={{ opacity: 0, y: 12, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 12, scale: 0.97 }}
-        transition={{ duration: 0.5, ease: "easeInOut" }}
-      >
-            <h2 id="delete-project-dialog-title" className="text-lg font-semibold">Delete keyword project?</h2>
-            <p className="mio-delete-dialog-copy mt-2 text-sm leading-6">
-              This permanently removes the project, evidence, reports, and local files. Type <strong>{project.name}</strong> to confirm.
-            </p>
-            <input
-              autoFocus
-              value={confirmationName}
-              onChange={(event) => onConfirmationNameChange(event.target.value)}
-              className="input mt-4"
-              aria-label="Project name confirmation"
-            />
-            {error && <div className="mt-3 rounded-xl bg-signal-rose/12 px-3 py-2 text-sm text-signal-rose">{error}</div>}
-            <div className="mt-5 flex justify-end gap-2">
-              <button className="secondary-button h-10 w-auto rounded-full px-5" type="button" onClick={onCancel} disabled={deleting}>Cancel</button>
-              <button
-                className="primary-button mio-danger-button h-10 w-auto rounded-full bg-signal-rose px-5 text-white"
-                type="button"
-                onClick={onDelete}
-                disabled={deleting || confirmationName !== project.name}
-              >
-                <Trash2 size={15} />
-                {deleting ? "Deleting" : "Delete"}
-              </button>
-            </div>
-      </motion.div>
-    </motion.div>,
-    appPortalRoot()
+      <Input
+        data-mio-autofocus
+        value={confirmationName}
+        onChange={(event) => onConfirmationNameChange(event.target.value)}
+        aria-label="Project name confirmation"
+      />
+      {error && <div className="mio-form-error mt-3">{error}</div>}
+    </Modal>
   );
 }
 
@@ -5969,10 +5904,15 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
 
   return (
     <section className="mio-reports-view space-y-5">
-      <div className="inline-flex rounded-full border border-white/8 bg-white/5 p-1">
-        <button className={reportMode === "single" ? "primary-button h-10 w-auto rounded-full px-5" : "secondary-button h-10 w-auto rounded-full border-0 px-5"} type="button" onClick={() => setReportMode("single")}>Single Report</button>
-        <button className={reportMode === "bulk" ? "primary-button h-10 w-auto rounded-full px-5" : "secondary-button h-10 w-auto rounded-full border-0 px-5"} type="button" onClick={() => setReportMode("bulk")}>Bulk Report</button>
-      </div>
+      <SegmentedControl
+        value={reportMode}
+        options={[
+          { value: "single", label: "Single Report" },
+          { value: "bulk", label: "Bulk Report" }
+        ]}
+        onChange={setReportMode}
+        label="Report mode"
+      />
       {reportMode === "bulk" ? (
         <BulkReportWizard projects={dashboard.data?.projects ?? []} themeMode={themeMode} />
       ) : (
@@ -6242,16 +6182,16 @@ function PlatformButton({
     <button
       type="button"
       className={[
-        "flex h-12 items-center justify-center gap-2 rounded-md border px-3 text-sm font-semibold transition",
-        active ? "border-signal-blue/45 bg-signal-blue/12 text-white" : "border-white/8 bg-white/5 text-ink-300 hover:text-white",
-        disabled ? "cursor-not-allowed opacity-45 hover:bg-white/5 hover:text-ink-300" : ""
+        "mio-platform-tile",
+        active ? "mio-platform-tile-active" : "",
+        disabled ? "mio-platform-tile-disabled" : ""
       ].join(" ")}
       onClick={onClick}
       disabled={disabled}
     >
-      <Icon size={16} />
+      <Icon size={17} strokeWidth={1.65} />
       <span className="truncate">{label}</span>
-      {badge && <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-400">{badge}</span>}
+      {badge && <span className="mio-platform-badge">{badge}</span>}
     </button>
   );
 }
@@ -6272,20 +6212,15 @@ function SegmentButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={[
-        "inline-flex h-9 items-center justify-center rounded-md border text-sm transition",
-        compact ? "gap-1.5 px-2" : "gap-2 px-3",
-        active ? "border-signal-blue/45 bg-signal-blue/12 text-white" : "border-white/8 bg-white/5 text-ink-400 hover:text-white",
-        disabled ? "cursor-not-allowed opacity-45" : ""
-      ].join(" ")}
+    <Chip
+      active={active}
+      className={compact ? "mio-chip-compact" : ""}
       onClick={onClick}
       disabled={disabled}
     >
       <Icon size={15} />
       {children}
-    </button>
+    </Chip>
   );
 }
 
