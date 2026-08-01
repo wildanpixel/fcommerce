@@ -358,7 +358,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => window.localStorage.getItem("mio-sidebar-collapsed") === "true"
   );
-  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
   const [showSplash, setShowSplash] = useState(true);
   const [collectionPageActive, setCollectionPageActive] = useState(false);
 
@@ -400,30 +400,31 @@ export default function App() {
       <AnimatePresence>{showSplash && <SplashScreen />}</AnimatePresence>
       <div
         className={[
-          "grid min-h-screen transition-[grid-template-columns] duration-300 ease-out",
-          sidebarCollapsed ? "grid-cols-[76px_minmax(0,1fr)]" : "grid-cols-[264px_minmax(0,1fr)]"
+          "mio-shell grid min-h-screen transition-[grid-template-columns] duration-200 ease-out",
+          sidebarCollapsed ? "grid-cols-[68px_minmax(0,1fr)]" : "grid-cols-[220px_minmax(0,1fr)]"
         ].join(" ")}
       >
         <AppSidebar
           collapsed={sidebarCollapsed}
           onToggle={toggleSidebar}
         />
-        <main className="mio-main min-w-0 border-l border-white/8 bg-[linear-gradient(180deg,#10141d,#090b10_48%)]">
+        <main className="mio-main min-w-0 border-l border-white/8">
           <AppTopBar
+            title={{ research: "Research Workspace", projects: "Keyword Projects", reports: "Reports", settings: "Settings" }[activeView]}
             themeMode={themeMode}
             onThemeToggle={toggleThemeMode}
             showActivityButton={collectionPageActive}
             onActivityToggle={requestActivityToggle}
           />
-          <div className="relative px-8 pb-10">
+          <div className="mio-content relative px-8 pb-10">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeView}
                 className="mio-page-transition"
-                initial={{ opacity: 0, y: 18, scale: 0.982, filter: "blur(10px)" }}
-                animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-                exit={{ opacity: 0, y: -12, scale: 0.992, filter: "blur(8px)" }}
-                transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.72 }}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.14, ease: "easeOut" }}
               >
                 {activeView === "research" && <ManualResearchExperience />}
                 {activeView === "projects" && <ProjectsView />}
@@ -443,19 +444,17 @@ function SplashScreen() {
     <motion.div
       className="mio-splash fixed inset-0 z-[120] flex items-center justify-center bg-[#f6f8fb]"
       initial={{ opacity: 1 }}
-      exit={{ opacity: 0, filter: "blur(12px)" }}
-      transition={{ duration: 0.34, ease: "easeOut" }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
     >
       <motion.div
         className="mio-splash-card flex flex-col items-center text-center"
-        initial={{ y: 18, scale: 0.96, opacity: 0 }}
-        animate={{ y: 0, scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 240, damping: 20, mass: 0.8 }}
+        initial={{ y: 8, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.24, ease: "easeOut" }}
       >
         <motion.div
           className="mio-splash-logo mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-signal-blue text-white"
-          animate={{ y: [0, -8, 0], rotate: [0, -2, 2, 0] }}
-          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
         >
           <Brain size={36} />
         </motion.div>
@@ -465,9 +464,9 @@ function SplashScreen() {
           animate={{ letterSpacing: "-0.04em", opacity: 1 }}
           transition={{ delay: 0.14, duration: 0.5 }}
         >
-          MarketPlace Keyword
+          Marketplace Intelligence OS
         </motion.div>
-        <div className="mt-2 text-sm font-medium text-ink-500">Competitor Analysis</div>
+        <div className="mt-2 text-sm font-medium text-ink-500">Marketplace research and evidence workspace</div>
         <div className="mt-8 flex items-center gap-2 rounded-full bg-black/5 px-4 py-2 text-xs font-semibold text-ink-500">
           <Sparkles size={14} className="text-signal-blue" />
           Made by {APP_AUTHOR_NAME}
@@ -712,7 +711,7 @@ function AnalysisSetupForm({
   }, []);
 
   return (
-    <section className="mx-auto max-w-4xl">
+    <section className="mio-analysis-setup mx-auto max-w-4xl">
       <Panel title="Create Analysis" icon={ClipboardCheck}>
         <form className="grid grid-cols-2 gap-5" onSubmit={onSubmit}>
           <Field label="Desired Keyword">
@@ -976,7 +975,7 @@ function AndroidTikTokCollector({
   }
 
   return (
-    <section className="grid grid-cols-[360px_minmax(0,1fr)] gap-5">
+    <section className="mio-android-workspace grid grid-cols-[360px_minmax(0,1fr)] gap-5">
       <aside className="space-y-5">
         <Panel title="TikTok Analysis Session" icon={Smartphone}>
           <div className="space-y-3 text-sm text-ink-300">
@@ -2519,7 +2518,7 @@ function GuidedBrowserCollector({
   );
 
   const workspaceContent = (
-    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : `grid gap-5 ${activitySidebarOpen ? "grid-cols-[360px_minmax(0,1fr)_300px]" : "grid-cols-[360px_minmax(0,1fr)]"}`}>
+    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : `mio-guided-workspace grid gap-5 ${activitySidebarOpen ? "grid-cols-[360px_minmax(0,1fr)_300px]" : "grid-cols-[360px_minmax(0,1fr)]"}`}>
       {!expanded && (
         <aside className="space-y-5">
           <button className="secondary-button" type="button" onClick={onNewAnalysis}>
@@ -3983,7 +3982,7 @@ function ProjectsView() {
 
   return (
     <>
-    <section className="space-y-5">
+    <section className="mio-projects-view space-y-5">
       <Panel title="Vault Metrics" icon={Gauge} className="mio-vault-metrics-panel">
         <div className="mio-vault-metrics-grid grid grid-cols-4 gap-3">
           <Metric icon={Archive} label="Keyword Projects" value={projects.length} />
@@ -5969,7 +5968,7 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   }
 
   return (
-    <section className="space-y-5">
+    <section className="mio-reports-view space-y-5">
       <div className="inline-flex rounded-full border border-white/8 bg-white/5 p-1">
         <button className={reportMode === "single" ? "primary-button h-10 w-auto rounded-full px-5" : "secondary-button h-10 w-auto rounded-full border-0 px-5"} type="button" onClick={() => setReportMode("single")}>Single Report</button>
         <button className={reportMode === "bulk" ? "primary-button h-10 w-auto rounded-full px-5" : "secondary-button h-10 w-auto rounded-full border-0 px-5"} type="button" onClick={() => setReportMode("bulk")}>Bulk Report</button>
@@ -5977,7 +5976,7 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
       {reportMode === "bulk" ? (
         <BulkReportWizard projects={dashboard.data?.projects ?? []} themeMode={themeMode} />
       ) : (
-      <div className="grid grid-cols-[220px_minmax(360px,0.8fr)_minmax(0,1.2fr)] items-start gap-5">
+      <div className="mio-reports-grid grid grid-cols-[220px_minmax(360px,0.8fr)_minmax(0,1.2fr)] items-start gap-5">
       <Panel title="Sections" icon={ListChecks} className="sticky top-20">
         <nav className="space-y-1" aria-label="Report workflow sections">
           {groupOrder.map((groupId) => {

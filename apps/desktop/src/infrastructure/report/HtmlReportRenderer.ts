@@ -211,7 +211,7 @@ function documentEnd(): string {
 function reportHeader(data: ReportData): string {
   const filters = projectSearchFilters(data);
   return `<header class="inspector-header">
-    <p class="kicker">MarketPlace Keyword Competitor Analysis</p>
+    <p class="kicker">Marketplace Intelligence OS</p>
     <h1>${escapeHtml(data.project.keyword)}</h1>
     <p class="muted">${escapeHtml(data.project.marketplace)} keyword competitor report generated from local guided evidence.</p>
     <div class="grid two">

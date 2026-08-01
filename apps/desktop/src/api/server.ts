@@ -326,7 +326,7 @@ export function createApp(): Express {
   app.get("/api/health", (_request, response) => {
     response.json({
       ok: true,
-      product: "MarketPlace Keyword Competitor Analysis",
+      product: "Marketplace Intelligence OS",
       version: process.env.MIO_APP_VERSION ?? "1.0.0"
     });
   });

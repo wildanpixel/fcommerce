@@ -281,7 +281,7 @@ export type BrowserOption = {
 
 export type HealthPayload = {
   ok: true;
-  product: "MarketPlace Keyword Competitor Analysis";
+  product: "Marketplace Intelligence OS";
   version: string;
 };
 

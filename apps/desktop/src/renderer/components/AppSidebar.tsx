@@ -6,11 +6,22 @@ import { APP_AUTHOR_LINKEDIN, APP_AUTHOR_NAME } from "../app/appMetadata.js";
 import { apiClient } from "../api/client.js";
 import { type AppView, useUiStore } from "../store/uiStore.js";
 
-const navItems: Array<{ id: AppView; label: string; icon: LucideIcon }> = [
-  { id: "research", label: "New Research", icon: Search },
-  { id: "projects", label: "Keyword Projects", icon: Table2 },
-  { id: "reports", label: "Reports", icon: FileDown },
-  { id: "settings", label: "Settings", icon: Settings }
+const navGroups: Array<{ label: string; items: Array<{ id: AppView; label: string; icon: LucideIcon }> }> = [
+  {
+    label: "Research",
+    items: [{ id: "research", label: "New Research", icon: Search }]
+  },
+  {
+    label: "Library",
+    items: [
+      { id: "projects", label: "Keyword Projects", icon: Table2 },
+      { id: "reports", label: "Reports", icon: FileDown }
+    ]
+  },
+  {
+    label: "System",
+    items: [{ id: "settings", label: "Settings", icon: Settings }]
+  }
 ];
 
 type AppSidebarProps = {
@@ -47,8 +58,8 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
           >
-            <div className="mio-brand-title text-sm font-semibold leading-5">MarketPlace Keyword</div>
-            <div className="mio-brand-subtitle text-xs leading-5 text-ink-500">Competitor Analysis</div>
+            <div className="mio-brand-title text-sm font-semibold leading-5">Marketplace</div>
+            <div className="mio-brand-subtitle text-xs leading-5 text-ink-500">Intelligence OS</div>
           </motion.div>
         )}
         <button
@@ -63,36 +74,41 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
         </button>
       </div>
 
-      <nav className="space-y-1">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = activeView === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              aria-label={item.label}
-              aria-current={active ? "page" : undefined}
-              title={collapsed ? item.label : undefined}
-              data-tooltip={collapsed ? item.label : undefined}
-              className={[
-                "mio-nav-button flex h-10 w-full items-center rounded-md text-left text-sm transition",
-                collapsed ? "justify-center px-0" : "gap-3 px-3",
-                active ? "mio-nav-active bg-white/9 text-white shadow-glow" : "text-ink-300 hover:bg-white/6 hover:text-white"
-              ].join(" ")}
-              onClick={() => setActiveView(item.id)}
-            >
-              <Icon size={17} className="shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </button>
-          );
-        })}
+      <nav className="mio-primary-nav space-y-5" aria-label="Primary navigation">
+        {navGroups.map((group) => (
+          <div key={group.label} className="space-y-1">
+            {!collapsed && <div className="mio-nav-section-label px-3">{group.label}</div>}
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const active = activeView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-label={item.label}
+                  aria-current={active ? "page" : undefined}
+                  title={collapsed ? item.label : undefined}
+                  data-tooltip={collapsed ? item.label : undefined}
+                  className={[
+                    "mio-nav-button flex h-10 w-full items-center rounded-md text-left text-sm transition",
+                    collapsed ? "justify-center px-0" : "gap-3 px-3",
+                    active ? "mio-nav-active bg-white/9 text-white" : "text-ink-300 hover:bg-white/6 hover:text-white"
+                  ].join(" ")}
+                  onClick={() => setActiveView(item.id)}
+                >
+                  <Icon size={17} className="shrink-0" />
+                  {!collapsed && <span>{item.label}</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {!collapsed && <div className="mt-auto space-y-3">
         <button
           type="button"
-          className="w-full rounded-md border border-white/8 bg-white/5 p-3 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
+          className="mio-sidebar-utility w-full rounded-md border border-white/8 bg-white/5 p-3 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
           onClick={() => void apiClient.openUrl(APP_AUTHOR_LINKEDIN)}
         >
           <div className="mb-1 flex items-center gap-2 text-xs font-medium text-ink-300">
@@ -101,7 +117,7 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
           </div>
           <div className="text-xs leading-5 text-ink-500">{APP_AUTHOR_NAME}</div>
         </button>
-        <div className="rounded-md border border-white/8 bg-white/5 p-3 transition-opacity duration-300">
+        <div className="mio-sidebar-vault rounded-md border border-white/8 bg-white/5 p-3 transition-opacity duration-300">
           <div className="mb-2 flex items-center gap-2 text-xs font-medium text-ink-300">
             <ShieldCheck size={14} />
             Local Evidence Vault

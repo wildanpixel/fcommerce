@@ -48,7 +48,7 @@ export function StatusLine({ label, active }: { label: string; active: boolean }
 
 export function EmptyState({ label }: { label: string }) {
   return (
-    <div className="rounded-md border border-dashed border-white/12 bg-white/[0.03] p-6 text-sm text-ink-500">
+    <div className="mio-empty-state rounded-md border border-dashed border-white/12 bg-white/[0.03] p-6 text-sm text-ink-500">
       {label}
     </div>
   );

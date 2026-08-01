@@ -6,7 +6,7 @@ import { apiClient } from "../api/client.js";
 import { APP_LANGUAGES } from "../app/languages.js";
 import { EmptyState, Field, Panel, StatusLine } from "../components/ui.js";
 
-const APP_DISPLAY_NAME = "MarketPlace Keyword Competitor Analysis";
+const APP_DISPLAY_NAME = "Marketplace Intelligence OS";
 
 export function SettingsView() {
   const queryClient = useQueryClient();
@@ -72,7 +72,7 @@ export function SettingsView() {
   }
 
   return (
-    <section className="space-y-5">
+    <section className="mio-settings-view space-y-5">
       <div className="grid grid-cols-[220px_minmax(0,1fr)] gap-5">
         <nav className="mio-panel h-fit space-y-2 rounded-[24px] p-3" aria-label="Settings sections">
           <button className={activeSection === "general" ? "primary-button w-full justify-start" : "secondary-button w-full justify-start border-0"} type="button" onClick={() => setActiveSection("general")}>
@@ -221,11 +221,11 @@ export function SettingsView() {
             provider="Gemini"
             configured={value.geminiKeyConfigured}
             steps={[
-              "Open Google AI Studio and sign in with your Google account.",
+              "Open the Gemini API Keys page and sign in with your Google account.",
               "Select Create API key, choose a project, and copy the generated key.",
               "Paste it into Gemini API key above, then save settings."
             ]}
-            primaryLabel="Open Google AI Studio"
+            primaryLabel="Open Gemini API Keys"
             primaryUrl="https://aistudio.google.com/app/apikey"
             documentationUrl="https://ai.google.dev/gemini-api/docs/api-key"
           />

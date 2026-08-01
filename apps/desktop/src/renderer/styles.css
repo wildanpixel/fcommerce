@@ -1965,7 +1965,7 @@ button[aria-label="Next step"] {
     display: none;
   }
 }
-/* Google AI Studio-inspired application shell */
+/* Legacy application shell reset. */
 :root {
   --mio-shell-bg: #ffffff;
   --mio-surface: #f8f9fa;

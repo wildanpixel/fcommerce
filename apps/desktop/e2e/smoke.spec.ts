@@ -7,10 +7,10 @@ test.describe.configure({ mode: "serial" });
 
 test("renders the guided manual analysis flow", async ({ page }) => {
   await page.goto(e2eApiOverride);
-  await expect(page.getByRole("button", { name: "Hide sidebar" })).toBeVisible();
-  await page.getByRole("button", { name: "Hide sidebar" }).click();
-  await expect(page.getByRole("button", { name: "Show sidebar" })).toBeVisible();
-  await page.getByRole("button", { name: "Show sidebar" }).click();
+  await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
+  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+  await page.getByRole("button", { name: "Expand sidebar" }).click();
   await expect(page.getByRole("button", { name: /Create Analysis/ })).toBeVisible();
   await page.getByRole("button", { name: /Create Analysis/ }).click();
   await expect(page.getByLabel("Desired Keyword")).toBeVisible();
@@ -23,7 +23,7 @@ test("renders the guided manual analysis flow", async ({ page }) => {
   await expect(page.getByText("Platform Browser")).toBeVisible();
   await expect(page.getByText(/Step 1\/\d+/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Expand collector" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Dark" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Light" })).toBeVisible();
 
   await page.getByRole("button", { name: "Expand browser" }).click();
   const fullscreen = page.locator(".mio-browser-fullscreen");

@@ -4,6 +4,7 @@ import { Gauge, Moon, Sun } from "lucide-react";
 export type ThemeMode = "dark" | "light";
 
 type AppTopBarProps = {
+  title: string;
   themeMode: ThemeMode;
   onThemeToggle: () => void;
   showActivityButton?: boolean;
@@ -55,6 +56,7 @@ function useCompactTopBar(): boolean {
 }
 
 export const AppTopBar = memo(function AppTopBar({
+  title,
   themeMode,
   onThemeToggle,
   showActivityButton = false,
@@ -69,7 +71,7 @@ export const AppTopBar = memo(function AppTopBar({
         compact ? "mio-top-bar-compact h-12" : "h-16",
       ].join(" ")}
     >
-      <h1 className="text-lg font-semibold text-[var(--mio-text)]">Manual Evidence Collection</h1>
+      <h1 className="text-lg font-semibold text-[var(--mio-text)]">{title}</h1>
       <div className="flex items-center gap-2">
         <button
           className="secondary-button h-9 w-auto px-3"

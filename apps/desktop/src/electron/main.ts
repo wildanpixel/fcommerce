@@ -37,8 +37,8 @@ async function createWindow(): Promise<void> {
     height: 880,
     minWidth: 1120,
     minHeight: 720,
-    backgroundColor: "#f5f7fb",
-    title: "MarketPlace Keyword Competitor Analysis",
+    backgroundColor: "#171717",
+    title: "Marketplace Intelligence OS",
     autoHideMenuBar: process.platform !== "darwin",
     webPreferences: {
       preload: join(currentDir, "preload.js"),
@@ -68,7 +68,7 @@ app.on("before-quit", () => {
 });
 
 app.whenReady().then(() => {
-  app.setName("MarketPlace Keyword Competitor Analysis");
+  app.setName("Marketplace Intelligence OS");
   void createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
