@@ -95,6 +95,11 @@ import {
   storeRatingsUrl
 } from "./collectionKeyStore.js";
 import {
+  assertEvidenceHasProductRows,
+  evidenceRequiresProductRows,
+  isCollectionPageReady
+} from "./collectionEvidence.js";
+import {
   buildShopeeSearchUrl,
   toDesktopUrl,
   toMobileUrl,
@@ -1211,7 +1216,7 @@ function GuidedBrowserCollector({
   const controllerStep = activeStep
     ? {
         ...activeStep,
-        ready: Boolean(activeSubActionReady),
+        ready: isCollectionPageReady(Boolean(activeSubActionReady), loadState),
         targetUrl: activeTargetUrl
       }
     : activeStep;
@@ -1730,6 +1735,9 @@ function GuidedBrowserCollector({
         setAddress(nextUrl);
         onBrowserUrlChange(nextUrl);
       }
+    };
+    const ready = (event?: WebviewNavigationEvent) => {
+      updateUrl(event);
       setLoadState("ready");
       void installInteractionProbe();
     };
@@ -1746,18 +1754,18 @@ function GuidedBrowserCollector({
       appendLog(setActivityLog, "The browser could not load this page. You can reload or navigate manually.");
     };
     webview.addEventListener("did-start-loading", loading);
-    webview.addEventListener("dom-ready", updateUrl);
-    webview.addEventListener("did-finish-load", updateUrl);
+    webview.addEventListener("dom-ready", ready);
+    webview.addEventListener("did-finish-load", ready);
     webview.addEventListener("did-navigate", updateUrl as EventListener);
-    webview.addEventListener("did-navigate-in-page", updateUrl as EventListener);
+    webview.addEventListener("did-navigate-in-page", ready as EventListener);
     webview.addEventListener("did-fail-load", failed);
     const interactionTimer = window.setInterval(() => void pollInteraction(), 350);
     return () => {
       webview.removeEventListener("did-start-loading", loading);
-      webview.removeEventListener("dom-ready", updateUrl);
-      webview.removeEventListener("did-finish-load", updateUrl);
+      webview.removeEventListener("dom-ready", ready);
+      webview.removeEventListener("did-finish-load", ready);
       webview.removeEventListener("did-navigate", updateUrl as EventListener);
-      webview.removeEventListener("did-navigate-in-page", updateUrl as EventListener);
+      webview.removeEventListener("did-navigate-in-page", ready as EventListener);
       webview.removeEventListener("did-fail-load", failed);
       window.clearInterval(interactionTimer);
     };
@@ -2085,11 +2093,17 @@ function GuidedBrowserCollector({
     if (!webview?.capturePage) {
       throw new Error("The embedded browser cannot capture this page in the current runtime.");
     }
+    const actionLabel = subAction?.label ?? step.label;
     const captureMode = subAction?.captureMode ?? step.captureMode ?? "full-page";
     const targetSelector = subAction?.targetSelector ?? step.targetSelector;
     const extractionSelector = targetSelector;
     const captureStrategy = subAction?.captureStrategy ?? step.captureStrategy ?? "selector";
     const dataOnlyEvidence = isDataOnlyEvidenceStep(step, subAction);
+    const evidenceKind = subActionEvidenceKind(step, subAction);
+    if (evidenceRequiresProductRows(evidenceKind)) {
+      setCaptureStatus({ message: "Waiting for marketplace product rows", state: "working", progress: 10 });
+      await waitForRenderedProductRows(webview, targetSelector, actionLabel);
+    }
     setCaptureStatus({
       message: dataOnlyEvidence
         ? "Collecting page data"
@@ -2136,8 +2150,12 @@ function GuidedBrowserCollector({
         });
         return value;
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML", progress: 100 });
+        if (evidenceRequiresProductRows(evidenceKind)) {
+          const reason = error instanceof Error ? error.message : "The rendered page could not be read.";
+          throw new Error(`${actionLabel} could not fetch product rows. ${reason}`);
+        }
         return {
           html: "",
           visibleText: "",
@@ -2165,12 +2183,13 @@ function GuidedBrowserCollector({
           storeDecorationImages: []
         };
       });
+    assertEvidenceHasProductRows(evidenceKind, snapshot.products.length, actionLabel);
     const structuredProductDetail = scopeProductDetailSnapshot(snapshot.productDetail, subAction?.id);
     return {
       projectId: project.id,
       stepId: step.id,
       label: step.label,
-      kind: subActionEvidenceKind(step, subAction),
+      kind: evidenceKind,
       ownerType: step.ownerType,
       ownerId: step.ownerId,
       sourceUrl: sourceUrl === "about:blank" ? undefined : sourceUrl,
@@ -9039,6 +9058,45 @@ async function captureViewportScreenshot(webview: WebviewElement): Promise<FullP
     height: size.height,
     mode: "viewport"
   };
+}
+
+async function waitForRenderedProductRows(
+  webview: WebviewElement,
+  selector: string | undefined,
+  label: string,
+  timeoutMs = 20_000
+): Promise<void> {
+  if (!webview.executeJavaScript) {
+    throw new Error("The embedded browser cannot inspect marketplace results in the current runtime.");
+  }
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveReadyChecks = 0;
+  while (Date.now() < deadline) {
+    const state = await webview.executeJavaScript<{ readyState: string; productCount: number }>(`
+      (() => {
+        const selector = ${JSON.stringify(selector ?? "")};
+        const target = selector ? document.querySelector(selector) : document;
+        const scope = target || document;
+        const productSelector = 'a[href*="-i."], a[href*="/product/"], a[href*="i."]';
+        const scopedCount = scope.querySelectorAll(productSelector).length;
+        const documentCount = target ? 0 : document.querySelectorAll(productSelector).length;
+        return {
+          readyState: document.readyState,
+          productCount: Math.max(scopedCount, documentCount)
+        };
+      })();
+    `).catch(() => undefined);
+    if (state && state.readyState !== "loading" && state.productCount > 0) {
+      consecutiveReadyChecks += 1;
+      if (consecutiveReadyChecks >= 2) {
+        return;
+      }
+    } else {
+      consecutiveReadyChecks = 0;
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
+  }
+  throw new Error(`${label} is not ready because no rendered marketplace product rows were found.`);
 }
 
 async function captureElementScreenshot(webview: WebviewElement, selector: string): Promise<FullPageScreenshot> {
