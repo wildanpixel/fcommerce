@@ -9,8 +9,22 @@ const PRODUCT_LISTING_EVIDENCE_KINDS = new Set<ManualEvidenceKind>([
   "STORE_BEST_SELLER"
 ]);
 
-export function isCollectionPageReady(intentMatches: boolean, loadState: CollectionPageLoadState): boolean {
-  return intentMatches && loadState === "ready";
+const NON_DESTRUCTIVE_STORE_RECOLLECTION_ACTIONS = new Set([
+  "store-details",
+  "store-rating-negative",
+  "store-rating-positive",
+  "store-categories"
+]);
+
+export function isCollectionPageReady(
+  intentMatches: boolean,
+  loadState: CollectionPageLoadState,
+  hasRenderedRowsGuard = false
+): boolean {
+  if (!intentMatches || loadState === "failed") {
+    return false;
+  }
+  return loadState === "ready" || hasRenderedRowsGuard;
 }
 
 export function evidenceRequiresProductRows(kind: ManualEvidenceKind): boolean {
@@ -22,4 +36,8 @@ export function assertEvidenceHasProductRows(kind: ManualEvidenceKind, productCo
     return;
   }
   throw new Error(`${label} did not fetch any product rows. Wait until the marketplace results are visible, then try Collect again.`);
+}
+
+export function preservesStoreEvidenceDuringReset(subActionId?: string): boolean {
+  return Boolean(subActionId && NON_DESTRUCTIVE_STORE_RECOLLECTION_ACTIONS.has(subActionId));
 }

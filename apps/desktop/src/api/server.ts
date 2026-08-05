@@ -17,6 +17,10 @@ import {
   storeTypeFromBadgeContext,
   type StoreType
 } from "../shared/storeTypes.js";
+import {
+  compareRatingSamples,
+  parseShopeeStoreRatingHtmlWithDiagnostics
+} from "../shared/shopeeStoreRatings.js";
 import type {
   BrowserOption,
   AndroidApkCandidate,
@@ -29,6 +33,7 @@ import type {
   CollectionState,
   CreateJobPayload,
   ExtractedPageProduct,
+  EvidenceTranslationPayload,
   HtmlSnapshotPayload,
   ManualEvidencePayload,
   ManualEvidenceResetPayload,
@@ -37,6 +42,7 @@ import type {
   PlatformPayload,
   ReportGenerationPayload,
   ReportHtmlPayload,
+  EvidenceTranslationResult,
   SaveSettingsPayload
 } from "../shared/contracts.js";
 import type { ProductDetail, ReviewEvidence, StoreProfile } from "../domain/models.js";
@@ -102,8 +108,17 @@ const storeCollectionCandidateSchema = z.object({
   storeName: z.string().min(1),
   storeUrl: z.string().url(),
   shopId: z.string().optional(),
+  storeType: z.enum(["star", "star_plus", "shopee_mall"]).optional(),
+  sourceProductIds: z.array(z.string()).max(20).optional(),
   includePopularProducts: z.boolean(),
   includeShopBanner: z.boolean()
+});
+
+const qualifiedProductReferenceSchema = z.object({
+  productId: z.string().optional(),
+  productUrl: z.string().url().optional(),
+  fallbackIdentity: z.string().min(1),
+  manuallyAdded: z.boolean().optional()
 });
 
 const projectSchema = z.object({
@@ -150,6 +165,8 @@ export const reportSchema = z.object({
   theme: z.enum(["light", "dark"]).optional(),
   fileName: z.string().min(1).optional(),
   exportFolder: z.string().min(1).optional(),
+  formats: z.array(z.enum(["DOCX", "PDF", "HTML"])).min(1).optional(),
+  language: z.enum(["id-ID", "en-US", "zh-CN"]).optional(),
   sections: z.array(
     z.object({
       id: reportSectionIdSchema,
@@ -166,7 +183,14 @@ const bulkReportSchema = z.object({
   formats: z.array(z.enum(["DOCX", "PDF", "HTML"])).min(1),
   templateId: z.string().min(2),
   theme: z.enum(["light", "dark"]).optional(),
+  exportFolder: z.string().min(1).optional(),
+  language: z.enum(["id-ID", "en-US", "zh-CN"]).optional(),
   sections: reportSchema.shape.sections
+});
+
+const evidenceTranslationSchema = z.object({
+  language: z.enum(["id-ID", "en-US", "zh-CN"]),
+  texts: z.array(z.string().trim().min(1).max(4000)).min(1).max(100)
 });
 
 const manualEvidenceKindSchema = z.enum([
@@ -265,8 +289,12 @@ const collectionStateSchema = z.object({
   viewMode: z.enum(["desktop", "mobile"]).optional(),
   searchFilters: shopeeSearchFiltersSchema.optional(),
   qualifiedProductIds: z.array(z.string()).max(20).optional(),
+  qualifiedProductReferences: z.array(qualifiedProductReferenceSchema).max(20).optional(),
+  qualifiedProductsInitialized: z.boolean().optional(),
   qualifiedProductsApproved: z.boolean().optional(),
   storeCollectionCandidates: z.array(storeCollectionCandidateSchema).max(50).optional(),
+  storeListInitialized: z.boolean().optional(),
+  storeListApproved: z.boolean().optional(),
   savedAt: z.string().optional()
 });
 
@@ -442,6 +470,14 @@ export function createApp(): Express {
       currentStepId: input.currentStepId,
       browserUrl: input.browserUrl,
       viewMode: input.viewMode,
+      searchFilters: input.searchFilters,
+      qualifiedProductIds: input.qualifiedProductIds,
+      qualifiedProductReferences: input.qualifiedProductReferences,
+      qualifiedProductsInitialized: input.qualifiedProductsInitialized,
+      qualifiedProductsApproved: input.qualifiedProductsApproved,
+      storeCollectionCandidates: input.storeCollectionCandidates,
+      storeListInitialized: input.storeListInitialized,
+      storeListApproved: input.storeListApproved,
       savedAt: input.savedAt ?? new Date().toISOString()
     };
     response.json(await dependencies.projectRepository.updateCollectionState(params.id, state));
@@ -626,7 +662,8 @@ export function createApp(): Express {
       textPath,
       pdfPath,
       extractedProductCount: normalizedEvidence.extractedProductCount,
-      storeBannerCount: storeBannerAssetPaths.length
+      storeBannerCount: storeBannerAssetPaths.length,
+      storeRatingCount: normalizedEvidence.storeRatingCount
     });
   }));
 
@@ -846,13 +883,28 @@ export function createApp(): Express {
     response.json(saved);
   }));
 
+  app.post("/api/translations/evidence", asyncRoute(async (request, response) => {
+    const input = evidenceTranslationSchema.parse(request.body) satisfies EvidenceTranslationPayload;
+    const result = await dependencies.ai.translateTexts(input.texts, input.language);
+    response.json({ language: input.language, ...result } satisfies EvidenceTranslationResult);
+  }));
+
   app.get("/api/report-sections", (_request, response) => {
     response.json(DEFAULT_REPORT_SECTIONS);
   });
 
   app.post("/api/reports", asyncRoute(async (request, response) => {
     const input = reportSchema.parse(request.body) satisfies ReportGenerationPayload;
-    response.status(201).json(await dependencies.reports.generate(input));
+    const preparedInput = await prepareReportPayload(dependencies, input);
+    const generated = await dependencies.reports.generate(preparedInput);
+    if (preparedInput.formats?.includes("DOCX")) {
+      const data = await dependencies.reportDataLoader.load(preparedInput.projectId);
+      const docxPath = generated.htmlPath.replace(/\.html$/iu, ".docx");
+      await writeFile(docxPath, await dependencies.docxReports.render(data, preparedInput));
+      response.status(201).json({ ...generated, docxPath });
+      return;
+    }
+    response.status(201).json(generated);
   }));
 
   app.post("/api/reports/bulk", asyncRoute(async (request, response) => {
@@ -863,13 +915,17 @@ export function createApp(): Express {
     let fileCount = 0;
 
     for (const projectId of input.projectIds) {
-      const data = await dependencies.reportDataLoader.load(projectId);
-      const generated = await dependencies.reports.generate({
+      const preparedInput = await prepareReportPayload(dependencies, {
         projectId,
         templateId: input.templateId,
         theme: input.theme,
-        sections: input.sections
+        sections: input.sections,
+        formats: input.formats,
+        language: input.language,
+        exportFolder: input.exportFolder
       });
+      const data = await dependencies.reportDataLoader.load(projectId);
+      const generated = await dependencies.reports.generate(preparedInput);
       archiveDirectory ??= dirname(generated.htmlPath);
       const fileStem = `${slug(data.project.name)}-${projectId.slice(0, 8)}`;
 
@@ -882,12 +938,7 @@ export function createApp(): Express {
         fileCount += 1;
       }
       if (formats.has("DOCX")) {
-        const docx = await dependencies.docxReports.render(data, {
-          projectId,
-          templateId: input.templateId,
-          sections: input.sections,
-          theme: input.theme
-        });
+        const docx = await dependencies.docxReports.render(data, preparedInput);
         archive.file(`${fileStem}.docx`, docx);
         fileCount += 1;
       }
@@ -896,7 +947,9 @@ export function createApp(): Express {
     if (!archiveDirectory) {
       throw new Error("No report output directory was created.");
     }
-    const zipPath = join(archiveDirectory, `${slug(input.category)}.zip`);
+    const zipDirectory = input.exportFolder ? resolve(input.exportFolder) : archiveDirectory;
+    await mkdir(zipDirectory, { recursive: true });
+    const zipPath = join(zipDirectory, `${slug(input.category)}.zip`);
     await writeFile(zipPath, await archive.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
     response.status(201).json({
       ok: true,
@@ -938,7 +991,9 @@ export function createApp(): Express {
     await writeFile(docxPath, await dependencies.docxReports.render(data, {
       projectId: report.projectId,
       templateId: report.templateId,
-      sections: report.sections ?? DEFAULT_REPORT_SECTIONS
+      sections: report.sections ?? DEFAULT_REPORT_SECTIONS,
+      formats: report.formats,
+      language: report.language
     }));
     response.json({ ok: true, reportId: report.id, docxPath });
   }));
@@ -1035,6 +1090,31 @@ function createDependencies() {
     reportDataLoader,
     reportRepository
   };
+}
+
+async function prepareReportPayload(
+  dependencies: ReturnType<typeof createDependencies>,
+  input: ReportGenerationPayload
+): Promise<ReportGenerationPayload> {
+  const settings = await dependencies.settings.get();
+  const aiConfigured = settings.openAiKeyConfigured || settings.geminiKeyConfigured;
+  const sections = input.sections.map((section) =>
+    section.id === "intelligence" && !aiConfigured
+      ? { ...section, enabled: false }
+      : section
+  );
+  const preparedInput = { ...input, sections };
+  if (!aiConfigured || !sections.some((section) => section.id === "intelligence" && section.enabled)) {
+    return preparedInput;
+  }
+
+  const data = await dependencies.reportDataLoader.load(input.projectId);
+  const analysis = await dependencies.ai.analyze({
+    ...toAnalysisInput(data),
+    language: input.language ?? data.project.language
+  });
+  await dependencies.intelligenceRepository.saveAnalysis(input.projectId, analysis);
+  return preparedInput;
 }
 
 function toAnalysisInput(data: ReportData): AnalysisInput {
@@ -1333,6 +1413,7 @@ type EvidencePersistenceResult = {
   normalizedRecordCount: number;
   reviewCount?: number;
   storeId?: string;
+  storeRatingCount?: number;
   ownerType?: "PRODUCT" | "STORE";
   ownerId?: string;
 };
@@ -1369,6 +1450,7 @@ type StructuredStoreProfile = {
   name?: string;
   url?: string;
   marketplaceStoreId?: string;
+  storeType?: StoreType;
   followers?: number;
   following?: number;
   productsCount?: number;
@@ -1381,7 +1463,11 @@ type StructuredStoreProfile = {
   ratingSamples: Array<{
     rating: number;
     reviewer: string;
+    reviewerUrl?: string;
     comment: string;
+    productTitle?: string;
+    productUrl?: string;
+    productVariation?: string;
     sellerResponse?: string;
     mediaUrls: string[];
     capturedAt?: string;
@@ -1546,11 +1632,12 @@ async function persistCapturedPageData(
     }
   }
 
-  if (isStoreEvidenceKind(input.kind)) {
+  if (isStoreScopedEvidence(input)) {
     const store = extractStoreProfile(input, projectId);
     const storeId = await intelligenceRepository.saveStore(projectId, store);
     result.normalizedRecordCount += 1;
     result.storeId = storeId;
+    result.storeRatingCount = store.ratingSamples.length;
     if (input.ownerType === "PRODUCT" && input.ownerId) {
       result.ownerType = "PRODUCT";
       result.ownerId = input.ownerId;
@@ -1901,6 +1988,13 @@ function isStoreEvidenceKind(kind: ManualEvidencePayload["kind"]): boolean {
   ].includes(kind);
 }
 
+export function isStoreScopedEvidence(
+  input: Pick<ManualEvidencePayload, "kind" | "ownerType">
+): boolean {
+  return isStoreEvidenceKind(input.kind) ||
+    (input.kind === "REVIEW_SECTION" && input.ownerType === "STORE");
+}
+
 function extractProductEnrichment(
   input: ManualEvidencePayload,
   files: {
@@ -2025,11 +2119,27 @@ function extractStoreProfile(input: ManualEvidencePayload, projectId: string): S
   const url = normalizeUrl(canonicalStoreUrl ?? structured?.url ?? input.sourceUrl ?? `https://shopee.co.id/store-${projectId}`);
   const metadataStoreName = typeof input.metadata?.storeName === "string" ? input.metadata.storeName.trim() : undefined;
   const metadataShopId = typeof input.metadata?.shopId === "string" ? input.metadata.shopId.trim() : undefined;
-  const storeName = structured?.name || metadataStoreName || inferStoreName(text, url, input.label);
+  const storeName = metadataStoreName || structured?.name || inferStoreName(text, url, input.label);
   const voucherLine = findLine(text, ["voucher", "diskon", "cashback"]);
+  const requestedRating = typeof input.metadata?.requestedRating === "number"
+    ? input.metadata.requestedRating
+    : undefined;
+  const parsedRatings = parseShopeeStoreRatingHtmlWithDiagnostics(input.pageHtml ?? "", requestedRating);
+  const htmlRatingSamples = parsedRatings.samples;
+  if (requestedRating && htmlRatingSamples.length === 0) {
+    console.warn("[store-rating-parser] zero results", {
+      ...parsedRatings.diagnostics,
+      requestedRating,
+      selectedStoreIdentity: metadataShopId || url || storeName
+    });
+  }
+  const ratingSamples = htmlRatingSamples.length >= (structured?.ratingSamples.length ?? 0)
+    ? htmlRatingSamples
+    : structured?.ratingSamples ?? [];
   return {
     marketplace: "SHOPEE_ID",
-    marketplaceStoreId: structured?.marketplaceStoreId || metadataShopId,
+    marketplaceStoreId: metadataShopId || structured?.marketplaceStoreId,
+    storeType: structured?.storeType,
     name: storeName,
     url,
     followers: structured?.followers ?? extractCountNear(text, ["followers", "pengikut"]),
@@ -2038,7 +2148,7 @@ function extractStoreProfile(input: ManualEvidencePayload, projectId: string): S
     rating: structured?.rating ?? extractRating(text),
     ratingCount: structured?.ratingCount ?? extractCountNear(text, ["ratings", "penilaian"]),
     chatResponse: structured?.chatResponse ?? findLine(text, ["chat", "response", "respon"]),
-    joinedDate: structured?.joinedDate ?? findLine(text, ["joined", "bergabung"]),
+    joinedDate: normalizeJoinedAge(structured?.joinedDate ?? findLine(text, ["joined", "bergabung"])),
     description: structured?.description,
     categories: structured?.categories.length
       ? structured.categories
@@ -2048,7 +2158,7 @@ function extractStoreProfile(input: ManualEvidencePayload, projectId: string): S
     featuredProducts: [],
     bestSellers: [],
     visualTheme: extractVisualTheme(text, input.kind),
-    ratingSamples: structured?.ratingSamples ?? [],
+    ratingSamples,
     raw: {
       source: "guided-manual-collector",
       sourceStepId: input.stepId,
@@ -2056,6 +2166,7 @@ function extractStoreProfile(input: ManualEvidencePayload, projectId: string): S
       ownerId: input.ownerId,
       storeCandidateId: input.metadata?.storeCandidateId,
       storeEvidenceType: input.metadata?.storeEvidenceType,
+      storeType: structured?.storeType,
       bannerUrls: structured?.bannerUrls ?? extractStringArray(input.metadata?.storeDecorationImages),
       htmlCaptured: Boolean(input.pageHtml),
       textCaptured: Boolean(input.visibleText),
@@ -2160,21 +2271,19 @@ function readStructuredStoreProfile(metadata?: Record<string, unknown>): Structu
         .filter(isRecord)
         .map((sample, sourceIndex) => ({
           rating: Math.max(1, Math.min(5, readFiniteNumber(sample.rating) ?? 5)),
-          reviewer: readString(sample.reviewer) ?? "Shopee buyer",
+          reviewer: readString(sample.reviewer) ?? "",
+          reviewerUrl: readString(sample.reviewerUrl),
           comment: sanitizeShopeeReviewComment(readString(sample.comment) ?? ""),
+          productTitle: readString(sample.productTitle),
+          productUrl: readString(sample.productUrl),
+          productVariation: readString(sample.productVariation),
           sellerResponse: readString(sample.sellerResponse),
           mediaUrls: extractStringArray(sample.mediaUrls).filter(isReviewMediaUrl),
           capturedAt: readString(sample.capturedAt),
           sourceIndex
         }))
-        .filter((sample) => sample.comment.length >= 20)
-        .sort((a, b) => {
-          const priority = (sample: typeof a) =>
-            Number(sample.mediaUrls.length > 0) * 4 +
-            Number(Boolean(sample.comment.trim())) * 2 +
-            Number(Boolean(sample.sellerResponse?.trim()));
-          return priority(b) - priority(a) || a.sourceIndex - b.sourceIndex;
-        })
+        .filter((sample) => Boolean(sample.productTitle || sample.productUrl))
+        .sort(compareRatingSamples)
         .slice(0, 5)
         .map(({ sourceIndex: _sourceIndex, ...sample }) => sample)
     : [];
@@ -2183,18 +2292,34 @@ function readStructuredStoreProfile(metadata?: Record<string, unknown>): Structu
     name: readString(raw.name),
     url: readString(raw.url),
     marketplaceStoreId: readString(raw.marketplaceStoreId),
+    storeType: normalizeStoreType(readString(raw.storeType)) ?? undefined,
     followers: readFiniteNumber(raw.followers),
     following: readFiniteNumber(raw.following),
     productsCount: readFiniteNumber(raw.productsCount),
     rating: readFiniteNumber(raw.rating),
     ratingCount: readFiniteNumber(raw.ratingCount),
     chatResponse: readString(raw.chatResponse),
-    joinedDate: readString(raw.joinedDate),
+    joinedDate: normalizeJoinedAge(readString(raw.joinedDate)),
     description: readString(raw.description),
     categories: extractStringArray(raw.categories),
     ratingSamples,
     bannerUrls: extractStringArray(raw.bannerUrls)
   };
+}
+
+function normalizeJoinedAge(value?: string): string | undefined {
+  const normalized = value?.replace(/\s+/gu, " ").trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const match = normalized.match(/([\d.,]+)\s*(months?|bulan|years?|tahun)\b/iu);
+  if (!match) {
+    return normalized.slice(0, 80);
+  }
+  const amount = match[1].replace(",", ".");
+  const singular = Number(amount) === 1;
+  const monthUnit = /month|bulan/iu.test(match[2]);
+  return `${amount} ${monthUnit ? singular ? "Month" : "Months" : singular ? "Year" : "Years"}`;
 }
 
 function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): ReviewEvidence {
@@ -2229,7 +2354,7 @@ function sanitizeShopeeReviewComment(comment: string): string {
     if (!line) continue;
     const cutoffIndex = line.search(/(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual|Report Abuse|Laporkan Penyalahgunaan)\b/iu);
     const content = cleanText(cutoffIndex >= 0 ? line.slice(0, cutoffIndex) : line);
-    if (content && !/^(?:Helpful|Membantu|Like|Share)\s*[\d.,kkrb]*$/iu.test(content)) {
+    if (content && !/^(?:Helpful\??|Membantu\??|Like|Share)(?:\s*[\d.,kkrb]*)?$/iu.test(content)) {
       output.push(content);
     }
     if (cutoffIndex >= 0) break;

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildShopeeSearchUrl, withShopeeProductDisplayModel } from "./shopeeUrls.js";
+import {
+  buildShopeeSearchUrl,
+  matchesShopeeSearchIntent,
+  withShopeeProductDisplayModel
+} from "./shopeeUrls.js";
 
 describe("buildShopeeSearchUrl", () => {
   it("builds a combined shop-type and price filter", () => {
@@ -34,6 +38,40 @@ describe("buildShopeeSearchUrl", () => {
         values: ["undefined▶◀200000"]
       }
     ]);
+  });
+});
+
+describe("matchesShopeeSearchIntent", () => {
+  const filteredTarget = buildShopeeSearchUrl("iphone 15", "sales", {
+    shopTypes: [],
+    priceMax: 10_000_000
+  });
+
+  it("accepts the matching search after Shopee removes filter metadata", () => {
+    expect(matchesShopeeSearchIntent(
+      "https://shopee.co.id/search?keyword=iphone+15&noCorrection=true&page=0&sortBy=sales",
+      filteredTarget
+    )).toBe(true);
+  });
+
+  it("rejects a different keyword or sort order", () => {
+    expect(matchesShopeeSearchIntent(
+      "https://shopee.co.id/search?keyword=iphone+16&page=0&sortBy=sales",
+      filteredTarget
+    )).toBe(false);
+    expect(matchesShopeeSearchIntent(
+      "https://shopee.co.id/search?keyword=iphone+15&page=0&sortBy=relevancy",
+      filteredTarget
+    )).toBe(false);
+  });
+
+  it("rejects conflicting filter metadata when Shopee keeps it", () => {
+    const differentFilters = buildShopeeSearchUrl("iphone 15", "sales", {
+      shopTypes: [],
+      priceMax: 5_000_000
+    });
+
+    expect(matchesShopeeSearchIntent(differentFilters, filteredTarget)).toBe(false);
   });
 });
 

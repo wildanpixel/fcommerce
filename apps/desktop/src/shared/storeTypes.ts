@@ -65,13 +65,43 @@ export function storeTypeFromBadgeContext(value: unknown): StoreType | null {
   if (/\b(?:mall\s*ori|shopee\s*mall)\b/.test(text)) {
     return "shopee_mall";
   }
-  if (/\bstar\s*\+\b|\bstar\s*plus\b/.test(text)) {
+  if (/\bstar\s*\+\b|\bstar\s*plus\b|\bpreferred\s*plus\b/.test(text)) {
     return "star_plus";
   }
-  if (/\bstar\b/.test(text)) {
+  if (/\bstar\b|\bpreferred\b/.test(text)) {
     return "star";
   }
   return null;
+}
+
+export function storeTypeFromCapturedProductHtml(html: string, productUrl: string): StoreType | null {
+  const productTokenMatch = productUrl.match(/(?:-i\.|\/product\/|i\.)(\d+)[./](\d+)/iu);
+  const productToken = productTokenMatch ? `${productTokenMatch[1]}.${productTokenMatch[2]}` : undefined;
+  if (!html || !productToken) {
+    return null;
+  }
+
+  const capturedStart = html.indexOf('data-mio-captured-product-cards="true"');
+  const searchableHtml = capturedStart >= 0 ? html.slice(capturedStart) : html;
+  const productIndex = searchableHtml.indexOf(productToken);
+  if (productIndex < 0) {
+    return null;
+  }
+
+  const cardStart = Math.max(
+    0,
+    searchableHtml.lastIndexOf('<div class="h-full h-full', productIndex),
+    searchableHtml.lastIndexOf('<li class="col-xs-2-4', productIndex)
+  );
+  const nextCardCandidates = [
+    searchableHtml.indexOf('<div class="h-full h-full', productIndex + productToken.length),
+    searchableHtml.indexOf('<li class="col-xs-2-4', productIndex + productToken.length)
+  ].filter((index) => index > productIndex);
+  const cardEnd = nextCardCandidates.length > 0
+    ? Math.min(...nextCardCandidates)
+    : Math.min(searchableHtml.length, productIndex + 16_000);
+
+  return normalizeStoreType(searchableHtml.slice(cardStart, cardEnd));
 }
 
 export function storeTypeImage(value: unknown): string | null {

@@ -7,6 +7,7 @@ import type {
 } from "../../application/services/ReportService.js";
 import type { ReportGenerationPayload } from "../../shared/contracts.js";
 import type { AiAnalysisJson } from "../../domain/models.js";
+import { localizeReportHtml, normalizeReportLanguage } from "../../shared/reportLocalization.js";
 
 export class ConsultingHtmlReportRenderer implements HtmlReportRenderer {
   async render(data: ReportData, payload: ReportGenerationPayload): Promise<string> {
@@ -42,8 +43,8 @@ export class ConsultingHtmlReportRenderer implements HtmlReportRenderer {
         ) ? productDossiers(data, enabled) : ""
       },
       {
-        position: position("keyStoreHomePage", "storeOverview", "storeDossiers", "visualStyle"),
-        html: include("keyStoreHomePage", "keyStoreProducts", "keyStoreBestSellers", "keyStoreVisualStyle", "storeOverview", "storeDossiers", "visualStyle")
+        position: position("keyStoreHomePage", "keyStoreData", "keyStoreCategories", "keyStoreProducts", "keyStoreBestSellers", "keyStoreVisualStyle", "tiktokEvidence", "storeOverview", "storeDossiers", "visualStyle"),
+        html: include("keyStoreHomePage", "keyStoreData", "keyStoreCategories", "keyStoreProducts", "keyStoreBestSellers", "keyStoreVisualStyle", "tiktokEvidence", "storeOverview", "storeDossiers", "visualStyle")
           ? keyStoreReport(data, enabled)
           : ""
       },
@@ -52,8 +53,8 @@ export class ConsultingHtmlReportRenderer implements HtmlReportRenderer {
         html: include("intelligence", "aiRecommendations") ? aiRecommendations(data) : ""
       },
       {
-        position: position("tiktokEvidence", "crossPlatformEvidence"),
-        html: include("tiktokEvidence", "crossPlatformEvidence") ? crossPlatformEvidence(data) : ""
+        position: position("crossPlatformEvidence"),
+        html: include("crossPlatformEvidence") ? crossPlatformEvidence(data) : ""
       }
     ].filter((block) => block.html).sort((left, right) => left.position - right.position);
     const parts = [
@@ -62,7 +63,10 @@ export class ConsultingHtmlReportRenderer implements HtmlReportRenderer {
       ...blocks.map((block) => block.html),
       documentEnd()
     ];
-    return parts.filter(Boolean).join("\n");
+    return localizeReportHtml(
+      parts.filter(Boolean).join("\n"),
+      normalizeReportLanguage(payload.language ?? data.project.language)
+    );
   }
 }
 
@@ -211,7 +215,7 @@ function documentEnd(): string {
 function reportHeader(data: ReportData): string {
   const filters = projectSearchFilters(data);
   return `<header class="inspector-header">
-    <p class="kicker">Marketplace Intelligence OS</p>
+    <p class="kicker">Research Product Market</p>
     <h1>${escapeHtml(data.project.keyword)}</h1>
     <p class="muted">${escapeHtml(data.project.marketplace)} keyword competitor report generated from local guided evidence.</p>
     <div class="grid two">
@@ -264,7 +268,7 @@ function keywordGeneral(data: ReportData): string {
 
 function _cover(data: ReportData): string {
   return `<section class="page">
-    <p class="kicker">Marketplace Intelligence OS</p>
+    <p class="kicker">Research Product Market</p>
     <h1>${escapeHtml(data.project.keyword)}</h1>
     <p class="muted">${escapeHtml(data.project.marketplace)} competitive intelligence report</p>
     <div class="grid four" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:28px;">
@@ -422,9 +426,12 @@ function productDossiers(data: ReportData, enabled: Set<string>): string {
 function keyStoreReport(data: ReportData, enabled: Set<string>): string {
   const legacy = enabled.has("storeOverview") || enabled.has("storeDossiers") || enabled.has("visualStyle");
   const showHome = legacy || enabled.has("keyStoreHomePage");
+  const showData = legacy || enabled.has("keyStoreData");
+  const showCategories = legacy || enabled.has("keyStoreCategories");
   const showProducts = legacy || enabled.has("keyStoreProducts");
   const showBestSellers = legacy || enabled.has("keyStoreBestSellers");
   const showVisualStyle = legacy || enabled.has("keyStoreVisualStyle");
+  const showTikTok = enabled.has("tiktokEvidence");
   if (data.stores.length === 0) {
     return `<details class="page report-section" open>
       <summary>Key Store Page List</summary>
@@ -438,9 +445,12 @@ function keyStoreReport(data: ReportData, enabled: Set<string>): string {
       <h2>Collected Store Pages</h2>
       ${data.stores.map((store) => storeReport(data, store, {
         showHome,
+        showData,
+        showCategories,
         showProducts,
         showBestSellers,
-        showVisualStyle
+        showVisualStyle,
+        showTikTok
       })).join("")}
     </div>
   </details>`;
@@ -451,9 +461,12 @@ function storeReport(
   store: ReportData["stores"][number],
   options: {
     showHome: boolean;
+    showData: boolean;
+    showCategories: boolean;
     showProducts: boolean;
     showBestSellers: boolean;
     showVisualStyle: boolean;
+    showTikTok: boolean;
   }
 ): string {
   const raw = reportStoreRaw(store);
@@ -469,47 +482,63 @@ function storeReport(
       <p><a class="link-button" href="${escapeAttribute(store.url)}">Open Store</a></p>
       <h3>Overall</h3>
       <p style="white-space:pre-line;">${escapeHtml(storeOverall(store, data))}</p>
-      <h3>Store Data</h3>
+      ${options.showHome ? `<h3>Store Home Page</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"), 12, "portrait")}` : ""}
+      ${options.showData ? `<h3>Store Data</h3>
       <div class="grid two">
+        <div class="metric">Products<b>${formatNumber(store.productsCount)}</b></div>
         <div class="metric">Followers<b>${formatNumber(store.followers)}</b></div>
         <div class="metric">Following<b>${formatNumber(store.following)}</b></div>
-        <div class="metric">Products<b>${formatNumber(store.productsCount)}</b></div>
-        <div class="metric">Rating<b>${store.rating != null ? store.rating.toFixed(1) : "-"}</b></div>
-        <div class="metric">Rating count<b>${formatNumber(store.ratingCount)}</b></div>
-        <div class="metric">Chat response<b>${escapeHtml(store.chatResponse ?? "-")}</b></div>
-        <div class="metric">Joined<b>${escapeHtml(store.joinedDate ?? "-")}</b></div>
+        <div class="metric">Rating<b>${store.rating != null ? store.rating.toFixed(1) : "-"}${store.ratingCount ? ` (${formatNumber(store.ratingCount)} Rating)` : ""}</b></div>
+        <div class="metric">Chat Performance<b>${escapeHtml(sanitizeStoreMetric(store.chatResponse))}</b></div>
+        <div class="metric">Joined<b>${escapeHtml(sanitizeStoreMetric(store.joinedDate))}</b></div>
       </div>
-      ${raw.description ? `<p style="white-space:pre-line;">${escapeHtml(raw.description)}</p>` : '<p class="muted">No store description captured.</p>'}
+      ${sanitizeStoreDescription(raw.description) !== "-" ? `<p style="white-space:pre-line;"><b>Description Store</b><br>${escapeHtml(sanitizeStoreDescription(raw.description))}</p>` : '<p class="muted">No store description captured.</p>'}
       <h3>1 Star Store Ratings</h3>
       ${storeRatingTable(ratingSamples.filter((sample) => sample.rating === 1))}
       <h3>5 Star Store Ratings</h3>
       ${storeRatingTable(ratingSamples.filter((sample) => sample.rating === 5))}
-      <h3>Store Categories</h3>
-      ${categories.length > 0 ? `<ul>${categories.map((category) => `<li>${escapeHtml(category)}</li>`).join("")}</ul>` : '<p class="muted">No store categories captured.</p>'}
-      ${options.showHome ? `<h3>Store Home Page</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_HOME"), 12, "portrait")}` : ""}
+      ` : ""}
+      ${options.showCategories ? `<h3>Store Product Categories</h3>
+      ${categories.length > 0 ? storeCategoryTable(categories) : '<p class="muted">No store categories captured.</p>'}` : ""}
       ${options.showProducts ? `<h3>Popular Products</h3>${snapshotProductTable(storeProducts)}` : ""}
       ${options.showBestSellers ? `<h3>Best Sellers</h3>${snapshotProductTable(storeBestSellers)}` : ""}
       ${options.showVisualStyle ? `<h3>Visual Shop Banner</h3>${assetGrid(assets.filter((asset) => asset.kind === "STORE_BANNER"), 80)}` : ""}
-      <h3>TikTok Evidence</h3>
-      ${assetGrid(assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT"), 12, "portrait")}
+      ${options.showTikTok ? `<h3>TikTok Evidence</h3>${assetGrid(assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT"), 12, "portrait")}` : ""}
     </div>
   </details>`;
 }
 
 function storeRatingTable(samples: StoreRatingSample[]): string {
   if (samples.length === 0) {
-    return '<p class="muted">No proof-backed store rating samples captured.</p>';
+    return '<p class="muted">No store rating samples captured.</p>';
   }
-  return `<table>
-    <thead><tr><th>Rating</th><th>Buyer</th><th>Comment</th><th>Captured</th><th>Proof</th></tr></thead>
-    <tbody>${samples.map((sample) => `<tr>
-      <td>${sample.rating} Star</td>
-      <td>${escapeHtml(sample.reviewer)}</td>
-      <td>${escapeHtml(sample.comment)}</td>
-      <td>${escapeHtml(sample.capturedAt ?? "-")}</td>
-      <td>${sample.mediaUrls.length > 0 ? remoteImageGrid(sample.mediaUrls, "Rating proof") : "-"}</td>
-    </tr>`).join("")}</tbody>
-  </table>`;
+  return samples.slice(0, 5).map((sample, index) => `<div class="rating-sample">
+    <table>
+      <thead><tr><th>No</th><th>Product</th><th>Comment</th><th>Seller response</th></tr></thead>
+      <tbody><tr>
+        <td>${index + 1}</td>
+        <td>${sample.productUrl
+          ? `<a href="${escapeAttribute(sample.productUrl)}">${escapeHtml(sample.productTitle ?? "Open rated product")}</a>`
+          : escapeHtml(sample.productTitle ?? "Product link unavailable")}${sample.productVariation ? `<br><span class="muted">${escapeHtml(sample.productVariation)}</span>` : ""}</td>
+        <td><b>${sample.reviewerUrl ? `<a href="${escapeAttribute(sample.reviewerUrl)}">${escapeHtml(sample.reviewer || "—")}</a>` : escapeHtml(sample.reviewer || "—")}</b><br>${escapeHtml(sample.capturedAt ?? "—")}<br><br>${escapeHtml(sample.comment || "—")}</td>
+        <td>${escapeHtml(sample.sellerResponse ?? "—")}</td>
+      </tr></tbody>
+    </table>
+    ${sample.mediaUrls.length > 0 ? `<p class="kicker">Attached media</p>${ratingMediaGrid(sample.mediaUrls)}` : ""}
+  </div>`).join("");
+}
+
+function ratingMediaGrid(urls: string[]): string {
+  const videos = urls.filter((url) => /(?:\.mp4|\.webm|\.mov|\.m3u8)(?:$|[?#])|\bvideo\b/iu.test(url));
+  const images = urls.filter((url) => !videos.includes(url));
+  return `${images.length > 0 ? remoteImageGrid(images, "Rating proof") : ""}${remoteVideoGrid(videos)}`;
+}
+
+function storeCategoryTable(categories: string[]): string {
+  return `<table><thead><tr><th>Category Name</th><th>Total Product</th></tr></thead><tbody>${categories.map((category) => {
+    const match = category.trim().match(/^(.*?)\s*\(\s*(\d+)\s*\)\s*$/u);
+    return `<tr><td>${escapeHtml(match?.[1]?.trim() ?? category)}</td><td>${escapeHtml(match?.[2] ?? "-")}</td></tr>`;
+  }).join("")}</tbody></table>`;
 }
 
 function _reviewEvidence(data: ReportData): string {
@@ -796,36 +825,31 @@ function storeType(product: { mallStatus: boolean; officialStatus: boolean; star
 }
 
 function storeOverall(store: ReportData["stores"][number], data: ReportData): string {
-  const parsed = data.analyses[0]?.resultJson ? safeJson<Record<string, unknown> | null>(data.analyses[0].resultJson, null) : null;
-  const products = keyProductsForReport(data.products).filter((product) => productMatchesStore(product, store));
-  const gmvEstimate = products.reduce((sum, product) => sum + ((product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0)), 0);
-  const soldEstimate = products.reduce((sum, product) => sum + (product.monthlySold ?? product.totalSold ?? 0), 0);
-  const promotionCount = products.reduce((sum, product) => {
-    const raw = safeJson<{ promotionCount?: number; shopVouchers?: string[]; bundleDeals?: string[] }>(product.rawJson, {});
-    return sum + (raw.promotionCount ?? (raw.shopVouchers?.length ?? 0) + (raw.bundleDeals?.length ?? 0));
-  }, 0);
-  const analysisText = [
-    textFromAnalysisValue(parsed?.executiveSummary),
-    textFromAnalysisValue(parsed?.summary),
-    textFromAnalysisValue(parsed?.storeAnalysis),
-    textFromAnalysisValue(parsed?.competitivePosition),
-    textFromAnalysisValue(parsed?.recommendations)
-  ].filter(Boolean) as string[];
-  const cues = [
-    store.rating ? `rating ${store.rating}` : undefined,
-    store.followers ? `${formatNumber(store.followers)} followers` : undefined,
-    store.voucherCount ? `${formatNumber(store.voucherCount)} voucher signals` : undefined
-  ].filter(Boolean);
-  const evidenceSentence = `${store.name} is included in the Key Store Page List because it appears in the approved qualified products and has collected store-page evidence.`;
-  const scoreSentence = `The local evidence set links ${products.length || "available"} qualified product signal${products.length === 1 ? "" : "s"} to this store, with estimated GMV ${formatCurrency(gmvEstimate)}, sold/month ${formatNumber(soldEstimate)}, and ${promotionCount} promotion signal${promotionCount === 1 ? "" : "s"}.`;
-  const benchmarkSentence = `Review ${store.name} for homepage structure, product matrix, best-seller presentation, banner style, voucher strategy, and TikTok brand presence.`;
-  return uniqueStrings([
-    evidenceSentence,
-    ...analysisText,
-    cues.length > 0 ? `Trust cues captured for this store include ${cues.join(", ")}.` : undefined,
-    scoreSentence,
-    benchmarkSentence
-  ]).slice(0, 5).join("\n\n");
+  void data;
+  const description = sanitizeStoreDescription(reportStoreRaw(store).description);
+  const summary = `${store.name} has ${formatNumber(store.productsCount)} total products and currently stands at ${store.rating ?? "-"}${store.ratingCount ? ` from ${formatNumber(store.ratingCount)} ratings` : " rating"}, ${formatNumber(store.followers)} followers, and chat performance ${sanitizeStoreMetric(store.chatResponse)}${sanitizeStoreMetric(store.joinedDate) !== "-" ? `. The store joined ${sanitizeStoreMetric(store.joinedDate)}` : ""}.`;
+  return limitWords([summary, description !== "-" ? description : undefined].filter(Boolean).join("\n\n"), 1500);
+}
+
+function sanitizeStoreMetric(value?: string | null): string {
+  const normalized = value?.replace(/\s+/gu, " ").trim() ?? "";
+  return normalized && normalized.length <= 120 ? normalized : "-";
+}
+
+function sanitizeStoreDescription(value?: string | null): string {
+  const source = value?.trim() ?? "";
+  if (!source) return "-";
+  const explicit = source.match(/(?:Description Store|Store Description|Deskripsi Toko)\s*:?\s*([\s\S]{20,2400})/iu)?.[1];
+  const officialAccount = source.match(/([^\n]{0,160}(?:adalah akun resmi|is the official (?:store|account))[^\n]{20,1200})/iu)?.[1];
+  const normalized = (explicit || officialAccount || source).replace(/\s+/gu, " ").trim();
+  return normalized.length <= 2400 && !/(shopping cart|seller centre|customer service help centre).*(all rights reserved)/iu.test(normalized)
+    ? normalized
+    : "-";
+}
+
+function limitWords(value: string, maximumWords: number): string {
+  const words = value.trim().split(/\s+/u);
+  return words.length <= maximumWords ? value.trim() : `${words.slice(0, maximumWords).join(" ")}…`;
 }
 
 function projectSearchFilters(data: ReportData): { shopTypes: string; priceRange: string } {
@@ -858,27 +882,6 @@ function productMatchesStore(product: ReportData["products"][number], store: Rep
     return true;
   }
   return Boolean(product.storeName && product.storeName.toLowerCase() === store.name.toLowerCase());
-}
-
-function textFromAnalysisValue(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return value.trim() || undefined;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => (typeof item === "string" ? item : undefined)).filter(Boolean).join(" ").slice(0, 360) || undefined;
-  }
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const summary = record.summary ?? record.overall ?? record.rationale ?? record.recommendation ?? record.description;
-    if (typeof summary === "string" && summary.trim()) {
-      return summary.trim();
-    }
-    const observations = record.observations;
-    if (Array.isArray(observations)) {
-      return observations.map((item) => (typeof item === "string" ? item : undefined)).filter(Boolean).join(" ").slice(0, 360) || undefined;
-    }
-  }
-  return undefined;
 }
 
 function keyProductsForReport(products: ReportData["products"]): ReportData["products"] {
@@ -1115,7 +1118,12 @@ function storeAssetsForReport(data: ReportData, store: ReportData["stores"][numb
 type StoreRatingSample = {
   rating: number;
   reviewer: string;
+  reviewerUrl?: string;
   comment: string;
+  productTitle?: string;
+  productUrl?: string;
+  productVariation?: string;
+  sellerResponse?: string;
   mediaUrls: string[];
   capturedAt?: string;
 };
@@ -1189,48 +1197,35 @@ function crossPlatformEvidence(data: ReportData): string {
 
 function aiRecommendations(data: ReportData): string {
   const analyses = data.analyses.map((analysis) => safeJson<AiAnalysisJson | null>(analysis.resultJson, null)).filter(Boolean);
+  const latestAnalysis = analyses.length > 0 ? analyses[analyses.length - 1] : null;
+  const matrix = latestAnalysis ? intelligenceCompetitionMatrix(latestAnalysis, data) : [];
+  const insights = latestAnalysis ? intelligenceCategoryInsights(latestAnalysis) : [];
   return `<details class="page report-section" open>
-    <summary>AI Recommendations</summary>
+    <summary>Intelligence and Recommendations</summary>
     <div class="report-body">
-    <p class="kicker">AI Analysis</p>
-    <h2>Structured Recommendations</h2>
-    ${analyses
+    <p class="kicker">Specialist Assessment</p>
+    <h2>Keyword Search Analysis &amp; Top 10 Competition Matrix</h2>
+    ${[latestAnalysis]
       .map((analysis) => {
         if (!analysis) {
           return "";
         }
         return `<div class="analysis">
-          <h3>${escapeHtml(analysis.provider)} analysis</h3>
-          <div class="score-row">
-            ${_score("Brand", analysis.branding.score)}
-            ${_score("Visual", analysis.visualQuality.score)}
-            ${_score("Voucher", analysis.voucherStrategy.score)}
-            ${_score("Position", analysis.competitivePosition.score)}
-            ${_score("Trust", analysis.customerTrust.score)}
-          </div>
-          <h3>Executive Summary</h3>
-          <p>${escapeHtml(analysis.executiveSummary || "No executive summary was generated for this saved analysis.")}</p>
-          ${analysis.swot ? `<h3>SWOT</h3>
-          <div class="grid two">
-            ${analysisList("Strengths", analysis.swot.strengths)}
-            ${analysisList("Weaknesses", analysis.swot.weaknesses)}
-            ${analysisList("Opportunities", analysis.swot.opportunities)}
-            ${analysisList("Threats", analysis.swot.threats)}
-          </div>` : ""}
-          <h3>Market Intelligence</h3>
-          <div class="grid two">
-            ${analysisSummary("Pricing Analysis", analysis.pricingAnalysis)}
-            ${analysisSummary("Store Analysis", analysis.storeAnalysis)}
-            ${analysisSummary("Competitor Analysis", analysis.competitorAnalysis)}
-            ${analysisSummary("Visual Analysis", analysis.visualAnalysis)}
-          </div>
-          <h3>Recommendations</h3>
-          <table><tbody>${analysis.recommendations
-            .map(
-              (item) => `<tr><td>${escapeHtml(item.priority)}</td><td>${escapeHtml(item.action)}</td><td>${escapeHtml(item.rationale)}</td></tr>`
-            )
-            .join("")}</tbody></table>
-          <p class="small muted">Limitations: ${escapeHtml(analysis.automationLimitations.join("; ") || "None reported")}</p>
+          <table>
+            <thead><tr><th>Product Name</th><th>Price Range</th><th>USP/Key Claim</th><th>Rating</th><th>Short Description</th></tr></thead>
+            <tbody>${matrix.map((item) => `<tr>
+              <td>${escapeHtml(item.productName)}</td>
+              <td>${escapeHtml(item.priceRange)}</td>
+              <td>${escapeHtml(item.uspKeyClaim)}</td>
+              <td>${escapeHtml(item.rating)}</td>
+              <td>${escapeHtml(item.shortDescription)}</td>
+            </tr>`).join("")}</tbody>
+          </table>
+          <h2>Synthesized Category Insights</h2>
+          <div class="category-insights">${insights.map((item, index) => `<section class="analysis">
+            <h3>${index + 1}. ${escapeHtml(item.title)}</h3>
+            <p>${escapeHtml(item.insight)}</p>
+          </section>`).join("")}</div>
         </div>`;
       })
       .join("")}
@@ -1238,16 +1233,39 @@ function aiRecommendations(data: ReportData): string {
   </details>`;
 }
 
-function analysisList(label: string, items: string[] | undefined): string {
-  return `<div class="analysis"><h3>${escapeHtml(label)}</h3><ul>${(items ?? [])
-    .map((item) => `<li>${escapeHtml(item)}</li>`)
-    .join("") || "<li>No signal generated.</li>"}</ul></div>`;
+function intelligenceCompetitionMatrix(analysis: AiAnalysisJson, data: ReportData): AiAnalysisJson["keywordCompetitionMatrix"] {
+  if (Array.isArray(analysis.keywordCompetitionMatrix) && analysis.keywordCompetitionMatrix.length > 0) {
+    return analysis.keywordCompetitionMatrix.slice(0, 10);
+  }
+  const products = keyProductsForReport(data.products);
+  return products.map((product) => ({
+    productName: product.title,
+    priceRange: formatCurrency(product.priceAverage),
+    uspKeyClaim: reportExcerpt(product.description || selectionReasonForDisplay(product, products), 150),
+    rating: productRawText(product, "ratingText") || (product.rating ? `${product.rating.toFixed(1)} / 5` : "-"),
+    shortDescription: reportExcerpt(
+      product.description || `${product.title}${product.storeName ? ` from ${product.storeName}` : ""}.`,
+      190
+    )
+  }));
 }
 
-function analysisSummary(label: string, value: { summary: string; signals: string[] } | undefined): string {
-  return `<div class="analysis"><h3>${escapeHtml(label)}</h3><p>${escapeHtml(value?.summary || "No analysis generated.")}</p><ul>${(value?.signals ?? [])
-    .map((item) => `<li>${escapeHtml(item)}</li>`)
-    .join("")}</ul></div>`;
+function intelligenceCategoryInsights(analysis: AiAnalysisJson): AiAnalysisJson["synthesizedCategoryInsights"] {
+  if (Array.isArray(analysis.synthesizedCategoryInsights) && analysis.synthesizedCategoryInsights.length > 0) {
+    return analysis.synthesizedCategoryInsights.slice(0, 5);
+  }
+  return [
+    { title: "PRICING ARCHITECTURE & TIERING", insight: analysis.pricingAnalysis?.summary ?? "No pricing insight generated." },
+    { title: "COMPETITIVE POSITIONING & KEY CLAIMS", insight: analysis.competitorAnalysis?.summary ?? "No positioning insight generated." },
+    { title: "CUSTOMER TRUST & RATING SIGNALS", insight: analysis.customerTrust?.observations?.join(" ") || "No customer-trust insight generated." },
+    { title: "DEMAND CONCENTRATION & PRODUCT MOMENTUM", insight: analysis.competitorAnalysis?.signals?.join(" ") || "No demand insight generated." },
+    { title: "CATEGORY OPPORTUNITIES & RECOMMENDED ACTIONS", insight: analysis.recommendations?.map((item) => `${item.action} ${item.rationale}`).join(" ") || "No action insight generated." }
+  ];
+}
+
+function reportExcerpt(value: string, maximum: number): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  return normalized.length <= maximum ? normalized : `${normalized.slice(0, maximum - 1).trimEnd()}…`;
 }
 
 function snapshotProductTable(products: ReportData["products"]): string {
@@ -1283,10 +1301,6 @@ function assetGrid(assets: ReportAsset[], limit = 12, variant: "default" | "port
       </figure>`
     )
     .join("")}</div>`;
-}
-
-function _score(label: string, value: number): string {
-  return `<div class="score">${escapeHtml(label)}<b>${Math.round(value)}</b></div>`;
 }
 
 function safeJson<T>(value: string, fallback: T): T {

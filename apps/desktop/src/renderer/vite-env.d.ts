@@ -9,6 +9,8 @@ declare global {
       platform?: {
         get: () => Promise<unknown>;
         openPath: (targetPath: string) => Promise<boolean>;
+        readPreviewFile: (targetPath: string) => Promise<{ extension: string; mimeType: string; dataBase64: string }>;
+        showItemInFolder: (targetPath: string) => Promise<boolean>;
         openUrl: (url: string) => Promise<boolean>;
         pickFolder: () => Promise<string | null>;
         pickFile: () => Promise<string | null>;

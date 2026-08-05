@@ -3,14 +3,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, Bot, ExternalLink, FileText, FolderOpen, KeyRound, RotateCcw, Settings, ShieldCheck, SlidersHorizontal, TerminalSquare } from "lucide-react";
 import type { SaveSettingsPayload, SettingsPayload } from "../../shared/contracts.js";
 import { apiClient } from "../api/client.js";
-import { APP_LANGUAGES } from "../app/languages.js";
+import { APP_LANGUAGES, translate } from "../app/languages.js";
+import { useUiStore } from "../store/uiStore.js";
 import { EmptyState, Field, Panel, StatusLine } from "../components/ui.js";
 import { Button, IconButton, Input, SegmentedControl, Select } from "../components/primitives.js";
 
-const APP_DISPLAY_NAME = "Marketplace Intelligence OS";
+const APP_DISPLAY_NAME = "Research Product Market";
 
 export function SettingsView() {
   const queryClient = useQueryClient();
+  const language = useUiStore((state) => state.language);
+  const setAppLanguage = useUiStore((state) => state.setLanguage);
   const settings = useQuery({ queryKey: ["settings"], queryFn: apiClient.settings });
   const platform = useQuery({ queryKey: ["platform"], queryFn: apiClient.platform });
   const health = useQuery({ queryKey: ["health"], queryFn: apiClient.health });
@@ -26,7 +29,7 @@ export function SettingsView() {
   });
 
   if (!value) {
-    return <EmptyState label="Loading settings." />;
+    return <EmptyState label={translate(language, "Loading settings.")} />;
   }
 
   function update(patch: Partial<SettingsFormState>) {
@@ -79,8 +82,8 @@ export function SettingsView() {
           <SegmentedControl
             value={activeSection}
             options={[
-              { value: "general", label: "General", icon: SlidersHorizontal },
-              { value: "ai", label: "AI Configuration", icon: Bot }
+              { value: "general", label: translate(language, "General"), icon: SlidersHorizontal },
+              { value: "ai", label: translate(language, "AI Configuration"), icon: Bot }
             ]}
             onChange={setActiveSection}
             label="Settings sections"
@@ -90,49 +93,53 @@ export function SettingsView() {
         <div className="space-y-5">
         {activeSection === "general" ? (
         <>
-        <Panel title="Settings" icon={Settings}>
+        <Panel title={translate(language, "Settings")} icon={Settings}>
         <form className="grid grid-cols-2 gap-4" onSubmit={submit}>
-          <Field label="Theme">
+          <Field label={translate(language, "Theme")}>
             <Select value={value.theme} onChange={(event) => update({ theme: event.target.value as SaveSettingsPayload["theme"] })}>
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">System</option>
+              <option value="dark">{translate(language, "Dark")}</option>
+              <option value="light">{translate(language, "Light")}</option>
+              <option value="system">{translate(language, "System")}</option>
             </Select>
           </Field>
-          <Field label="Preferred Browser">
+          <Field label={translate(language, "Preferred Browser")}>
             <Select value={value.browser} onChange={(event) => update({ browser: event.target.value as SaveSettingsPayload["browser"] })}>
               {(browsers.data ?? [{ id: "chromium" as const, name: "Bundled Chromium", available: true, profilePath: "" }]).map((browser) => (
                 <option key={browser.id} value={browser.id} disabled={!browser.available}>
                   {browser.name}
-                  {browser.available ? "" : " (not detected)"}
+                  {browser.available ? "" : ` (${translate(language, "not detected")})`}
                 </option>
               ))}
             </Select>
           </Field>
-          <Field label="Export folder">
+          <Field label={translate(language, "Export folder")}>
             <div className="flex gap-2">
               <Input value={value.exportFolder} readOnly className="min-w-0 flex-1" title={value.exportFolder} />
-              <IconButton label="Choose report export folder" className="shrink-0" onClick={() => void chooseFolder("exportFolder")}>
+              <IconButton label={translate(language, "Choose report export folder")} className="shrink-0" onClick={() => void chooseFolder("exportFolder")}>
                 <FolderOpen size={16} />
               </IconButton>
-              <IconButton label="Reset report export folder to default" className="shrink-0" onClick={() => resetFolder("exportFolder")}>
+              <IconButton label={translate(language, "Reset report export folder to default")} className="shrink-0" onClick={() => resetFolder("exportFolder")}>
                 <RotateCcw size={16} />
               </IconButton>
             </div>
           </Field>
-          <Field label="Screenshot folder">
+          <Field label={translate(language, "Screenshot folder")}>
             <div className="flex gap-2">
               <Input value={value.screenshotFolder} readOnly className="min-w-0 flex-1" title={value.screenshotFolder} />
-              <IconButton label="Choose screenshot folder" className="shrink-0" onClick={() => void chooseFolder("screenshotFolder")}>
+              <IconButton label={translate(language, "Choose screenshot folder")} className="shrink-0" onClick={() => void chooseFolder("screenshotFolder")}>
                 <FolderOpen size={16} />
               </IconButton>
-              <IconButton label="Reset screenshot folder to default" className="shrink-0" onClick={() => resetFolder("screenshotFolder")}>
+              <IconButton label={translate(language, "Reset screenshot folder to default")} className="shrink-0" onClick={() => resetFolder("screenshotFolder")}>
                 <RotateCcw size={16} />
               </IconButton>
             </div>
           </Field>
-          <Field label="Language">
-            <Select value={value.language} onChange={(event) => update({ language: event.target.value })}>
+          <Field label={translate(language, "Language")}>
+            <Select value={value.language} onChange={(event) => {
+              const language = event.target.value as (typeof APP_LANGUAGES)[number]["id"];
+              update({ language });
+              setAppLanguage(language);
+            }}>
               {APP_LANGUAGES.map((language) => (
                 <option key={language.id} value={language.id}>
                   {language.label}
@@ -140,7 +147,7 @@ export function SettingsView() {
               ))}
             </Select>
           </Field>
-          <Field label="Concurrency">
+          <Field label={translate(language, "Concurrency")}>
             <Input
               type="number"
               min={1}
@@ -149,40 +156,40 @@ export function SettingsView() {
               onChange={(event) => update({ concurrency: Number(event.target.value) })}
             />
           </Field>
-          <Field label="Report filename template">
+          <Field label={translate(language, "Report filename template")}>
             <Input value={value.reportFilenameTemplate} onChange={(event) => update({ reportFilenameTemplate: event.target.value })} />
           </Field>
           <Button variant="primary" className="col-span-2" type="submit" loading={save.isPending}>
             <KeyRound size={16} />
-            Save Settings
+            {translate(language, "Save Settings")}
           </Button>
         </form>
         </Panel>
-        <Panel title="Runtime" icon={TerminalSquare}>
+        <Panel title={translate(language, "Runtime")} icon={TerminalSquare}>
         <div className="space-y-3 text-sm text-ink-300">
           <StatusLine label="OpenAI" active={value.openAiKeyConfigured} />
           <StatusLine label="Gemini" active={value.geminiKeyConfigured} />
-          <StatusLine label="Marketplace adapters" active />
-          <StatusLine label="Local database" active />
+          <StatusLine label={translate(language, "Marketplace adapters")} active />
+          <StatusLine label={translate(language, "Local database")} active />
           <div className="rounded-md border border-white/8 bg-white/5 p-3">
-            <div className="mb-2 text-xs uppercase tracking-[0.12em] text-ink-500">Application</div>
+            <div className="mb-2 text-xs uppercase tracking-[0.12em] text-ink-500">{translate(language, "Application")}</div>
             <div className="mb-3 space-y-1 break-all text-xs leading-5 text-ink-300">
-              <div>Product: {health.data?.product ?? APP_DISPLAY_NAME}</div>
-              <div>Version: {health.data?.version ?? "-"}</div>
-              <div>Packaged: {platform.data?.isPackaged ? "Yes" : "No"}</div>
+              <div>{translate(language, "Product")}: {health.data?.product ?? APP_DISPLAY_NAME}</div>
+              <div>{translate(language, "Version")}: {health.data?.version ?? "-"}</div>
+              <div>{translate(language, "Packaged")}: {translate(language, platform.data?.isPackaged ? "Yes value" : "No value")}</div>
             </div>
             <div className="mb-2 text-xs uppercase tracking-[0.12em] text-ink-500">
-              {platform.data?.os ?? "Platform"} folders
+              {platform.data?.os ?? translate(language, "Platform")} {translate(language, "folders")}
             </div>
             <div className="space-y-1 break-all text-xs leading-5 text-ink-300">
-              <div>Data: {platform.data?.directories.data ?? "-"}</div>
-              <div>Reports: {platform.data?.directories.reports ?? "-"}</div>
-              <div>Browser profiles: {platform.data?.directories.browserProfiles ?? "-"}</div>
+              <div>{translate(language, "Data")}: {platform.data?.directories.data ?? "-"}</div>
+              <div>{translate(language, "Reports")}: {platform.data?.directories.reports ?? "-"}</div>
+              <div>{translate(language, "Browser profiles")}: {platform.data?.directories.browserProfiles ?? "-"}</div>
             </div>
             {platform.data?.directories.appData && (
               <Button variant="secondary" className="mt-3" onClick={() => void apiClient.openPath(platform.data.directories.appData)}>
                 <Archive size={16} />
-                Open App Folder
+                {translate(language, "Open App Folder")}
               </Button>
             )}
           </div>
@@ -191,21 +198,21 @@ export function SettingsView() {
         </>
         ) : (
         <>
-        <Panel title="AI Configuration" icon={KeyRound}>
+        <Panel title={translate(language, "AI Configuration")} icon={KeyRound}>
           <form className="grid gap-4 lg:grid-cols-2" onSubmit={submit}>
-            <Field label="OpenAI API key">
-              <Input type="password" onChange={(event) => update({ openAiApiKey: event.target.value })} placeholder={value.openAiKeyConfigured ? "Configured" : ""} />
+            <Field label={translate(language, "OpenAI API key")}>
+              <Input type="password" onChange={(event) => update({ openAiApiKey: event.target.value })} placeholder={value.openAiKeyConfigured ? translate(language, "Configured") : ""} />
             </Field>
-            <Field label="Gemini API key">
-              <Input type="password" onChange={(event) => update({ geminiApiKey: event.target.value })} placeholder={value.geminiKeyConfigured ? "Configured" : ""} />
+            <Field label={translate(language, "Gemini API key")}>
+              <Input type="password" onChange={(event) => update({ geminiApiKey: event.target.value })} placeholder={value.geminiKeyConfigured ? translate(language, "Configured") : ""} />
             </Field>
             <Button variant="primary" className="lg:col-span-2" type="submit" loading={save.isPending}>
               <KeyRound size={16} />
-              Save AI Configuration
+              {translate(language, "Save AI Configuration")}
             </Button>
           </form>
         </Panel>
-      <Panel title="AI API Key Setup" icon={KeyRound}>
+      <Panel title={translate(language, "AI API Key Setup")} icon={KeyRound}>
         <div className="grid gap-4 lg:grid-cols-2">
           <ApiKeyGuide
             provider="OpenAI"
@@ -234,7 +241,7 @@ export function SettingsView() {
         </div>
         <div className="mt-4 flex items-start gap-3 rounded-2xl bg-signal-amber/10 p-4 text-sm leading-6 text-ink-400">
           <ShieldCheck className="mt-0.5 shrink-0 text-signal-amber" size={18} />
-          <span>API keys are secrets. Keep each key private, do not place it in screenshots or source control, and rotate it immediately if it is exposed.</span>
+          <span>{translate(language, "API keys are secrets. Keep each key private, do not place it in screenshots or source control, and rotate it immediately if it is exposed.")}</span>
         </div>
       </Panel>
         </>
@@ -260,31 +267,32 @@ function ApiKeyGuide({
   primaryUrl: string;
   documentationUrl: string;
 }) {
+  const language = useUiStore((state) => state.language);
   return (
     <article className="rounded-[24px] bg-white/6 p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-base font-semibold text-white">{provider}</div>
-          <div className="mt-1 text-xs text-ink-500">Official provider setup</div>
+          <div className="mt-1 text-xs text-ink-500">{translate(language, "Official provider setup")}</div>
         </div>
-        <span className={configured ? "status-pill status-running" : "status-pill status-pending"}>{configured ? "Configured" : "Not configured"}</span>
+        <span className={configured ? "status-pill status-running" : "status-pill status-pending"}>{translate(language, configured ? "Configured" : "Not configured")}</span>
       </div>
       <ol className="mt-4 space-y-3">
         {steps.map((step, index) => (
           <li key={step} className="flex gap-3 text-sm leading-6 text-ink-300">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal-blue/14 text-xs font-semibold text-signal-blue">{index + 1}</span>
-            <span>{step}</span>
+            <span>{translate(language, step)}</span>
           </li>
         ))}
       </ol>
       <div className="mt-5 flex flex-wrap gap-2">
         <Button variant="primary" className="mio-pill-button" onClick={() => void apiClient.openUrl(primaryUrl)}>
           <ExternalLink size={15} />
-          {primaryLabel}
+          {translate(language, primaryLabel)}
         </Button>
         <Button variant="secondary" className="mio-pill-button" onClick={() => void apiClient.openUrl(documentationUrl)}>
           <FileText size={15} />
-          Official guide
+          {translate(language, "Official guide")}
         </Button>
       </div>
     </article>

@@ -1,5 +1,4 @@
 export const REPORT_SECTION_ORDER = [
-  "summaryMetrics",
   "keywordGeneral",
   "keyProducts",
   "productDetailFirstPage",
@@ -9,11 +8,13 @@ export const REPORT_SECTION_ORDER = [
   "productDetailUserMedia",
   "productDetailShopHomePage",
   "keyStoreHomePage",
+  "keyStoreData",
+  "keyStoreCategories",
   "keyStoreProducts",
   "keyStoreBestSellers",
   "keyStoreVisualStyle",
-  "intelligence",
-  "tiktokEvidence"
+  "tiktokEvidence",
+  "intelligence"
 ] as const;
 
 export const LEGACY_REPORT_SECTION_IDS = [
@@ -27,7 +28,8 @@ export const LEGACY_REPORT_SECTION_IDS = [
   "storeDossiers",
   "visualStyle",
   "crossPlatformEvidence",
-  "aiRecommendations"
+  "aiRecommendations",
+  "summaryMetrics"
 ] as const;
 
 export type ReportSectionId = (typeof REPORT_SECTION_ORDER)[number] | (typeof LEGACY_REPORT_SECTION_IDS)[number];
@@ -40,9 +42,8 @@ export type ReportSectionConfig = {
 };
 
 export const REPORT_SECTION_GROUPS = [
-  { id: "summary", title: "Summary", sectionIds: ["summaryMetrics"] },
   { id: "keyword-general", title: "Keyword General", sectionIds: ["keywordGeneral"] },
-  { id: "key-products", title: "Key Products", sectionIds: ["keyProducts"] },
+  { id: "key-products", title: "Key Product List", sectionIds: ["keyProducts"] },
   {
     id: "product-detail",
     title: "Product Detail",
@@ -60,13 +61,15 @@ export const REPORT_SECTION_GROUPS = [
     title: "Key Store",
     sectionIds: [
       "keyStoreHomePage",
+      "keyStoreData",
+      "keyStoreCategories",
       "keyStoreProducts",
       "keyStoreBestSellers",
-      "keyStoreVisualStyle"
+      "keyStoreVisualStyle",
+      "tiktokEvidence"
     ]
   },
-  { id: "intelligence", title: "Intelligence", sectionIds: ["intelligence"] },
-  { id: "tiktok", title: "TikTok Evidence", sectionIds: ["tiktokEvidence"] }
+  { id: "intelligence", title: "Keyword Search Analysis", sectionIds: ["intelligence"] }
 ] as const satisfies ReadonlyArray<{
   id: string;
   title: string;
@@ -77,12 +80,6 @@ export type ReportSectionGroupId = (typeof REPORT_SECTION_GROUPS)[number]["id"];
 
 export const DEFAULT_REPORT_SECTIONS: ReportSectionConfig[] = [
   {
-    id: "summaryMetrics",
-    label: "Summary Metrics",
-    enabled: false,
-    requiredEvidence: ["products", "stores", "reviews", "media"]
-  },
-  {
     id: "keywordGeneral",
     label: "Keyword General",
     enabled: true,
@@ -90,7 +87,7 @@ export const DEFAULT_REPORT_SECTIONS: ReportSectionConfig[] = [
   },
   {
     id: "keyProducts",
-    label: "Key Products",
+    label: "Key Product List",
     enabled: true,
     requiredEvidence: ["sourcePlacement", "selectionReason", "productType", "monthlySold", "storeType"]
   },
@@ -137,6 +134,18 @@ export const DEFAULT_REPORT_SECTIONS: ReportSectionConfig[] = [
     requiredEvidence: ["shopDecorationScreenshot", "overallConclusion"]
   },
   {
+    id: "keyStoreData",
+    label: "Key Store - Store Data",
+    enabled: true,
+    requiredEvidence: ["productsCount", "followers", "rating", "description", "ratingSamples"]
+  },
+  {
+    id: "keyStoreCategories",
+    label: "Key Store - Store Product Categories",
+    enabled: true,
+    requiredEvidence: ["categories"]
+  },
+  {
     id: "keyStoreProducts",
     label: "Key Store - Popular Products",
     enabled: true,
@@ -155,15 +164,15 @@ export const DEFAULT_REPORT_SECTIONS: ReportSectionConfig[] = [
     requiredEvidence: ["shopDecorationBanners"]
   },
   {
-    id: "intelligence",
-    label: "Intelligence and Recommendations",
-    enabled: true,
-    requiredEvidence: ["structuredAnalysisJson"]
-  },
-  {
     id: "tiktokEvidence",
-    label: "TikTok Evidence",
+    label: "Key Store - TikTok Evidence",
     enabled: true,
     requiredEvidence: ["tiktokSearch", "tiktokProfile"]
+  },
+  {
+    id: "intelligence",
+    label: "Keyword Search Analysis & Top 10 Competition Matrix",
+    enabled: true,
+    requiredEvidence: ["structuredAnalysisJson"]
   }
 ];

@@ -1,7 +1,8 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import type {
   CollectionState,
+  BulkReportFormat,
   CreateJobPayload,
   JobSummary,
   NewProjectInput,
@@ -27,9 +28,15 @@ import type {
   StoreProfile
 } from "../../domain/models.js";
 import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../../shared/reportSections.js";
-import { normalizeStoreType, type StoreType } from "../../shared/storeTypes.js";
+import {
+  normalizeStoreType,
+  STORE_TYPE_IMAGES,
+  storeTypeFromCapturedProductHtml,
+  type StoreType
+} from "../../shared/storeTypes.js";
 import { LocalSecretStore } from "../security/LocalSecretStore.js";
 import { getPlatformService } from "../platform/PlatformService.js";
+import { mergeStoreRatingBuckets } from "../../shared/storeRatingPersistence.js";
 
 function defaultSettings(): SettingsPayload {
   const directories = getPlatformService().info.directories;
@@ -125,15 +132,17 @@ export class PrismaProjectRepository implements ProjectRepository {
         include: { project: { select: { name: true } } }
       })
     ]);
+    const recoveredStoreTypes = await recoverProductStoreTypes(products);
     return {
       project: toProjectSummary(project),
       products: products.map((product) => ({
         id: product.id,
         title: product.title,
         imageUrl: extractProductImageUrl(product.rawJson),
-        storeBadgeImageUrl: extractProductString(product.rawJson, "storeBadgeImageUrl"),
+        storeBadgeImageUrl: extractProductString(product.rawJson, "storeBadgeImageUrl") ??
+          (recoveredStoreTypes.get(product.id) ? STORE_TYPE_IMAGES[recoveredStoreTypes.get(product.id)!] : null),
         productType: product.productType,
-        storeType: extractProductStoreType(product.rawJson),
+        storeType: extractProductStoreType(product.rawJson) ?? recoveredStoreTypes.get(product.id) ?? null,
         sourcePlacement: extractProductSourcePlacement(product.rawJson),
         ratingText: extractProductString(product.rawJson, "ratingText"),
         reviewText: extractProductString(product.rawJson, "reviewText"),
@@ -171,6 +180,7 @@ export class PrismaProjectRepository implements ProjectRepository {
       stores: stores.map((store) => ({
         id: store.id,
         marketplaceStoreId: store.marketplaceStoreId,
+        storeType: normalizeStoreType(extractProductString(store.rawJson, "storeType")) ?? null,
         name: store.name,
         url: store.url,
         followers: store.followers,
@@ -350,14 +360,15 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
       }
     });
     const existingRaw = parseJsonRecord(existing?.rawJson);
+    const currentRatingBuckets = extractStoreRatingBuckets(existing?.rawJson);
+    const ratingBuckets = mergeStoreRatingBuckets(currentRatingBuckets, store.ratingSamples);
     const mergedRaw = {
       ...existingRaw,
       ...store.raw,
       description: store.description ?? extractProductString(existing?.rawJson, "description"),
-      ratingSamples: mergeStoreRatingSamples(
-        extractStoreRatingSamples(existing?.rawJson),
-        store.ratingSamples
-      )
+      oneStarRatingSamples: ratingBuckets.oneStar,
+      fiveStarRatingSamples: ratingBuckets.fiveStar,
+      ratingSamples: [...ratingBuckets.oneStar, ...ratingBuckets.fiveStar]
     };
     const saved = await this.db.store.upsert({
       where: {
@@ -471,7 +482,11 @@ export class PrismaReportRepository implements ReportRepository {
       data: {
         projectId: payload.projectId,
         templateId: payload.templateId,
-        sectionsJson: JSON.stringify(payload.sections),
+        sectionsJson: JSON.stringify({
+          sections: payload.sections,
+          formats: payload.formats ?? ["PDF", "HTML"],
+          language: payload.language
+        }),
         status: "DRAFT"
       }
     });
@@ -702,10 +717,39 @@ function parseCollectionState(value: string): CollectionState {
     qualifiedProductIds: Array.isArray(parsed.qualifiedProductIds)
       ? parsed.qualifiedProductIds.filter((item): item is string => typeof item === "string").slice(0, 20)
       : undefined,
+    qualifiedProductReferences: parseQualifiedProductReferences(parsed.qualifiedProductReferences),
+    qualifiedProductsInitialized: parsed.qualifiedProductsInitialized === true || (
+      parsed.qualifiedProductsInitialized !== false &&
+      Array.isArray(parsed.qualifiedProductIds) &&
+      parsed.qualifiedProductIds.length > 0
+    ),
     qualifiedProductsApproved: parsed.qualifiedProductsApproved === true,
     storeCollectionCandidates: parseStoreCollectionCandidates(parsed.storeCollectionCandidates),
+    storeListInitialized: parsed.storeListInitialized === true,
+    storeListApproved: parsed.storeListApproved === true,
     savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : undefined
   };
+}
+
+function parseQualifiedProductReferences(value: unknown): CollectionState["qualifiedProductReferences"] {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.fallbackIdentity !== "string" || !record.fallbackIdentity.trim()) {
+      return [];
+    }
+    return [{
+      productId: typeof record.productId === "string" ? record.productId : undefined,
+      productUrl: typeof record.productUrl === "string" ? record.productUrl : undefined,
+      fallbackIdentity: record.fallbackIdentity,
+      manuallyAdded: record.manuallyAdded === true
+    }];
+  }).slice(0, 20);
 }
 
 function parseShopeeSearchFilters(value: unknown): CollectionState["searchFilters"] {
@@ -746,6 +790,10 @@ function parseStoreCollectionCandidates(value: unknown): CollectionState["storeC
       storeName: record.storeName,
       storeUrl: record.storeUrl,
       shopId: typeof record.shopId === "string" ? record.shopId : undefined,
+      storeType: normalizeStoreType(record.storeType) ?? undefined,
+      sourceProductIds: Array.isArray(record.sourceProductIds)
+        ? record.sourceProductIds.filter((item): item is string => typeof item === "string").slice(0, 20)
+        : undefined,
       includePopularProducts: record.includePopularProducts === true,
       includeShopBanner: record.includeShopBanner === true
     }];
@@ -808,13 +856,19 @@ function toAssetSummary(asset: AssetRecord) {
 }
 
 function toReportSummary(report: ReportWithProject): ReportSummary {
+  const metadata = parseReportMetadata(report.sectionsJson);
   return {
     id: report.id,
     projectId: report.projectId,
     projectName: report.project.name,
     templateId: report.templateId,
     status: report.status,
-    sections: parseReportSections(report.sectionsJson),
+    sections: metadata.sections,
+    formats: metadata.formats,
+    language: metadata.language,
+    docxPath: report.htmlPath && metadata.formats.includes("DOCX")
+      ? report.htmlPath.replace(/\.html$/iu, ".docx")
+      : null,
     htmlPath: report.htmlPath,
     pdfPath: report.pdfPath,
     generatedAt: report.generatedAt?.toISOString() ?? null,
@@ -823,13 +877,19 @@ function toReportSummary(report: ReportWithProject): ReportSummary {
   };
 }
 
-function parseReportSections(value: string): ReportSectionConfig[] {
+function parseReportMetadata(value: string): {
+  sections: ReportSectionConfig[];
+  formats: BulkReportFormat[];
+  language?: "id-ID" | "en-US" | "zh-CN";
+} {
   try {
     const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) {
-      return DEFAULT_REPORT_SECTIONS;
-    }
-    const sections = parsed.filter((section): section is ReportSectionConfig =>
+    const rawSections = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && "sections" in parsed && Array.isArray(parsed.sections)
+        ? parsed.sections
+        : [];
+    const sections = rawSections.filter((section): section is ReportSectionConfig =>
       Boolean(section) &&
       typeof section === "object" &&
       "id" in section &&
@@ -841,9 +901,23 @@ function parseReportSections(value: string): ReportSectionConfig[] {
       typeof (section as ReportSectionConfig).enabled === "boolean" &&
       Array.isArray((section as ReportSectionConfig).requiredEvidence)
     );
-    return sections.length > 0 ? sections : DEFAULT_REPORT_SECTIONS;
+    const rawFormats = !Array.isArray(parsed) && parsed && typeof parsed === "object" && "formats" in parsed && Array.isArray(parsed.formats)
+      ? parsed.formats
+      : ["PDF", "HTML"];
+    const formats = rawFormats.filter((format): format is BulkReportFormat =>
+      format === "DOCX" || format === "PDF" || format === "HTML"
+    );
+    const language = !Array.isArray(parsed) && parsed && typeof parsed === "object" && "language" in parsed &&
+      (parsed.language === "id-ID" || parsed.language === "en-US" || parsed.language === "zh-CN")
+      ? parsed.language
+      : undefined;
+    return {
+      sections: sections.length > 0 ? sections : DEFAULT_REPORT_SECTIONS,
+      formats: formats.length > 0 ? formats : ["PDF", "HTML"],
+      language
+    };
   } catch {
-    return DEFAULT_REPORT_SECTIONS;
+    return { sections: DEFAULT_REPORT_SECTIONS, formats: ["PDF", "HTML"] };
   }
 }
 
@@ -913,6 +987,33 @@ function extractProductStoreType(rawJson: string): StoreType | undefined {
   const raw = parseJsonObject(rawJson);
   const storeType = raw.storeType;
   return normalizeStoreType(typeof storeType === "string" ? storeType : undefined) ?? undefined;
+}
+
+async function recoverProductStoreTypes(
+  products: Array<{ id: string; productUrl: string; rawJson: string }>
+): Promise<Map<string, StoreType>> {
+  const recovered = new Map<string, StoreType>();
+  const productsByHtmlPath = new Map<string, Array<{ id: string; productUrl: string }>>();
+
+  for (const product of products) {
+    if (extractProductStoreType(product.rawJson)) continue;
+    const htmlPath = extractProductString(product.rawJson, "htmlPath");
+    if (!htmlPath) continue;
+    const group = productsByHtmlPath.get(htmlPath) ?? [];
+    group.push({ id: product.id, productUrl: product.productUrl });
+    productsByHtmlPath.set(htmlPath, group);
+  }
+
+  await Promise.all(Array.from(productsByHtmlPath.entries()).map(async ([htmlPath, groupedProducts]) => {
+    const html = await readFile(htmlPath, "utf8").catch(() => "");
+    if (!html) return;
+    for (const product of groupedProducts) {
+      const storeType = storeTypeFromCapturedProductHtml(html, product.productUrl);
+      if (storeType) recovered.set(product.id, storeType);
+    }
+  }));
+
+  return recovered;
 }
 
 function extractProductString(rawJson: string | null | undefined, key: string): string | undefined {
@@ -986,7 +1087,30 @@ function parseJsonRecord(value?: string | null): Record<string, unknown> {
 }
 
 function extractStoreRatingSamples(value?: string | null): StoreProfile["ratingSamples"] {
-  const samples = parseJsonObject(value).ratingSamples;
+  const buckets = extractStoreRatingBuckets(value);
+  return [...buckets.oneStar, ...buckets.fiveStar];
+}
+
+function extractStoreRatingBuckets(value?: string | null): {
+  oneStar: StoreProfile["ratingSamples"];
+  fiveStar: StoreProfile["ratingSamples"];
+} {
+  const raw = parseJsonObject(value);
+  const hasBuckets = Array.isArray(raw.oneStarRatingSamples) || Array.isArray(raw.fiveStarRatingSamples);
+  if (hasBuckets) {
+    return {
+      oneStar: parseStoreRatingSampleArray(raw.oneStarRatingSamples).filter((sample) => sample.rating === 1),
+      fiveStar: parseStoreRatingSampleArray(raw.fiveStarRatingSamples).filter((sample) => sample.rating === 5)
+    };
+  }
+  const legacy = parseStoreRatingSampleArray(raw.ratingSamples);
+  return {
+    oneStar: legacy.filter((sample) => sample.rating === 1),
+    fiveStar: legacy.filter((sample) => sample.rating === 5)
+  };
+}
+
+function parseStoreRatingSampleArray(samples: unknown): StoreProfile["ratingSamples"] {
   if (!Array.isArray(samples)) {
     return [];
   }
@@ -994,30 +1118,19 @@ function extractStoreRatingSamples(value?: string | null): StoreProfile["ratingS
     .filter((sample): sample is Record<string, unknown> => Boolean(sample && typeof sample === "object" && !Array.isArray(sample)))
     .map((sample) => ({
       rating: typeof sample.rating === "number" ? sample.rating : Number(sample.rating),
-      reviewer: typeof sample.reviewer === "string" ? sample.reviewer : "Shopee buyer",
+      reviewer: typeof sample.reviewer === "string" ? sample.reviewer : "",
+      reviewerUrl: typeof sample.reviewerUrl === "string" ? sample.reviewerUrl : undefined,
       comment: typeof sample.comment === "string" ? sample.comment : "",
+      productTitle: typeof sample.productTitle === "string" ? sample.productTitle : undefined,
+      productUrl: typeof sample.productUrl === "string" ? sample.productUrl : undefined,
+      productVariation: typeof sample.productVariation === "string" ? sample.productVariation : undefined,
       sellerResponse: typeof sample.sellerResponse === "string" ? sample.sellerResponse : undefined,
       mediaUrls: Array.isArray(sample.mediaUrls)
         ? sample.mediaUrls.filter((item): item is string => typeof item === "string")
         : [],
       capturedAt: typeof sample.capturedAt === "string" ? sample.capturedAt : undefined
     }))
-    .filter((sample) => Number.isFinite(sample.rating) && sample.comment.trim().length > 0);
-}
-
-function mergeStoreRatingSamples(
-  current: StoreProfile["ratingSamples"],
-  incoming: StoreProfile["ratingSamples"]
-): StoreProfile["ratingSamples"] {
-  const seen = new Set<string>();
-  return [...current, ...incoming].filter((sample) => {
-    const key = `${sample.rating}:${sample.reviewer}:${sample.comment}`.toLocaleLowerCase();
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
+    .filter((sample) => Number.isFinite(sample.rating) && Boolean(sample.comment.trim() || sample.productTitle || sample.sellerResponse || sample.mediaUrls.length));
 }
 
 function mergeUniqueStrings(current: string[], incoming: string[]): string[] {

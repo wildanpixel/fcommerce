@@ -11,6 +11,8 @@ import type {
   CollectionState,
   CreateJobPayload,
   DashboardSnapshot,
+  EvidenceTranslationPayload,
+  EvidenceTranslationResult,
   HealthPayload,
   HtmlSnapshotPayload,
   HtmlSnapshotResult,
@@ -85,6 +87,11 @@ export const apiClient = {
       method: "PUT",
       body: JSON.stringify(payload)
     }),
+  translateEvidence: (payload: EvidenceTranslationPayload) =>
+    request<EvidenceTranslationResult>("/translations/evidence", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   createProject: (payload: NewProjectInput) =>
     request<DashboardSnapshot["projects"][number]>("/projects", {
       method: "POST",
@@ -157,6 +164,16 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify({ path })
     }),
+  revealPath: async (path: string) => {
+    if (window.marketplaceOS?.platform?.showItemInFolder) {
+      return window.marketplaceOS.platform.showItemInFolder(path);
+    }
+    await request<{ ok: true }>("/platform/open-path", {
+      method: "POST",
+      body: JSON.stringify({ path })
+    });
+    return true;
+  },
   openUrl: (url: string) =>
     request<{ ok: true }>("/platform/open-url", {
       method: "POST",

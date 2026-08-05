@@ -127,7 +127,8 @@ export class ReportService {
       return {
         reportId,
         htmlPath: paths.htmlPath,
-        pdfPath: paths.pdfPath
+        pdfPath: paths.pdfPath,
+        formats: payload.formats ?? ["PDF", "HTML"]
       };
     } catch (error) {
       await this.reports.markFailed(reportId);

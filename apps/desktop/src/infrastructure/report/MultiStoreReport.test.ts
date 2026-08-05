@@ -45,6 +45,52 @@ describe("multi-store report rendering", () => {
     expect(documentXml).toContain("Beta Best Seller");
     expect(documentXml).toContain("Beta rating evidence");
   });
+
+  it("renders the competition matrix and five synthesized category insights in HTML and DOCX", async () => {
+    const data = reportData();
+    data.analyses = [{
+      id: "analysis-1",
+      subjectType: "PROJECT",
+      provider: "openai",
+      resultJson: JSON.stringify({
+        keywordCompetitionMatrix: [{
+          productName: "Top Competitor Product",
+          priceRange: "Rp100.000–Rp150.000",
+          uspKeyClaim: "Evidence-backed key claim",
+          rating: "4.9 / 5",
+          shortDescription: "Concise specialist product description"
+        }],
+        synthesizedCategoryInsights: [
+          { title: "PRICING ARCHITECTURE & TIERING", insight: "Pricing specialist insight" },
+          { title: "COMPETITIVE POSITIONING & KEY CLAIMS", insight: "Positioning specialist insight" },
+          { title: "CUSTOMER TRUST & RATING SIGNALS", insight: "Trust specialist insight" },
+          { title: "DEMAND CONCENTRATION & PRODUCT MOMENTUM", insight: "Demand specialist insight" },
+          { title: "CATEGORY OPPORTUNITIES & RECOMMENDED ACTIONS", insight: "Opportunity specialist insight" }
+        ]
+      })
+    }];
+    const intelligencePayload: ReportGenerationPayload = {
+      ...payload,
+      sections: DEFAULT_REPORT_SECTIONS.map((section) => ({
+        ...section,
+        enabled: section.id === "intelligence"
+      }))
+    };
+
+    const html = await new ConsultingHtmlReportRenderer().render(data, intelligencePayload);
+    expect(html).toContain("Keyword Search Analysis &amp; Top 10 Competition Matrix");
+    expect(html).toContain("Top Competitor Product");
+    expect(html).toContain("Synthesized Category Insights");
+    expect(html).toContain("5. CATEGORY OPPORTUNITIES &amp; RECOMMENDED ACTIONS");
+
+    const buffer = await new ConsultingDocxReportExporter().render(data, intelligencePayload);
+    const archive = await JSZip.loadAsync(buffer);
+    const documentXml = await archive.file("word/document.xml")?.async("string");
+    expect(documentXml).toContain("Keyword Search Analysis &amp; Top 10 Competition Matrix");
+    expect(documentXml).toContain("Top Competitor Product");
+    expect(documentXml).toContain("Synthesized Category Insights");
+    expect(documentXml).toContain("5. CATEGORY OPPORTUNITIES &amp; RECOMMENDED ACTIONS");
+  });
 });
 
 function reportData(): ReportData {

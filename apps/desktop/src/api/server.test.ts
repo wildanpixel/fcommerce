@@ -4,6 +4,7 @@ import {
   extractMoneyRange,
   extractPdpStoreInfoFromHtml,
   extractRatingTextValue,
+  isStoreScopedEvidence,
   parsePrice,
   reportSchema
 } from "./server.js";
@@ -100,6 +101,11 @@ describe("Report request validation", () => {
 });
 
 describe("Shopee rating extraction", () => {
+  it("persists Part 3 review sections under their selected store", () => {
+    expect(isStoreScopedEvidence({ kind: "REVIEW_SECTION", ownerType: "STORE" })).toBe(true);
+    expect(isStoreScopedEvidence({ kind: "REVIEW_SECTION", ownerType: "PRODUCT" })).toBe(false);
+  });
+
   it("does not mistake a Star seller badge or sold count for a rating", () => {
     expect(extractRatingTextValue("Star 1RB+ Sold")).toBeUndefined();
   });

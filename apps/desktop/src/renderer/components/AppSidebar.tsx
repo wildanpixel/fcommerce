@@ -1,11 +1,14 @@
 import { memo } from "react";
-import { Brain, ChevronRight, ExternalLink, FileDown, HardDrive, PanelLeftClose, PanelLeftOpen, Search, Settings, Table2, UserRound } from "lucide-react";
+import { ChevronRight, ExternalLink, FileDown, HardDrive, PanelLeftClose, PanelLeftOpen, Search, Settings, Table2, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { motion } from "framer-motion";
 import { APP_AUTHOR_LINKEDIN, APP_AUTHOR_NAME } from "../app/appMetadata.js";
+import { translate } from "../app/languages.js";
 import { apiClient } from "../api/client.js";
 import { type AppView, useUiStore } from "../store/uiStore.js";
 import { Button, IconButton, NavigationItem, Popover } from "./primitives.js";
+import researchProductMarketLogo from "../assets/research-product-market-logo-dark.png";
+import wildanLogoBlack from "../assets/wildan-logo-black.png";
 
 const navGroups: Array<{ label: string; items: Array<{ id: AppView; label: string; icon: LucideIcon }> }> = [
   {
@@ -27,11 +30,14 @@ const navGroups: Array<{ label: string; items: Array<{ id: AppView; label: strin
 
 type AppSidebarProps = {
   collapsed: boolean;
+  themeMode: "dark" | "light";
   onToggle: () => void;
+  onHoverChange?: (hovered: boolean) => void;
 };
 
-export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
+export const AppSidebar = memo(function AppSidebar({ collapsed, themeMode, onToggle, onHoverChange }: AppSidebarProps) {
   const activeView = useUiStore((state) => state.activeView);
+  const language = useUiStore((state) => state.language);
   const setActiveView = useUiStore((state) => state.setActiveView);
 
   return (
@@ -43,6 +49,14 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
       initial={false}
       animate={{ width: "100%" }}
       transition={{ duration: 0.3, ease: "easeOut" }}
+      onMouseEnter={() => onHoverChange?.(true)}
+      onMouseLeave={() => onHoverChange?.(false)}
+      onFocusCapture={() => onHoverChange?.(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          onHoverChange?.(false);
+        }
+      }}
     >
       <div
         className={[
@@ -51,7 +65,7 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
         ].join(" ")}
       >
         <div className="mio-brand-mark flex h-9 w-9 items-center justify-center">
-          <Brain size={19} strokeWidth={1.65} />
+          <img src={themeMode === "light" ? wildanLogoBlack : researchProductMarketLogo} alt="" className="mio-brand-logo" />
         </div>
         {!collapsed && (
           <motion.div
@@ -59,12 +73,12 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
           >
-            <div className="mio-brand-title text-sm font-semibold leading-5">Marketplace</div>
-            <div className="mio-brand-subtitle text-xs leading-5 text-ink-500">Intelligence OS</div>
+            <div className="mio-brand-title text-sm font-semibold leading-5">Research Product</div>
+            <div className="mio-brand-subtitle text-xs leading-5 text-ink-500">Market</div>
           </motion.div>
         )}
         <IconButton
-          label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          label={translate(language, collapsed ? "Expand sidebar" : "Collapse sidebar")}
           variant="ghost"
           className="mio-sidebar-collapse shrink-0"
           aria-expanded={!collapsed}
@@ -74,10 +88,10 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
         </IconButton>
       </div>
 
-      <nav className="mio-primary-nav space-y-5" aria-label="Primary navigation">
+      <nav className="mio-primary-nav space-y-5" aria-label={translate(language, "Primary navigation")}>
         {navGroups.map((group) => (
           <div key={group.label} className="space-y-1">
-            {!collapsed && <div className="mio-nav-section-label px-3">{group.label}</div>}
+            {!collapsed && <div className="mio-nav-section-label px-3">{translate(language, group.label)}</div>}
             {group.items.map((item) => {
               const Icon = item.icon;
               const active = activeView === item.id;
@@ -85,7 +99,7 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
                 <NavigationItem
                   key={item.id}
                   icon={Icon}
-                  label={item.label}
+                  label={translate(language, item.label)}
                   active={active}
                   collapsed={collapsed}
                   onClick={() => setActiveView(item.id)}
@@ -102,7 +116,7 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
             align="start"
             trigger={({ open, toggle }) => (
               <IconButton
-                label="Local Evidence Vault"
+                label={translate(language, "Local Evidence Vault")}
                 variant="ghost"
                 aria-expanded={open}
                 aria-haspopup="menu"
@@ -115,14 +129,14 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
           >
             <div className="mio-popover-heading">
               <HardDrive size={16} />
-              <span>Local Evidence Vault</span>
-              <span className="mio-status-dot" aria-label="Available" />
+              <span>{translate(language, "Local Evidence Vault")}</span>
+              <span className="mio-status-dot" aria-label={translate(language, "Available")} />
             </div>
             <p className="mio-popover-copy">
-              Keyword projects, screenshots, reports, browser sessions, and keys stay on this machine.
+              {translate(language, "Keyword projects, screenshots, reports, browser sessions, and keys stay on this machine.")}
             </p>
           </Popover>
-          <IconButton label="Open Settings" variant="ghost" onClick={() => setActiveView("settings")}>
+          <IconButton label={translate(language, "Open Settings")} variant="ghost" onClick={() => setActiveView("settings")}>
             <Settings size={17} />
           </IconButton>
         </div>
@@ -133,7 +147,7 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
             <button
               type="button"
               className={["mio-account-button", collapsed ? "mio-account-button-collapsed" : ""].join(" ")}
-              aria-label="Developer profile"
+              aria-label={translate(language, "Developer profile")}
               aria-expanded={open}
               aria-haspopup="menu"
               data-mio-popover-trigger
@@ -153,13 +167,13 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, onToggle }: AppS
             <span className="mio-account-avatar mio-account-avatar-large"><UserRound size={17} /></span>
             <div className="min-w-0">
               <div className="mio-popover-profile-name">{APP_AUTHOR_NAME}</div>
-              <div className="mio-popover-profile-meta">Developer · Marketplace Intelligence OS</div>
+               <div className="mio-popover-profile-meta">{translate(language, "Developer")} · Research Product Market</div>
             </div>
           </div>
           <div className="mio-popover-separator" />
           <Button variant="ghost" className="mio-popover-row" onClick={() => void apiClient.openUrl(APP_AUTHOR_LINKEDIN)}>
             <ExternalLink size={16} />
-            <span>Open developer profile</span>
+            <span>{translate(language, "Open developer profile")}</span>
             <ChevronRight size={14} className="ml-auto" />
           </Button>
         </Popover>

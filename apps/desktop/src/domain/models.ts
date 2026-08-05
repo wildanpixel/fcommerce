@@ -1,4 +1,5 @@
 import type { MarketplaceId } from "../shared/contracts.js";
+import type { StoreType } from "../shared/storeTypes.js";
 
 export type MoneyRange = {
   min?: number;
@@ -56,6 +57,7 @@ export type ProductDetail = ProductCard & {
 export type StoreProfile = {
   marketplace: MarketplaceId;
   marketplaceStoreId?: string;
+  storeType?: StoreType;
   name: string;
   url: string;
   followers?: number;
@@ -69,9 +71,13 @@ export type StoreProfile = {
   categories: string[];
   ratingSamples: Array<{
     rating: number;
-    reviewer: string;
-    comment: string;
-    sellerResponse?: string;
+      reviewer: string;
+      reviewerUrl?: string;
+      comment: string;
+      productTitle?: string;
+      productUrl?: string;
+      productVariation?: string;
+      sellerResponse?: string;
     mediaUrls: string[];
     capturedAt?: string;
   }>;
@@ -163,6 +169,19 @@ export type StoreCollectionResult = {
   warnings: string[];
 };
 
+export type KeywordCompetitionMatrixRow = {
+  productName: string;
+  priceRange: string;
+  uspKeyClaim: string;
+  rating: string;
+  shortDescription: string;
+};
+
+export type SynthesizedCategoryInsight = {
+  title: string;
+  insight: string;
+};
+
 export type AiAnalysisJson = {
   schemaVersion: "1.0";
   subjectType: "PROJECT" | "PRODUCT" | "STORE" | "REVIEW_SET" | "CREATIVE_SET";
@@ -190,6 +209,8 @@ export type AiAnalysisJson = {
     observations: string[];
   };
   executiveSummary: string;
+  keywordCompetitionMatrix: KeywordCompetitionMatrixRow[];
+  synthesizedCategoryInsights: SynthesizedCategoryInsight[];
   swot: {
     strengths: string[];
     weaknesses: string[];

@@ -42,6 +42,25 @@ export function buildShopeeSearchUrl(
   return url.toString();
 }
 
+export function matchesShopeeSearchIntent(current: string, target: string): boolean {
+  try {
+    const currentUrl = new URL(current);
+    const targetUrl = new URL(target);
+    const currentFilters = currentUrl.searchParams.get("fe_filter_options");
+    const targetFilters = targetUrl.searchParams.get("fe_filter_options");
+
+    return (
+      currentUrl.hostname === targetUrl.hostname &&
+      currentUrl.pathname === targetUrl.pathname &&
+      currentUrl.searchParams.get("keyword") === targetUrl.searchParams.get("keyword") &&
+      currentUrl.searchParams.get("sortBy") === targetUrl.searchParams.get("sortBy") &&
+      (currentFilters === targetFilters || (currentFilters === null && targetFilters !== null))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function withShopeeProductDisplayModel(value: string, viewMode: ShopeeViewMode): string {
   try {
     const url = new URL(value);

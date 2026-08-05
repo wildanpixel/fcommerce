@@ -1,7 +1,61 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { MarketplaceIllustration, type MarketplaceIllustrationVariant } from "./MarketplaceIllustration.js";
-import { Card } from "./primitives.js";
+import { Card, Modal } from "./primitives.js";
+
+export function LoadingSkeleton({
+  lines = 4,
+  compact = false,
+  className = ""
+}: {
+  lines?: number;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={["mio-loading-skeleton", compact ? "mio-loading-skeleton-compact" : "", className].join(" ")} aria-hidden="true">
+      <div className="mio-skeleton-block mio-skeleton-heading" />
+      {Array.from({ length: lines }, (_, index) => (
+        <div
+          key={index}
+          className="mio-skeleton-block mio-skeleton-line"
+          style={{ width: `${Math.max(48, 96 - index * 9)}%` }}
+        />
+      ))}
+      <div className="mio-skeleton-grid">
+        <div className="mio-skeleton-block" />
+        <div className="mio-skeleton-block" />
+      </div>
+    </div>
+  );
+}
+
+export function LoadingProgressModal({
+  open,
+  title,
+  label,
+  progress,
+  detail
+}: {
+  open: boolean;
+  title: string;
+  label: string;
+  progress: number;
+  detail?: string;
+}) {
+  return (
+    <Modal open={open} title={title} description={detail} onClose={() => undefined} dismissible={false} className="mio-loading-progress-modal">
+      <div className="mio-loading-progress-visual" aria-live="polite" aria-busy="true">
+        <LoadingSkeleton lines={3} compact />
+        <div className="mio-loading-progress-copy">
+          <span>{label}</span>
+          <strong>{Math.max(1, Math.min(99, Math.round(progress)))}%</strong>
+        </div>
+        <div className="mio-report-progress-track"><span style={{ width: `${Math.max(1, Math.min(99, progress))}%` }} /></div>
+      </div>
+    </Modal>
+  );
+}
 
 export function Panel({
   title,
@@ -72,11 +126,11 @@ export function EmptyState({
   action?: ReactNode;
   compact?: boolean;
 }) {
-  const loading = label.toLowerCase().startsWith("loading");
+  const loading = /^(loading|preparing|generating|analyzing|saving|collecting|downloading)/iu.test(label.trim());
   return (
     <div className={["mio-empty-state", compact ? "mio-empty-state-compact" : ""].join(" ")} aria-live={loading ? "polite" : undefined}>
       {loading ? (
-        <span className="mio-empty-state-loader" aria-hidden="true" />
+        <LoadingSkeleton lines={compact ? 2 : 4} compact={compact} />
       ) : (
         <MarketplaceIllustration variant={illustration ?? inferIllustration(label)} label={`${title ?? label} illustration`} />
       )}

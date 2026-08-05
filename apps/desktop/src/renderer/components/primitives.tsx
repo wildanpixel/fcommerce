@@ -287,14 +287,14 @@ export function Popover({
   className
 }: {
   trigger: (controls: { open: boolean; toggle: () => void; close: () => void }) => ReactNode;
-  children: ReactNode;
+  children: ReactNode | ((controls: { close: () => void }) => ReactNode);
   align?: "start" | "end";
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ left: 8, bottom: 8 });
+  const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number }>({ left: 8, bottom: 8 });
 
   useEffect(() => {
     if (!open) return;
@@ -304,10 +304,12 @@ export function Popover({
       const rect = triggerElement.getBoundingClientRect();
       const popoverWidth = 268;
       const preferredLeft = align === "end" ? rect.right - popoverWidth : rect.left;
-      setPosition({
-        left: Math.max(8, Math.min(preferredLeft, window.innerWidth - popoverWidth - 8)),
-        bottom: Math.max(8, window.innerHeight - rect.top + 8)
-      });
+      const left = Math.max(8, Math.min(preferredLeft, window.innerWidth - popoverWidth - 8));
+      if (rect.top < window.innerHeight / 2) {
+        setPosition({ left, top: Math.min(window.innerHeight - 8, rect.bottom + 8) });
+      } else {
+        setPosition({ left, bottom: Math.max(8, window.innerHeight - rect.top + 8) });
+      }
     };
     positionPopover();
     window.addEventListener("resize", positionPopover);
@@ -349,7 +351,7 @@ export function Popover({
           role="menu"
           style={{ left: position.left, bottom: position.bottom }}
         >
-          {children}
+          {typeof children === "function" ? children({ close }) : children}
         </div>,
         document.querySelector(".mio-app") ?? document.body
       )}
@@ -365,7 +367,8 @@ export function Modal({
   children,
   actions,
   className,
-  closeLabel = "Close dialog"
+  closeLabel = "Close dialog",
+  dismissible = true
 }: {
   open: boolean;
   title: string;
@@ -375,6 +378,7 @@ export function Modal({
   actions?: ReactNode;
   className?: string;
   closeLabel?: string;
+  dismissible?: boolean;
 }) {
   const titleId = useId();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -392,7 +396,7 @@ export function Modal({
       (preferred ?? first)?.focus();
     }, 0);
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && dismissible) {
         event.preventDefault();
         onCloseRef.current();
         return;
@@ -420,21 +424,23 @@ export function Modal({
       document.removeEventListener("keydown", handleKeyDown);
       previouslyFocused?.focus({ preventScroll: true });
     };
-  }, [open]);
+  }, [dismissible, open]);
 
   if (!open) return null;
 
   return createPortal(
-    <div className="mio-modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="mio-modal-overlay" onMouseDown={(event) => dismissible && event.target === event.currentTarget && onClose()}>
       <div ref={surfaceRef} className={clsx("mio-modal", className)} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="mio-modal-header">
           <div className="min-w-0">
             <h2 id={titleId} className="mio-modal-title">{title}</h2>
             {description && <div className="mio-modal-description">{description}</div>}
           </div>
-          <IconButton label={closeLabel} variant="ghost" onClick={onClose}>
-            <X size={17} />
-          </IconButton>
+          {dismissible && (
+            <IconButton label={closeLabel} variant="ghost" onClick={onClose}>
+              <X size={17} />
+            </IconButton>
+          )}
         </div>
         <div className="mio-modal-body">{children}</div>
         {actions && <div className="mio-modal-actions">{actions}</div>}

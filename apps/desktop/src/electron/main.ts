@@ -10,7 +10,8 @@ import {
 } from "electron";
 import type { MenuItemConstructorOptions, OpenDialogOptions } from "electron";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { dirname, extname, join } from "node:path";
 import type { ApiServer } from "../api/server.js";
 import {
   configurePlatformService,
@@ -38,7 +39,7 @@ async function createWindow(): Promise<void> {
     minWidth: 1120,
     minHeight: 720,
     backgroundColor: "#171717",
-    title: "Marketplace Intelligence OS",
+    title: "Research Product Market",
     autoHideMenuBar: process.platform !== "darwin",
     webPreferences: {
       preload: join(currentDir, "preload.js"),
@@ -68,7 +69,7 @@ app.on("before-quit", () => {
 });
 
 app.whenReady().then(() => {
-  app.setName("Marketplace Intelligence OS");
+  app.setName("Research Product Market");
   void createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -145,6 +146,33 @@ function registerPlatformIpc(): void {
   ipcMain.handle("platform:get", () => getPlatformService().info);
   ipcMain.handle("platform:open-path", async (_event, targetPath: string) => {
     await getPlatformService().openPath(targetPath);
+    return true;
+  });
+  ipcMain.handle("platform:read-preview-file", async (_event, targetPath: string) => {
+    const extension = extname(targetPath).toLocaleLowerCase();
+    const mimeTypes: Record<string, string> = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".webp": "image/webp",
+      ".gif": "image/gif",
+      ".bmp": "image/bmp",
+      ".svg": "image/svg+xml",
+      ".pdf": "application/pdf",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    };
+    const mimeType = mimeTypes[extension];
+    if (!mimeType) {
+      throw new Error("This file type is not supported by the in-app preview.");
+    }
+    const buffer = await readFile(targetPath);
+    if (buffer.byteLength > 50 * 1024 * 1024) {
+      throw new Error("This file is larger than the 50 MB in-app preview limit.");
+    }
+    return { extension, mimeType, dataBase64: buffer.toString("base64") };
+  });
+  ipcMain.handle("platform:show-item-in-folder", (_event, targetPath: string) => {
+    shell.showItemInFolder(targetPath);
     return true;
   });
   ipcMain.handle("platform:open-url", async (_event, url: string) => {
