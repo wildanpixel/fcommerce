@@ -119,6 +119,7 @@
       }
     ],
     "win": {
+      "icon": "buildResources/icon.ico",
       "target": [
         {
           "target": "nsis",
