@@ -24,6 +24,7 @@ import {
   LayoutGrid,
   ListChecks,
   LockKeyhole,
+  Mail,
   Maximize2,
   Minimize2,
   Monitor,
@@ -605,6 +606,32 @@ function LicenseGate({
           <Button className="w-full" variant="primary" type="submit" disabled={activate.isPending}>
             <LockKeyhole size={15} /> {activate.isPending ? "Verifying license" : "Activate and sign in"}
           </Button>
+          <div className="rounded-xl border border-white/8 bg-white/[0.04] p-3">
+            <div className="mb-2 text-xs font-semibold text-ink-200"><TranslatedText>Contact developer for license key</TranslatedText></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="justify-center"
+                onClick={() => void apiClient.openUrl("mailto:wildan.pixell@gmail.com?subject=Research%20Product%20Market%20License%20Key%20Request%20-%20119994")}
+              >
+                <Mail size={15} />
+                Gmail
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="justify-center"
+                onClick={() => void apiClient.openUrl("mailto:wildanega_pra@flashexpress.id?subject=Research%20Product%20Market%20License%20Key%20Request%20-%20119994")}
+              >
+                <Mail size={15} />
+                <TranslatedText>Lark / Tencent Mail</TranslatedText>
+              </Button>
+            </div>
+            <div className="mt-3 text-center text-[11px] text-ink-500">
+              <TranslatedText>Built by</TranslatedText> <span className="font-medium text-ink-300">119994 (Wildan Ega Pradana)</span>
+            </div>
+          </div>
         </div>
       </form>
     </div>
