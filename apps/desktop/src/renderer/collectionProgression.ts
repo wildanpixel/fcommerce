@@ -24,6 +24,19 @@ export function previousCollectionActionId(
 
 export type CollectionAdvanceMode = "next-action" | "next-step" | "stay";
 
+export type UserMediaAdvanceTarget = "shop-homepage" | "next-product";
+
+export function userMediaAdvanceTarget(shopHomepageCollected: boolean): UserMediaAdvanceTarget {
+  return shopHomepageCollected ? "next-product" : "shop-homepage";
+}
+
+export function reusesCurrentStoreRatingsPage(
+  currentActionId: string | undefined,
+  nextActionId: string | undefined
+): boolean {
+  return currentActionId === "store-rating-negative" && nextActionId === "store-rating-positive";
+}
+
 export function collectionAdvanceMode(
   stage: "KEYWORD_GENERAL" | "PRODUCT_DETAILS" | "EVALUATION_KEY_STORE",
   subActionId: string | undefined,

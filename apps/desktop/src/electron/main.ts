@@ -30,7 +30,8 @@ async function createWindow(): Promise<void> {
 
   const { startApiServer } = await import("../api/server.js");
   process.env.MIO_APP_VERSION = app.getVersion();
-  apiServer = await startApiServer();
+  const configuredApiPort = Number(process.env.MIO_API_PORT ?? "4123");
+  apiServer = await startApiServer(Number.isFinite(configuredApiPort) ? configuredApiPort : 4123);
   process.env.MIO_API_BASE_URL = `http://127.0.0.1:${apiServer.port}/api`;
 
   mainWindow = new BrowserWindow({
@@ -155,6 +156,7 @@ function registerPlatformIpc(): void {
       ".jpg": "image/jpeg",
       ".jpeg": "image/jpeg",
       ".webp": "image/webp",
+      ".avif": "image/avif",
       ".gif": "image/gif",
       ".bmp": "image/bmp",
       ".svg": "image/svg+xml",

@@ -3,7 +3,9 @@ import {
   collectionAdvanceMode,
   nextPendingCollectionActionId,
   nextProductCollectionTarget,
-  previousCollectionActionId
+  previousCollectionActionId,
+  reusesCurrentStoreRatingsPage,
+  userMediaAdvanceTarget
 } from "./collectionProgression.js";
 
 describe("collection action progression", () => {
@@ -36,6 +38,16 @@ describe("collection action progression", () => {
     expect(collectionAdvanceMode("PRODUCT_DETAILS", "shop-homepage")).toBe("next-step");
     expect(collectionAdvanceMode("PRODUCT_DETAILS", "description-promotions")).toBe("stay");
     expect(collectionAdvanceMode("PRODUCT_DETAILS", "positive-reviews")).toBe("stay");
+  });
+
+  it("opens Shop Home Page after User Media until that evidence is collected", () => {
+    expect(userMediaAdvanceTarget(false)).toBe("shop-homepage");
+    expect(userMediaAdvanceTarget(true)).toBe("next-product");
+  });
+
+  it("reuses the current ratings page between 1-star and 5-star collection", () => {
+    expect(reusesCurrentStoreRatingsPage("store-rating-negative", "store-rating-positive")).toBe(true);
+    expect(reusesCurrentStoreRatingsPage("store-details", "store-rating-negative")).toBe(false);
   });
 
   it("does not advance an empty or failed collection and preserves Part 3 progression", () => {

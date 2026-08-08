@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import type { StoreType } from "../../shared/storeTypes.js";
 import { storeTypeImage, storeTypeLabel } from "../../shared/storeTypes.js";
 
@@ -43,13 +43,79 @@ export function ResultCardMedia({
   return (
     <div className={["mio-result-card-media", `mio-result-card-media-${variant}`].join(" ")}>
       {imageUrl && !failed ? (
-        <img src={imageUrl} alt={alt} loading="lazy" decoding="async" onError={() => setFailed(true)} />
+        <MediaThumbnail src={imageUrl} alt={alt} loading="lazy" decoding="async" onError={() => setFailed(true)} />
       ) : (
         <MarketplaceCardPlaceholder variant={variant} label={alt} />
       )}
       {children ? <div className="mio-result-card-media-overlay">{children}</div> : null}
     </div>
   );
+}
+
+export function MediaThumbnail({ src, onError, ...props }: Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & { src?: string | null }) {
+  const [resolvedSource, setResolvedSource] = useState<string>();
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const source = normalizeMediaSource(src);
+    setFailed(false);
+    if (!source) {
+      setResolvedSource(undefined);
+      return () => {
+        cancelled = true;
+      };
+    }
+    const localPath = localMediaPath(source);
+    const readPreviewFile = window.marketplaceOS?.platform?.readPreviewFile;
+    if (!localPath || !readPreviewFile) {
+      setResolvedSource(source);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setResolvedSource(undefined);
+    void readPreviewFile(localPath)
+      .then((result) => {
+        if (!cancelled) setResolvedSource(`data:${result.mimeType};base64,${result.dataBase64}`);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedSource(source);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  if (!resolvedSource || failed) return null;
+  return (
+    <img
+      {...props}
+      src={resolvedSource}
+      onError={(event) => {
+        setFailed(true);
+        onError?.(event);
+      }}
+    />
+  );
+}
+
+function normalizeMediaSource(value?: string | null): string {
+  const source = value?.trim() ?? "";
+  if (source.startsWith("//")) return `https:${source}`;
+  return source;
+}
+
+function localMediaPath(source: string): string | undefined {
+  if (/^[a-z]:[\\/]/iu.test(source)) return source;
+  if (!source.toLocaleLowerCase().startsWith("file:")) return undefined;
+  try {
+    const fileUrl = new URL(source);
+    const decodedPath = decodeURIComponent(fileUrl.pathname);
+    return /^\/[a-z]:\//iu.test(decodedPath) ? decodedPath.slice(1) : decodedPath;
+  } catch {
+    return source.replace(/^file:\/{2,3}/iu, "");
+  }
 }
 
 function MarketplaceCardPlaceholder({ variant, label }: { variant: ResultCardVariant; label: string }) {

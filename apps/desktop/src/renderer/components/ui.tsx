@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { translate } from "../app/languages.js";
+import { useUiStore } from "../store/uiStore.js";
 import { MarketplaceIllustration, type MarketplaceIllustrationVariant } from "./MarketplaceIllustration.js";
 import { Card, Modal } from "./primitives.js";
 
@@ -49,9 +51,9 @@ export function LoadingProgressModal({
         <LoadingSkeleton lines={3} compact />
         <div className="mio-loading-progress-copy">
           <span>{label}</span>
-          <strong>{Math.max(1, Math.min(99, Math.round(progress)))}%</strong>
+          <strong>{Math.max(1, Math.min(100, Math.round(progress)))}%</strong>
         </div>
-        <div className="mio-report-progress-track"><span style={{ width: `${Math.max(1, Math.min(99, progress))}%` }} /></div>
+        <div className="mio-report-progress-track"><span style={{ width: `${Math.max(1, Math.min(100, progress))}%` }} /></div>
       </div>
     </Modal>
   );
@@ -70,12 +72,13 @@ export function Panel({
   className?: string;
   children: ReactNode;
 }) {
+  const language = useUiStore((state) => state.language);
   return (
     <Card className={["mio-panel p-5", className ?? ""].join(" ")}>
       <div className="mio-panel-header mb-5 flex items-center justify-between gap-3">
         <div className="mio-panel-title flex items-center gap-2 text-sm font-semibold text-white">
           <Icon size={17} strokeWidth={1.65} />
-          {title}
+          {translate(language, title)}
         </div>
         {action}
       </div>
@@ -85,19 +88,21 @@ export function Panel({
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
+  const language = useUiStore((state) => state.language);
   return (
     <div className="mio-field block">
-      <span className="mio-field-label">{label}</span>
+      <span className="mio-field-label">{translate(language, label)}</span>
       {children}
     </div>
   );
 }
 
 export function StatusLine({ label, active }: { label: string; active: boolean }) {
+  const language = useUiStore((state) => state.language);
   return (
     <div className="mio-status-line flex items-center justify-between px-3 py-2">
-      <span>{label}</span>
-      <span className={active ? "mio-status-ready" : "mio-status-muted"}>{active ? "Ready" : "Not configured"}</span>
+      <span>{translate(language, label)}</span>
+      <span className={active ? "mio-status-ready" : "mio-status-muted"}>{translate(language, active ? "Ready" : "Not configured")}</span>
     </div>
   );
 }
@@ -126,17 +131,20 @@ export function EmptyState({
   action?: ReactNode;
   compact?: boolean;
 }) {
+  const language = useUiStore((state) => state.language);
+  const localizedLabel = translate(language, label);
+  const localizedTitle = title ? translate(language, title) : undefined;
   const loading = /^(loading|preparing|generating|analyzing|saving|collecting|downloading)/iu.test(label.trim());
   return (
     <div className={["mio-empty-state", compact ? "mio-empty-state-compact" : ""].join(" ")} aria-live={loading ? "polite" : undefined}>
       {loading ? (
         <LoadingSkeleton lines={compact ? 2 : 4} compact={compact} />
       ) : (
-        <MarketplaceIllustration variant={illustration ?? inferIllustration(label)} label={`${title ?? label} illustration`} />
+        <MarketplaceIllustration variant={illustration ?? inferIllustration(label)} label={`${localizedTitle ?? localizedLabel} illustration`} />
       )}
       <div className="mio-empty-state-copy">
-        {title && <div className="mio-empty-state-title">{title}</div>}
-        <div className="mio-empty-state-label">{label}</div>
+        {localizedTitle && <div className="mio-empty-state-title">{localizedTitle}</div>}
+        <div className="mio-empty-state-label">{localizedLabel}</div>
         {action && <div className="mio-empty-state-action">{action}</div>}
       </div>
     </div>

@@ -103,19 +103,28 @@ export interface ReportWorkspace {
   writeHtml(path: string, html: string): Promise<void>;
 }
 
+export type ReportTextTranslator = {
+  translateTexts(
+    texts: string[],
+    language: "id-ID" | "en-US" | "zh-CN"
+  ): Promise<{ translations: string[] }>;
+};
+
 export class ReportService {
   constructor(
     private readonly reports: ReportRepository,
     private readonly loader: ReportDataLoader,
     private readonly renderer: HtmlReportRenderer,
     private readonly exporter: PdfExporter,
-    private readonly workspace: ReportWorkspace
+    private readonly workspace: ReportWorkspace,
+    private readonly translator?: ReportTextTranslator
   ) {}
 
   async generate(payload: ReportGenerationPayload): Promise<ReportGenerationResult> {
     const reportId = await this.reports.create(payload);
     try {
-      const data = await this.loader.load(payload.projectId);
+      const sourceData = await this.loader.load(payload.projectId);
+      const data = await translateReportData(sourceData, payload.language, this.translator);
       const html = await this.renderer.render(data, payload);
       const paths = await this.workspace.ensureReportPaths(payload.projectId, payload.templateId, {
         fileName: payload.fileName,
@@ -135,4 +144,38 @@ export class ReportService {
       throw error;
     }
   }
+}
+
+export async function translateReportData(
+  data: ReportData,
+  language: ReportGenerationPayload["language"],
+  translator?: ReportTextTranslator
+): Promise<ReportData> {
+  if (!translator || !language || language === "en-US") return data;
+  const sources = Array.from(new Set([
+    ...data.products.flatMap((product) => [product.title, product.selectionReason, product.description, product.productType]),
+    ...data.reviews.flatMap((review) => [review.comment, review.variation])
+  ].map((value) => value?.trim() ?? "").filter(Boolean)));
+  const translated = new Map<string, string>();
+  for (let index = 0; index < sources.length; index += 80) {
+    const batch = sources.slice(index, index + 80);
+    const result = await translator.translateTexts(batch, language);
+    batch.forEach((source, batchIndex) => translated.set(source, result.translations[batchIndex] ?? source));
+  }
+  const text = (value?: string | null) => value ? translated.get(value.trim()) ?? value : value;
+  return {
+    ...data,
+    products: data.products.map((product) => ({
+      ...product,
+      title: text(product.title) ?? product.title,
+      selectionReason: text(product.selectionReason),
+      description: text(product.description),
+      productType: text(product.productType)
+    })),
+    reviews: data.reviews.map((review) => ({
+      ...review,
+      comment: text(review.comment) ?? review.comment,
+      variation: text(review.variation)
+    }))
+  };
 }

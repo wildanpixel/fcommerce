@@ -368,6 +368,9 @@ export type BulkReportGenerationResult = {
 export type ReportHtmlPayload = {
   reportId: string;
   htmlPath: string;
+  pdfPath?: string | null;
+  docxPath?: string | null;
+  formats?: BulkReportFormat[];
   html: string;
   text: string;
 };
@@ -376,6 +379,22 @@ export type ReportDocxResult = {
   ok: true;
   reportId: string;
   docxPath: string;
+};
+
+export type LicenseActivationPayload = {
+  email: string;
+  password: string;
+  license: string;
+};
+
+export type LicenseStatusPayload = {
+  requiresActivation: boolean;
+  authenticated: boolean;
+  developmentBypass?: boolean;
+  machineId: string;
+  email?: string;
+  expiresAt?: string;
+  sessionToken?: string;
 };
 
 export type ReportSummary = {

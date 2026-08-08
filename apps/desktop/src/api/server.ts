@@ -40,6 +40,7 @@ import type {
   ManualFileEvidencePayload,
   NewProjectInput,
   PlatformPayload,
+  LicenseActivationPayload,
   ReportGenerationPayload,
   ReportHtmlPayload,
   EvidenceTranslationResult,
@@ -49,7 +50,7 @@ import type { ProductDetail, ReviewEvidence, StoreProfile } from "../domain/mode
 import { ProjectService } from "../application/services/ProjectService.js";
 import { JobQueue } from "../application/services/JobQueue.js";
 import { IntelligenceWorkflow } from "../application/services/IntelligenceWorkflow.js";
-import { ReportService } from "../application/services/ReportService.js";
+import { ReportService, translateReportData } from "../application/services/ReportService.js";
 import type { ReportData } from "../application/services/ReportService.js";
 import type { AnalysisInput } from "../application/services/AIAnalysisService.js";
 import { prisma } from "../infrastructure/db/prismaClient.js";
@@ -77,6 +78,7 @@ import { getPlatformService } from "../infrastructure/platform/PlatformService.j
 import { NoopUpdateService } from "../application/services/UpdateService.js";
 import { AndroidToolingService } from "../infrastructure/android/AndroidToolingService.js";
 import { AdbAndroidAutomationAdapter } from "../infrastructure/android/AdbAndroidAutomationAdapter.js";
+import { LicenseActivationService } from "../infrastructure/security/LicenseActivationService.js";
 
 const marketplaceSchema = z.enum([
   "SHOPEE_ID",
@@ -191,6 +193,12 @@ const bulkReportSchema = z.object({
 const evidenceTranslationSchema = z.object({
   language: z.enum(["id-ID", "en-US", "zh-CN"]),
   texts: z.array(z.string().trim().min(1).max(4000)).min(1).max(100)
+});
+
+const licenseActivationSchema = z.object({
+  email: z.string().trim().email(),
+  password: z.string().min(8).max(256),
+  license: z.string().trim().min(80).max(16_000)
 });
 
 const manualEvidenceKindSchema = z.enum([
@@ -342,7 +350,7 @@ export function createApp(): Express {
   app.use(express.json({ limit: "80mb" }));
   app.use((request, response, next) => {
     response.header("Access-Control-Allow-Origin", request.headers.origin ?? "*");
-    response.header("Access-Control-Allow-Headers", "Content-Type");
+    response.header("Access-Control-Allow-Headers", "Content-Type, X-MIO-Session");
     response.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
     if (request.method === "OPTIONS") {
       response.sendStatus(204);
@@ -357,6 +365,23 @@ export function createApp(): Express {
       product: "Marketplace Intelligence OS",
       version: process.env.MIO_APP_VERSION ?? "1.0.0"
     });
+  });
+
+  app.get("/api/license/status", asyncRoute(async (_request, response) => {
+    response.json(await dependencies.license.status());
+  }));
+
+  app.post("/api/license/activate", asyncRoute(async (request, response) => {
+    const input = licenseActivationSchema.parse(request.body) satisfies LicenseActivationPayload;
+    response.json(await dependencies.license.activate(input));
+  }));
+
+  app.use("/api", (request, response, next) => {
+    if (dependencies.license.hasValidSession(request.header("X-MIO-Session"))) {
+      next();
+      return;
+    }
+    response.status(401).json({ error: "A valid Research Product Market license session is required." });
   });
 
   app.get("/api/marketplaces", (_request, response) => {
@@ -898,7 +923,11 @@ export function createApp(): Express {
     const preparedInput = await prepareReportPayload(dependencies, input);
     const generated = await dependencies.reports.generate(preparedInput);
     if (preparedInput.formats?.includes("DOCX")) {
-      const data = await dependencies.reportDataLoader.load(preparedInput.projectId);
+      const data = await translateReportData(
+        await dependencies.reportDataLoader.load(preparedInput.projectId),
+        preparedInput.language,
+        dependencies.ai
+      );
       const docxPath = generated.htmlPath.replace(/\.html$/iu, ".docx");
       await writeFile(docxPath, await dependencies.docxReports.render(data, preparedInput));
       response.status(201).json({ ...generated, docxPath });
@@ -924,7 +953,11 @@ export function createApp(): Express {
         language: input.language,
         exportFolder: input.exportFolder
       });
-      const data = await dependencies.reportDataLoader.load(projectId);
+      const data = await translateReportData(
+        await dependencies.reportDataLoader.load(projectId),
+        preparedInput.language,
+        dependencies.ai
+      );
       const generated = await dependencies.reports.generate(preparedInput);
       archiveDirectory ??= dirname(generated.htmlPath);
       const fileStem = `${slug(data.project.name)}-${projectId.slice(0, 8)}`;
@@ -974,6 +1007,9 @@ export function createApp(): Express {
     response.json({
       reportId: report.id,
       htmlPath: report.htmlPath,
+      pdfPath: report.pdfPath,
+      docxPath: report.docxPath,
+      formats: report.formats,
       html,
       text: htmlToPlainText(html)
     } satisfies ReportHtmlPayload);
@@ -986,7 +1022,11 @@ export function createApp(): Express {
       response.status(404).json({ error: "Report HTML not found" });
       return;
     }
-    const data = await dependencies.reportDataLoader.load(report.projectId);
+    const data = await translateReportData(
+      await dependencies.reportDataLoader.load(report.projectId),
+      report.language,
+      dependencies.ai
+    );
     const docxPath = report.htmlPath.replace(/\.html$/iu, ".docx");
     await writeFile(docxPath, await dependencies.docxReports.render(data, {
       projectId: report.projectId,
@@ -1052,6 +1092,10 @@ function createDependencies() {
   const android = new AndroidToolingService();
   const androidAdapter = new AdbAndroidAutomationAdapter(android);
   const workspace = new ProjectWorkspace();
+  const license = new LicenseActivationService(
+    platform.info.directories.settings,
+    !platform.info.isPackaged && process.env.MIO_LICENSE_ENFORCEMENT !== "1"
+  );
   const ai = new CompositeAIAnalysisService(settingsRepository);
   const reportDataLoader = new PrismaReportDataLoader(prisma);
   const workflow = new IntelligenceWorkflow(
@@ -1066,6 +1110,7 @@ function createDependencies() {
   const queue = new JobQueue(jobRepository, workflow, logRepository, 1);
   return {
     platform,
+    license,
     browsers,
     android,
     androidAdapter,
@@ -1083,7 +1128,8 @@ function createDependencies() {
       new PrismaReportDataAdapter(reportDataLoader),
       new ConsultingHtmlReportRenderer(),
       new PuppeteerPdfExporter(),
-      workspace
+      workspace,
+      ai
     ),
     ai,
     docxReports: new ConsultingDocxReportExporter(),

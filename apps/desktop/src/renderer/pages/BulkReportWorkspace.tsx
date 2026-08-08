@@ -280,11 +280,11 @@ export function BulkReportWorkspace({
             <div key={entry.id} className="mio-generated-report-row">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-[var(--mio-text-primary)]">
-                  {entry.projectCount} projects
+                  {entry.projectCount} {translate(language, "projects")}
                 </div>
                 <div className="mt-1 text-xs text-[var(--mio-text-muted)]">
                   {new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.generatedAt))}
-                  {" · "}{entry.formats.join(", ")}{" · "}{entry.fileCount} files
+                  {" · "}{entry.formats.join(", ")}{" · "}{entry.fileCount} {translate(language, "files")}
                 </div>
               </div>
               <IconButton label={translate(language, "Locate")} onClick={() => void apiClient.revealPath(entry.zipPath)}>

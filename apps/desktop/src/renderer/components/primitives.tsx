@@ -1,5 +1,6 @@
 import {
   ButtonHTMLAttributes,
+  Children,
   InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
@@ -13,6 +14,12 @@ import { createPortal } from "react-dom";
 import { Check, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
+import { translate } from "../app/languages";
+import { useUiStore } from "../store/uiStore";
+
+function translateDirectText(language: Parameters<typeof translate>[0], children: ReactNode): ReactNode {
+  return Children.map(children, (child) => typeof child === "string" ? translate(language, child) : child);
+}
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 type ButtonSize = "sm" | "md" | "icon";
@@ -27,6 +34,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   { variant = "secondary", size = "md", loading = false, disabled, className, children, ...props },
   ref
 ) {
+  const language = useUiStore((state) => state.language);
+  const translatedChildren = translateDirectText(language, children);
   return (
     <button
       ref={ref}
@@ -35,14 +44,17 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       {...props}
+      title={typeof props.title === "string" ? translate(language, props.title) : props.title}
+      aria-label={typeof props["aria-label"] === "string" ? translate(language, props["aria-label"]) : props["aria-label"]}
     >
       {loading && <span className="mio-spinner" aria-hidden="true" />}
-      <span className="mio-button-content">{children}</span>
+      <span className="mio-button-content">{translatedChildren}</span>
     </button>
   );
 });
 
 export function Tooltip({ content, children }: { content: string; children: ReactNode }) {
+  const language = useUiStore((state) => state.language);
   const tooltipId = useId();
   const rootRef = useRef<HTMLSpanElement>(null);
   const timerRef = useRef<number>();
@@ -97,7 +109,7 @@ export function Tooltip({ content, children }: { content: string; children: Reac
           data-placement={position.placement}
           style={{ left: position.left, top: position.top }}
         >
-          {content}
+          {translate(language, content)}
         </span>,
         document.querySelector(".mio-app") ?? document.body
       )}
@@ -109,9 +121,11 @@ export const IconButton = forwardRef<HTMLButtonElement, ButtonProps & { label: s
   { label, className, children, ...props },
   ref
 ) {
+  const language = useUiStore((state) => state.language);
+  const translatedLabel = translate(language, label);
   return (
-    <Tooltip content={label}>
-      <Button ref={ref} size="icon" aria-label={label} className={className} {...props}>
+    <Tooltip content={translatedLabel}>
+      <Button ref={ref} size="icon" aria-label={translatedLabel} className={className} {...props}>
         {children}
       </Button>
     </Tooltip>
@@ -124,6 +138,7 @@ export function Chip({
   className,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
+  const language = useUiStore((state) => state.language);
   return (
     <button
       type="button"
@@ -131,7 +146,7 @@ export function Chip({
       aria-pressed={active}
       {...props}
     >
-      {children}
+      {translateDirectText(language, children)}
     </button>
   );
 }
@@ -158,11 +173,12 @@ export function SegmentedControl<T extends string>({
   orientation?: "horizontal" | "vertical";
   className?: string;
 }) {
+  const language = useUiStore((state) => state.language);
   return (
     <div
       className={clsx("mio-segmented-control", `mio-segmented-${orientation}`, className)}
       role="group"
-      aria-label={label}
+      aria-label={translate(language, label)}
     >
       {options.map((option) => {
         const Icon = option.icon;
@@ -177,7 +193,7 @@ export function SegmentedControl<T extends string>({
             onClick={() => onChange(option.value)}
           >
             {Icon && <Icon size={16} aria-hidden="true" />}
-            <span>{option.label}</span>
+            <span>{translate(language, option.label)}</span>
           </button>
         );
       })}
@@ -189,7 +205,17 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   { className, ...props },
   ref
 ) {
-  return <input ref={ref} className={clsx("input mio-input", className)} {...props} />;
+  const language = useUiStore((state) => state.language);
+  return (
+    <input
+      ref={ref}
+      className={clsx("input mio-input", className)}
+      {...props}
+      placeholder={typeof props.placeholder === "string" ? translate(language, props.placeholder) : props.placeholder}
+      aria-label={typeof props["aria-label"] === "string" ? translate(language, props["aria-label"]) : props["aria-label"]}
+      title={typeof props.title === "string" ? translate(language, props.title) : props.title}
+    />
+  );
 });
 
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select(
@@ -216,6 +242,9 @@ export function Checkbox({
   description?: ReactNode;
   tile?: boolean;
 }) {
+  const language = useUiStore((state) => state.language);
+  const translatedLabel = typeof label === "string" ? translate(language, label) : label;
+  const translatedDescription = typeof description === "string" ? translate(language, description) : description;
   return (
     <label
       className={clsx(
@@ -231,8 +260,8 @@ export function Checkbox({
         <Check size={11} strokeWidth={2.25} />
       </span>
       <span className="min-w-0">
-        <span className="mio-checkbox-label">{label}</span>
-        {description && <span className="mio-checkbox-description">{description}</span>}
+        <span className="mio-checkbox-label">{translatedLabel}</span>
+        {translatedDescription && <span className="mio-checkbox-description">{translatedDescription}</span>}
       </span>
     </label>
   );
@@ -264,20 +293,22 @@ export function NavigationItem({
   active: boolean;
   collapsed: boolean;
 }) {
+  const language = useUiStore((state) => state.language);
+  const translatedLabel = translate(language, label);
   const button = (
     <button
       type="button"
-      aria-label={label}
+      aria-label={translatedLabel}
       aria-current={active ? "page" : undefined}
-      title={collapsed ? label : undefined}
+      title={collapsed ? translatedLabel : undefined}
       className={clsx("mio-nav-button", active && "mio-nav-active", collapsed && "mio-nav-button-collapsed", className)}
       {...props}
     >
       <Icon size={18} strokeWidth={1.65} aria-hidden="true" />
-      {!collapsed && <span>{label}</span>}
+      {!collapsed && <span>{translatedLabel}</span>}
     </button>
   );
-  return collapsed ? <Tooltip content={label}>{button}</Tooltip> : button;
+  return collapsed ? <Tooltip content={translatedLabel}>{button}</Tooltip> : button;
 }
 
 export function Popover({
@@ -349,7 +380,7 @@ export function Popover({
           ref={popoverRef}
           className={clsx("mio-popover", `mio-popover-${align}`, className)}
           role="menu"
-          style={{ left: position.left, bottom: position.bottom }}
+          style={{ left: position.left, top: position.top, bottom: position.bottom }}
         >
           {typeof children === "function" ? children({ close }) : children}
         </div>,
@@ -380,6 +411,10 @@ export function Modal({
   closeLabel?: string;
   dismissible?: boolean;
 }) {
+  const language = useUiStore((state) => state.language);
+  const translatedTitle = translate(language, title);
+  const translatedDescription = typeof description === "string" ? translate(language, description) : description;
+  const translatedCloseLabel = translate(language, closeLabel);
   const titleId = useId();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -433,11 +468,11 @@ export function Modal({
       <div ref={surfaceRef} className={clsx("mio-modal", className)} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="mio-modal-header">
           <div className="min-w-0">
-            <h2 id={titleId} className="mio-modal-title">{title}</h2>
-            {description && <div className="mio-modal-description">{description}</div>}
+            <h2 id={titleId} className="mio-modal-title">{translatedTitle}</h2>
+            {translatedDescription && <div className="mio-modal-description">{translatedDescription}</div>}
           </div>
           {dismissible && (
-            <IconButton label={closeLabel} variant="ghost" onClick={onClose}>
+            <IconButton label={translatedCloseLabel} variant="ghost" onClick={onClose}>
               <X size={17} />
             </IconButton>
           )}

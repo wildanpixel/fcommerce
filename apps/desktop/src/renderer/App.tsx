@@ -23,6 +23,7 @@ import {
   ImagePlus,
   LayoutGrid,
   ListChecks,
+  LockKeyhole,
   Maximize2,
   Minimize2,
   Monitor,
@@ -109,7 +110,9 @@ import {
   collectionAdvanceMode,
   nextProductCollectionTarget,
   nextPendingCollectionActionId,
-  previousCollectionActionId
+  previousCollectionActionId,
+  reusesCurrentStoreRatingsPage,
+  userMediaAdvanceTarget
 } from "./collectionProgression.js";
 import {
   createQualifiedProductReference,
@@ -132,7 +135,7 @@ import {
 import { useUiStore } from "./store/uiStore.js";
 import { EmptyState, Field, LoadingProgressModal, LoadingSkeleton, Panel } from "./components/ui.js";
 import { MarketplaceIllustration } from "./components/MarketplaceIllustration.js";
-import { ResultCardMedia, StoreTypeMark } from "./components/ResultCardVisuals.js";
+import { MediaThumbnail, ResultCardMedia, StoreTypeMark } from "./components/ResultCardVisuals.js";
 import { Button, Checkbox, Chip, Input, Modal, SegmentedControl, Select } from "./components/primitives.js";
 import { SettingsView } from "./pages/SettingsView.js";
 import researchProductMarketLogo from "./assets/research-product-market-logo-dark.png";
@@ -159,6 +162,11 @@ const ReportSectionExpansionContext = createContext<ReportSectionExpansionState>
 const EvidenceTranslationContext = createContext<(value: string | null | undefined) => string>(
   (value) => value ?? ""
 );
+
+function TranslatedText({ children }: { children: string }) {
+  const language = useUiStore((state) => state.language);
+  return <>{translate(language, children)}</>;
+}
 
 const SHOPEE_SHOP_TYPE_OPTIONS: Array<{ id: ShopeeShopTypeFilter; label: string }> = [
   { id: "service_by_shopee_product_label_filter", label: "Fulfilled by Shopee" },
@@ -398,6 +406,7 @@ function appPortalRoot(): Element {
 }
 
 export default function App() {
+  const queryClient = useQueryClient();
   const activeView = useUiStore((state) => state.activeView);
   const requestNewResearch = useUiStore((state) => state.requestNewResearch);
   const language = useUiStore((state) => state.language);
@@ -412,6 +421,12 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [collectionPageActive, setCollectionPageActive] = useState(false);
   const [projectHeaderTitle, setProjectHeaderTitle] = useState("");
+  const licenseStatus = useQuery({
+    queryKey: ["license-status"],
+    queryFn: apiClient.licenseStatus,
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: 1
+  });
 
   const toggleSidebar = useCallback(() => {
     setSidebarHoverExpanded(false);
@@ -473,6 +488,20 @@ export default function App() {
     ? "Inspect saved marketplace research or continue an active collection."
     : undefined;
 
+  if (licenseStatus.isPending) {
+    return <div className="mio-app mio-dark min-h-screen bg-ink-950 text-ink-100"><LoadingSkeleton className="min-h-screen rounded-none" /></div>;
+  }
+  if (!licenseStatus.data?.authenticated) {
+    return (
+      <LicenseGate
+        machineId={licenseStatus.data?.machineId ?? "Unavailable"}
+        defaultEmail={licenseStatus.data?.email ?? ""}
+        statusError={licenseStatus.error instanceof Error ? licenseStatus.error.message : undefined}
+        onActivated={(status) => queryClient.setQueryData(["license-status"], status)}
+      />
+    );
+  }
+
   return (
     <div className={`mio-app ${themeMode === "light" ? "mio-light" : "mio-dark"} min-h-screen bg-ink-950 text-ink-100`}>
       <AnimatePresence>{showSplash && <SplashScreen themeMode={themeMode} />}</AnimatePresence>
@@ -529,6 +558,59 @@ export default function App() {
   );
 }
 
+function LicenseGate({
+  machineId,
+  defaultEmail,
+  statusError,
+  onActivated
+}: {
+  machineId: string;
+  defaultEmail: string;
+  statusError?: string;
+  onActivated: (status: Awaited<ReturnType<typeof apiClient.activateLicense>>) => void;
+}) {
+  const [email, setEmail] = useState(defaultEmail);
+  const [password, setPassword] = useState("");
+  const [license, setLicense] = useState("");
+  const activate = useMutation({
+    mutationFn: apiClient.activateLicense,
+    onSuccess: onActivated
+  });
+
+  function submitLicense(event: FormEvent) {
+    event.preventDefault();
+    activate.mutate({ email, password, license });
+  }
+
+  return (
+    <div className="mio-app mio-dark grid min-h-screen place-items-center bg-ink-950 p-6 text-ink-100">
+      <form className="mio-panel w-full max-w-[520px] rounded-2xl border border-white/10 bg-ink-900 p-7 shadow-glow" onSubmit={submitLicense}>
+        <div className="mb-6 flex items-start gap-4">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/5"><LockKeyhole size={20} /></div>
+          <div>
+            <h1 className="text-xl font-semibold text-white"><TranslatedText>Activate Research Product Market</TranslatedText></h1>
+            <p className="mt-1 text-sm leading-6 text-ink-400"><TranslatedText>Enter the email, password, and signed license issued for this device.</TranslatedText></p>
+          </div>
+        </div>
+        <div className="space-y-4">
+          <Field label="Email"><Input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" /></Field>
+          <Field label="Password"><Input type="password" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></Field>
+          <Field label="License key">
+            <textarea className="mio-input min-h-28 w-full resize-y" required value={license} onChange={(event) => setLicense(event.target.value)} spellCheck={false} />
+          </Field>
+          <div className="rounded-lg border border-white/8 bg-white/5 p-3 text-xs text-ink-400">
+            <TranslatedText>Machine ID:</TranslatedText> <button className="font-mono text-ink-200" type="button" onClick={() => void navigator.clipboard.writeText(machineId)} title="Copy machine ID">{machineId}</button>
+          </div>
+          {(statusError || activate.error) && <div className="mio-form-error">{activate.error instanceof Error ? activate.error.message : statusError}</div>}
+          <Button className="w-full" variant="primary" type="submit" disabled={activate.isPending}>
+            <LockKeyhole size={15} /> {activate.isPending ? "Verifying license" : "Activate and sign in"}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function SplashScreen({ themeMode }: { themeMode: ThemeMode }) {
   return (
     <motion.div
@@ -554,10 +636,10 @@ function SplashScreen({ themeMode }: { themeMode: ThemeMode }) {
         >
           Research Product Market
         </motion.div>
-        <div className="mt-2 text-sm font-medium text-ink-500">Marketplace research and evidence workspace</div>
+        <div className="mt-2 text-sm font-medium text-ink-500"><TranslatedText>Marketplace research and evidence workspace</TranslatedText></div>
         <div className="mt-8 flex items-center gap-2 rounded-full bg-black/5 px-4 py-2 text-xs font-semibold text-ink-500">
           <Sparkles size={14} className="text-signal-blue" />
-          Made by {APP_AUTHOR_NAME}
+          <TranslatedText>Made by</TranslatedText> {APP_AUTHOR_NAME}
         </div>
       </motion.div>
     </motion.div>
@@ -1039,7 +1121,7 @@ function AndroidTikTokCollector({
             <InfoLine label="Created" value={formatDateTime(project.createdAt)} />
           </div>
           <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-            Launch Android, install or open TikTok, log in with Gmail if needed, then enter TikTok Shop manually. Closing the emulator keeps the AVD data partition, installed apps, and login state.
+            <TranslatedText>Launch Android, install or open TikTok, log in with Gmail if needed, then enter TikTok Shop manually. Closing the emulator keeps the AVD data partition, installed apps, and login state.</TranslatedText>
           </div>
           <button className="secondary-button mt-5" type="button" onClick={onNewAnalysis}>
             <ClipboardCheck size={16} />
@@ -1061,7 +1143,7 @@ function AndroidTikTokCollector({
                 onClick={() => setActiveStepIndex(index)}
               >
                 <div className="mb-1 flex items-center justify-between gap-2 text-white">
-                  <span>Step {index + 1}</span>
+                  <span><TranslatedText>Step</TranslatedText> {index + 1}</span>
                   {collectedSteps[step.id] ? <CheckCircle2 size={14} className="text-signal-green" /> : <Circle size={12} className="text-ink-500" />}
                 </div>
                 <div className="text-ink-300">{step.label}</div>
@@ -1078,7 +1160,7 @@ function AndroidTikTokCollector({
           action={
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => void androidStatus.refetch()}>
               <RefreshCcw size={15} />
-              Refresh
+              <TranslatedText>Refresh</TranslatedText>
             </button>
           }
         >
@@ -1105,17 +1187,17 @@ function AndroidTikTokCollector({
           </div>
 
           <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-            Emulator launch is persistent by design. The app does not wipe Android, uninstall TikTok, clear app data, or reset Google login when the emulator is closed.
+            <TranslatedText>Emulator launch is persistent by design. The app does not wipe Android, uninstall TikTok, clear app data, or reset Google login when the emulator is closed.</TranslatedText>
           </div>
 
           {runtime?.activeAnr && (
             <div className="mt-5 rounded-md border border-signal-rose/35 bg-signal-rose/10 p-4">
               <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-signal-rose">
                 <AlertTriangle size={16} />
-                TikTok is not responding
+                <TranslatedText>TikTok is not responding</TranslatedText>
               </div>
               <div className="text-xs leading-5 text-ink-300">
-                Android reported an ANR in TikTok. Recovery force-stops and reopens TikTok only; it keeps the emulator profile, installed app, and account data intact.
+                <TranslatedText>Android reported an ANR in TikTok. Recovery force-stops and reopens TikTok only; it keeps the emulator profile, installed app, and account data intact.</TranslatedText>
                 {runtime.lastAnrReason ? ` Last reason: ${runtime.lastAnrReason}` : ""}
               </div>
               <button className="primary-button mt-3 w-auto px-4" type="button" onClick={() => recoverTikTok.mutate()} disabled={recoverTikTok.isPending || !status?.tiktokInstalled}>
@@ -1136,17 +1218,17 @@ function AndroidTikTokCollector({
             </select>
             <button className="primary-button w-auto px-4" type="button" onClick={() => startEmulator.mutate()} disabled={startEmulator.isPending || !status?.emulatorPath || !status?.avds.length}>
               <Smartphone size={16} />
-              Launch Emulator
+              <TranslatedText>Launch Emulator</TranslatedText>
             </button>
           </div>
 
           <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3">
             <input className="input" value={apkPath} onChange={(event) => setApkPath(event.target.value)} placeholder="TikTok APK path" />
             <button className="secondary-button w-auto px-4" type="button" onClick={() => void pickApk()}>
-              Select APK
+              <TranslatedText>Select APK</TranslatedText>
             </button>
             <button className="primary-button w-auto px-4" type="button" onClick={() => installApk.mutate()} disabled={installApk.isPending || !apkPath.trim() || !bootedDevice}>
-              Install TikTok
+              <TranslatedText>Install TikTok</TranslatedText>
             </button>
           </div>
 
@@ -1169,7 +1251,7 @@ function AndroidTikTokCollector({
           <div className="mt-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
             <button className="secondary-button" type="button" onClick={() => openTikTok.mutate()} disabled={openTikTok.isPending || !status?.tiktokInstalled}>
               <ExternalLink size={16} />
-              Open TikTok App
+              <TranslatedText>Open TikTok App</TranslatedText>
             </button>
             <button className="secondary-button" type="button" onClick={() => recoverTikTok.mutate()} disabled={recoverTikTok.isPending || !status?.tiktokInstalled}>
               <RefreshCcw size={16} />
@@ -1187,7 +1269,7 @@ function AndroidTikTokCollector({
 
           <div className="mt-5 rounded-[18px] border border-white/8 bg-white/5 p-4">
             <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-ink-500">
-              Active Step {activeStepIndex + 1}/{steps.length}
+              <TranslatedText>Active Step</TranslatedText> {activeStepIndex + 1}/{steps.length}
             </div>
             <div className="mb-2 text-lg font-semibold text-white">{activeStep.label}</div>
             <div className="text-sm leading-6 text-ink-300">{activeStep.instruction}</div>
@@ -1335,6 +1417,7 @@ function GuidedBrowserCollector({
     ]
   );
   const steps = useMemo(() => allSteps.filter((step) => step.stage === activeStage), [activeStage, allSteps]);
+  const keyProductListReady = allSteps.find((step) => step.id === "key-product-table")?.ready === true;
   const activeStep = steps[activeStepIndex] ?? steps[0];
   const activeSubAction = activeStep?.subActions?.find((action) => action.id === activeSubActionId) ?? activeStep?.subActions?.[0];
   const activeSubActionReady = activeStep?.ownerType === "STORE" && activeSubAction?.id !== "store-tiktok"
@@ -1656,9 +1739,6 @@ function GuidedBrowserCollector({
           : productDetailSubActionEvidenceCount(payload, productDetailSubAction) === 0
         : (["STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER"].includes(payload.kind) && (result.extractedProductCount ?? 0) === 0) ||
           (payload.kind === "STORE_BANNER" && (result.storeBannerCount ?? 0) === 0);
-      if (!missingActionData && step.stage === "PRODUCT_DETAILS" && productDetailSubAction === "media-in-user") {
-        nextCollectedSteps[step.id] = result.assetPath;
-      }
       if (missingActionData) {
         delete nextCollectedSteps[progressKey];
         if (productDetailSubAction === "shop-homepage" && step.ownerType === "PRODUCT" && step.ownerId) {
@@ -1681,7 +1761,52 @@ function GuidedBrowserCollector({
           appendLog(setActivityLog, "Key Product ranking refreshed with the latest PDP metrics.");
         }
       }
-      if (!missingActionData && step.stage === "PRODUCT_DETAILS" && productDetailSubAction === "media-in-user") {
+      if (
+        !missingActionData &&
+        step.stage === "PRODUCT_DETAILS" &&
+        (productDetailSubAction === "media-in-user" || productDetailSubAction === "shop-homepage")
+      ) {
+        const mediaProgressKey = stepProgressKey(step, "media-in-user");
+        const shopHomepageProgressKey = stepProgressKey(step, "shop-homepage");
+        const mediaCollected = Boolean(nextCollectedSteps[mediaProgressKey]);
+        const shopHomepageCollected = Boolean(nextCollectedSteps[shopHomepageProgressKey]);
+        if (productDetailSubAction === "media-in-user" && userMediaAdvanceTarget(shopHomepageCollected) === "shop-homepage") {
+          const shopHomepageAction = progressionStep.subActions?.find((action) => action.id === "shop-homepage");
+          const shopHomepageUrl = shopHomepageAction?.targetUrl ?? progressionStep.targetUrl;
+          try {
+            await persistCollectionStateAsync({
+              stepAssetPaths: nextCollectedSteps,
+              completedStepIds: Object.keys(nextCollectedSteps),
+              progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+              currentStepId: step.id,
+              browserUrl: shopHomepageUrl ? collectionTargetUrl(shopHomepageUrl, step.stage) : currentUrl,
+              viewMode,
+              storeCollectionCandidates: nextStoreCollectionCandidates
+            });
+          } catch {
+            setCaptureStatus({ message: "Media saved, but progress could not be persisted", state: "failed", progress: 100 });
+            return;
+          }
+          setCollectedSteps(nextCollectedSteps);
+          setActiveSubActionId("shop-homepage");
+          if (shopHomepageUrl) navigateTo(collectionTargetUrl(shopHomepageUrl, step.stage));
+          appendLog(setActivityLog, "User Media was saved. Opened Shop Home Page before advancing to the next product.");
+          return;
+        }
+        if (!mediaCollected || !shopHomepageCollected) {
+          persistCollectionState({
+            stepAssetPaths: nextCollectedSteps,
+            completedStepIds: Object.keys(nextCollectedSteps),
+            progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+            currentStepId: step.id,
+            browserUrl: currentUrl,
+            viewMode,
+            storeCollectionCandidates: nextStoreCollectionCandidates
+          });
+          setCollectedSteps(nextCollectedSteps);
+          return;
+        }
+        nextCollectedSteps[step.id] = result.assetPath;
         const nextProductTarget = nextProductCollectionTarget(steps, step.ownerId);
         if (nextProductTarget) {
           const nextUrl = nextProductTarget.targetUrl
@@ -1746,7 +1871,16 @@ function GuidedBrowserCollector({
         if (nextActionId) {
           const nextAction = progressionStep.subActions?.find((action) => action.id === nextActionId);
           setActiveSubActionId(nextActionId);
-          if (nextAction?.targetUrl) {
+          const reuseRatingsPage = reusesCurrentStoreRatingsPage(productDetailSubAction, nextActionId);
+          if (reuseRatingsPage) {
+            const switched = await selectShopeeStoreRatingTab(webviewRef.current, 5);
+            appendLog(
+              setActivityLog,
+              switched
+                ? "Switched the current store ratings page from the 1-star tab to the 5-star tab."
+                : "Kept the current store ratings page open. Select the 5-star tab if Shopee did not expose a clickable filter."
+            );
+          } else if (nextAction?.targetUrl) {
             navigateTo(collectionTargetUrl(nextAction.targetUrl, step.stage));
           }
           persistCollectionState({
@@ -1754,7 +1888,7 @@ function GuidedBrowserCollector({
             completedStepIds: Object.keys(nextCollectedSteps),
             progressPercent: collectionProgress(allSteps, nextCollectedSteps),
             currentStepId: step.id,
-            browserUrl: nextAction?.targetUrl ? collectionTargetUrl(nextAction.targetUrl, step.stage) : currentUrl,
+            browserUrl: !reuseRatingsPage && nextAction?.targetUrl ? collectionTargetUrl(nextAction.targetUrl, step.stage) : currentUrl,
             viewMode,
             storeCollectionCandidates: nextStoreCollectionCandidates
           });
@@ -1963,7 +2097,7 @@ function GuidedBrowserCollector({
     setActiveSubActionId(actionId);
   }
 
-  function advanceGuidedCollection() {
+  async function advanceGuidedCollection() {
     if (!activeStep) {
       return;
     }
@@ -1977,7 +2111,11 @@ function GuidedBrowserCollector({
       if (nextPendingAction) {
         selectSubAction(nextPendingAction.id);
         if (activeStage === "EVALUATION_KEY_STORE" && (nextPendingAction.targetUrl ?? activeStep.targetUrl)) {
-          navigateTo(collectionTargetUrl(nextPendingAction.targetUrl ?? activeStep.targetUrl!, activeStep.stage));
+          if (reusesCurrentStoreRatingsPage(activeSubAction?.id, nextPendingAction.id)) {
+            await selectShopeeStoreRatingTab(webviewRef.current, 5);
+          } else {
+            navigateTo(collectionTargetUrl(nextPendingAction.targetUrl ?? activeStep.targetUrl!, activeStep.stage));
+          }
         }
         return;
       }
@@ -2262,6 +2400,9 @@ function GuidedBrowserCollector({
     };
     if (nextStage) {
       const enteringEvaluation = nextStage === "EVALUATION_KEY_STORE";
+      const nextStep = allSteps.find((step) => step.stage === nextStage);
+      const nextAction = nextStep?.subActions?.[0];
+      const nextTargetUrl = nextAction?.targetUrl ?? nextStep?.targetUrl;
       await persistCollectionStateAsync({
         ...stateOverrides,
         stage: nextStage,
@@ -2270,17 +2411,24 @@ function GuidedBrowserCollector({
         stepAssetPaths: nextCollectedSteps,
         completedStepIds: Object.keys(nextCollectedSteps),
         progressPercent: collectionProgress(allSteps, nextCollectedSteps),
-        currentStepId: allSteps.find((step) => step.stage === nextStage)?.id,
+        currentStepId: nextStep?.id,
+        browserUrl: nextStage === "PRODUCT_DETAILS" && nextTargetUrl
+          ? collectionTargetUrl(nextTargetUrl, nextStage)
+          : currentUrl,
         viewMode
       });
       setStageCompleted(nextStageCompleted);
       setActiveStage(nextStage);
       setActiveStepIndex(0);
+      setActiveSubActionId(nextAction?.id);
       setReviewingEvaluation(enteringEvaluation);
       if (enteringEvaluation) setExpanded(false);
       appendLog(setActivityLog, `${collectionStageLabel(activeStage)} completed. Continue with ${collectionStageLabel(nextStage)}.`);
       if (activeStage === "PRODUCT_DETAILS" && enteringEvaluation) {
         appendLog(setActivityLog, "Opened Key Store Page List automatically. Review the stores, then start collection.");
+      }
+      if (nextStage === "PRODUCT_DETAILS" && nextTargetUrl) {
+        navigateTo(collectionTargetUrl(nextTargetUrl, nextStage));
       }
       return;
     }
@@ -2797,10 +2945,10 @@ function GuidedBrowserCollector({
             compact
             onClick={() => platform === "SHOPEE_ID" && switchBrowserViewMode("desktop")}
           >
-            Desktop
+            <TranslatedText>Desktop</TranslatedText>
           </SegmentButton>
           <SegmentButton active={viewMode === "mobile"} icon={Smartphone} compact onClick={() => switchBrowserViewMode("mobile")}>
-            Mobile
+            <TranslatedText>Mobile</TranslatedText>
           </SegmentButton>
         </div>
         <input value={address} onChange={(event) => setAddress(event.target.value)} className="input mio-address-input" aria-label="Browser address" />
@@ -2880,9 +3028,9 @@ function GuidedBrowserCollector({
             >
               <div className="mb-1 flex items-center gap-2 font-semibold text-white">
                 <AlertTriangle size={16} className="text-signal-amber" />
-                Manual action required
+                <TranslatedText>Manual action required</TranslatedText>
               </div>
-              Shopee is showing login, verification, captcha, or a protected page. Complete it manually, then capture evidence after the target page is visible.
+              <TranslatedText>Shopee is showing login, verification, captcha, or a protected page. Complete it manually, then capture evidence after the target page is visible.</TranslatedText>
             </motion.div>
           )}
         </AnimatePresence>
@@ -3055,7 +3203,13 @@ function GuidedBrowserCollector({
                 {translate(language, "Save")}
               </button>
               {!reviewingKeyProducts && !reviewingEvaluation && (
-                <button className="primary-button h-9 px-2 text-xs" type="button" onClick={runStagePrimaryAction} disabled={saveCollectionState.isPending}>
+                <button
+                  className="primary-button h-9 px-2 text-xs"
+                  type="button"
+                  onClick={runStagePrimaryAction}
+                  disabled={saveCollectionState.isPending || (activeStage === "KEYWORD_GENERAL" && !keyProductListReady)}
+                  title={activeStage === "KEYWORD_GENERAL" && !keyProductListReady ? "Collect Product Relevance and Top Sales first" : undefined}
+                >
                   {saveCollectionState.isPending ? <span className="mio-spinner" /> : <CheckCircle2 size={14} />}
                   {translate(language, activeStage === "KEYWORD_GENERAL" ? "Key Product List" : stageCompletionButtonLabel(activeStage))}
                 </button>
@@ -3126,7 +3280,7 @@ function GuidedBrowserCollector({
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Gauge size={16} className="text-signal-blue" />
-                Activity
+                <TranslatedText>Activity</TranslatedText>
               </div>
               <button className="secondary-button mio-round-icon-button h-8 w-8 px-0" type="button" onClick={() => setActivitySidebarOpen(false)} aria-label="Collapse activity">
                 <ChevronRight size={14} />
@@ -3187,6 +3341,7 @@ function CollectionStepPreview({
   collectedSteps: Record<string, string>;
   loadingEvidenceKey: string | null;
 }) {
+  const language = useUiStore((state) => state.language);
   if (!detail) {
     return null;
   }
@@ -3194,8 +3349,8 @@ function CollectionStepPreview({
   if (step.id === "key-product-table") {
     return (
       <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-        <div className="mb-2 font-semibold text-white">Preview: Key Product Table</div>
-        <div>{selectedProducts.length} qualified product{selectedProducts.length === 1 ? "" : "s"} selected from {detail.products.length} extracted rows.</div>
+        <div className="mb-2 font-semibold text-white">{translate(language, "Preview: Key Product Table")}</div>
+        <div>{selectedProducts.length} {translate(language, selectedProducts.length === 1 ? "qualified product" : "qualified products")} {translate(language, "selected from")} {detail.products.length} {translate(language, "extracted rows.")}</div>
         <div className="mt-2 grid grid-cols-2 gap-2">
           <EvidenceStatusPill label="Relevance rows" done={detail.products.some((product) => product.source === "Relevance")} />
           <EvidenceStatusPill label="Top Sales rows" done={detail.products.some((product) => product.source === "Top Sales")} />
@@ -3216,7 +3371,7 @@ function CollectionStepPreview({
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             {previewImage && (
-              <img src={previewImage} alt="" loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded border border-white/8 bg-white object-cover" />
+              <MediaThumbnail src={previewImage} alt="" loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded border border-white/8 bg-white object-cover" />
             )}
             <div className="min-w-0">
               <div className="truncate font-semibold text-white">{displayProductTitle(product)}</div>
@@ -3231,7 +3386,7 @@ function CollectionStepPreview({
           <InfoLine label="Source" value={productSourcePlacement(product)} />
           <InfoLine label="Store" value={product.storeName ?? "-"} />
           <div>
-            <div className="text-[10px] uppercase text-ink-500">Store Type</div>
+            <div className="text-[10px] uppercase text-ink-500">{translate(language, "Store Type")}</div>
             <StoreTypeMark value={product.storeType} className="mt-1" />
           </div>
           <InfoLine label="Rating" value={product.ratingText ?? (product.rating ? String(product.rating) : "-")} />
@@ -3252,7 +3407,7 @@ function CollectionStepPreview({
         </div>
         {product.description && (
           <div className="mt-3 rounded border border-white/8 bg-white/[0.04] p-2 text-[11px] leading-4 text-ink-400">
-            <div className="mb-1 font-semibold text-white">Description preview</div>
+            <div className="mb-1 font-semibold text-white">{translate(language, "Description preview")}</div>
             {product.description.slice(0, 220)}{product.description.length > 220 ? "..." : ""}
           </div>
         )}
@@ -3261,9 +3416,9 @@ function CollectionStepPreview({
             <table className="w-full text-left text-[11px]">
               <thead>
                 <tr className="bg-white/[0.04] text-ink-500">
-                  <th className="px-2 py-1.5">Type</th>
-                  <th className="px-2 py-1.5">Star</th>
-                  <th className="px-2 py-1.5">Comment - timepost</th>
+                  <th className="px-2 py-1.5">{translate(language, "Type")}</th>
+                  <th className="px-2 py-1.5">{translate(language, "Star")}</th>
+                  <th className="px-2 py-1.5">{translate(language, "Comment - timepost")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -3292,14 +3447,14 @@ function CollectionStepPreview({
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <div className="truncate font-semibold text-white">{storeCandidate.storeName}</div>
-            <div className="truncate text-[11px] text-ink-500">Live store result preview</div>
+            <div className="truncate text-[11px] text-ink-500">{translate(language, "Live store result preview")}</div>
           </div>
           <span className={["rounded-full px-2 py-1 text-[10px]", collected ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-400"].join(" ")}>
             {collected ? "saved" : "collecting"}
           </span>
         </div>
         {homepageAsset && (
-          <img
+          <MediaThumbnail
             src={imageSource(homepageAsset.path)}
             alt={`${storeCandidate.storeName} homepage evidence`}
             loading="lazy"
@@ -3333,7 +3488,7 @@ function CollectionStepPreview({
 
   return step.subActions && step.subActions.length > 0 ? (
     <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-      <div className="mb-2 font-semibold text-white">Step Actions</div>
+      <div className="mb-2 font-semibold text-white">{translate(language, "Step Actions")}</div>
       <div className="space-y-1">
         {step.subActions.map((action) => (
           <div key={action.id} className="flex items-start justify-between gap-3 rounded border border-white/8 bg-white/[0.04] px-2 py-1.5">
@@ -3360,6 +3515,7 @@ function EvidenceStatusPill({
   done?: boolean;
   loading?: boolean;
 }) {
+  const language = useUiStore((state) => state.language);
   const resolvedState = done === undefined ? state : done ? "collected" : "pending";
   return (
     <div className={[
@@ -3370,7 +3526,7 @@ function EvidenceStatusPill({
       resolvedState === "pending" ? "border-white/8 bg-white/[0.04] text-ink-500" : ""
     ].join(" ")}>
       {loading ? <span className="mio-evidence-status-spinner" aria-hidden="true" /> : resolvedState === "collected" ? <CheckCircle2 size={12} /> : resolvedState === "not-found" ? <X size={12} /> : <Circle size={11} />}
-      <span className="truncate">{loading ? `Updating ${label}` : label}</span>
+      <span className="truncate">{loading ? `${translate(language, "Updating")} ${translate(language, label)}` : translate(language, label)}</span>
     </div>
   );
 }
@@ -3539,6 +3695,7 @@ function EvaluationCollectionPanel({
   onSaveStoreList: () => void;
   onStartKeyStoreCollection: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const [manualStoreName, setManualStoreName] = useState("");
   const [manualStoreUrl, setManualStoreUrl] = useState("");
   const [addingStore, setAddingStore] = useState(false);
@@ -3580,12 +3737,12 @@ function EvaluationCollectionPanel({
       action={
         <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onBackToBrowser}>
           <ChevronLeft size={15} />
-          Browser
+          {translate(language, "Browser")}
         </button>
       }
     >
       <div className="mb-4 rounded-md border border-signal-blue/20 bg-signal-blue/10 p-4 text-sm leading-6 text-ink-300">
-        Every distinct store from Product Qualified is listed once. Review the list, add another Shopee store when needed, then collect each store page independently.
+        {translate(language, "Every distinct store from Product Qualified is listed once. Review the list, add another Shopee store when needed, then collect each store page independently.")}
       </div>
       {!detail ? (
         <EmptyState label="Loading project evidence..." />
@@ -3604,7 +3761,7 @@ function EvaluationCollectionPanel({
             return (
               <article className="mio-result-card mio-store-result-card overflow-hidden" key={candidate.id}>
                 <ResultCardMedia imageUrl={previewProduct?.imageUrl} alt={candidate.storeName} variant="store">
-                  <span className="mio-card-chip">Key Store Page</span>
+                  <span className="mio-card-chip">{translate(language, "Key Store Page")}</span>
                 </ResultCardMedia>
                 <div className="mio-result-card-body min-w-0">
                   <div className="mio-result-card-title-row">
@@ -3612,8 +3769,8 @@ function EvaluationCollectionPanel({
                       <div className="truncate text-sm font-semibold text-ink-100">{candidate.storeName}</div>
                       <div className="mt-1 text-xs text-ink-500">
                         {relatedProducts.length > 0
-                          ? `${relatedProducts.length} source product${relatedProducts.length === 1 ? "" : "s"}`
-                          : "Manually added"}
+                          ? `${relatedProducts.length} ${translate(language, relatedProducts.length === 1 ? "source product" : "source products")}`
+                          : translate(language, "Manually added")}
                       </div>
                     </div>
                     <button
@@ -3628,7 +3785,7 @@ function EvaluationCollectionPanel({
                   </div>
                   <div className="mio-card-chip-row">
                     <StoreTypeMark value={candidateStoreType} showLabel />
-                    {candidate.shopId && <span className="mio-card-chip">Shop ID {candidate.shopId}</span>}
+                    {candidate.shopId && <span className="mio-card-chip">{translate(language, "Shop ID")} {candidate.shopId}</span>}
                   </div>
                   {relatedProducts.length > 0 && (
                     <div className="mio-result-card-description line-clamp-2">
@@ -3645,30 +3802,30 @@ function EvaluationCollectionPanel({
           {!addingStore && (
             <button className="mio-result-card flex min-h-[280px] items-center justify-center gap-2 border-dashed text-sm font-medium text-signal-blue" type="button" onClick={() => setAddingStore(true)}>
               <Plus size={20} />
-              <span>Add Store Page</span>
+              <span>{translate(language, "Add Store Page")}</span>
             </button>
           )}
         </div>
       )}
       {addingStore && (
         <div className="mio-add-store-form mt-4">
-          <div className="mio-add-store-form-title">Add store page</div>
+          <div className="mio-add-store-form-title">{translate(language, "Add store page")}</div>
           <div className="mio-add-store-fields">
             <label>
-              <span>Store name</span>
+              <span>{translate(language, "Store name")}</span>
               <Input value={manualStoreName} onChange={(event) => setManualStoreName(event.target.value)} placeholder="Official store name" />
             </label>
             <label>
-              <span>Shopee store URL</span>
+              <span>{translate(language, "Shopee store URL")}</span>
               <Input value={manualStoreUrl} onChange={(event) => setManualStoreUrl(event.target.value)} placeholder="https://shopee.co.id/store-name" />
             </label>
             <div className="mio-add-store-actions">
             <button className="primary-button h-10 w-auto px-4" type="button" onClick={addManualStore} disabled={!manualStoreName.trim() || !manualStoreUrl.trim()}>
               <Plus size={15} />
-              Add
+              {translate(language, "Add")}
             </button>
             <button className="secondary-button h-10 w-auto px-4" type="button" onClick={() => setAddingStore(false)}>
-              Cancel
+              {translate(language, "Cancel")}
             </button>
             </div>
           </div>
@@ -3677,17 +3834,17 @@ function EvaluationCollectionPanel({
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-5 text-ink-500">
           {candidates.length > 0
-            ? `${candidates.length} Key Store Page${candidates.length === 1 ? "" : "s"} will be collected independently.`
-            : "Add at least one Key Store Page to continue."}
+            ? `${candidates.length} ${translate(language, candidates.length === 1 ? "Key Store Page will be collected independently." : "Key Store Pages will be collected independently.")}`
+            : translate(language, "Add at least one Key Store Page to continue.")}
         </div>
         <div className="flex items-center gap-2">
           <button className="secondary-button h-10 w-auto px-4" type="button" onClick={onSaveStoreList}>
             <Archive size={15} />
-            Save Store List
+            {translate(language, "Save Store List")}
           </button>
           <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartKeyStoreCollection} disabled={candidates.length === 0}>
             <Store size={16} />
-            {approved ? "Continue Store Collection" : "Approve & Continue"}
+            {translate(language, approved ? "Continue Store Collection" : "Approve & Continue")}
           </button>
         </div>
       </div>
@@ -3782,6 +3939,7 @@ function FloatingStepController({
   onPrevious: () => void;
   onNext: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const [compact, setCompact] = useState(true);
   const [outcomeNotice, setOutcomeNotice] = useState<{ label: string; state: "collected" | "not-found" } | null>(null);
   const outcomeRef = useRef<{ signature?: string }>({});
@@ -3853,7 +4011,7 @@ function FloatingStepController({
           </button>
           <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-[0.12em] text-ink-500">
-              Step {stepNumber}/{stepTotal}
+              {translate(language, "Step")} {stepNumber}/{stepTotal}
             </div>
             <div className="truncate text-xs font-medium text-white">{step.label}</div>
             {activeSubAction && viewMode !== "mobile" && <div className="truncate text-[10px] text-ink-400">{activeSubAction.label}</div>}
@@ -3956,7 +4114,7 @@ function FloatingStepController({
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-ink-500">
-            Guided Collection {stepNumber}/{stepTotal}
+            {translate(language, "Guided Collection")} {stepNumber}/{stepTotal}
           </div>
           <div className="truncate text-sm font-semibold text-white">{step.label}</div>
         </div>
@@ -3972,7 +4130,7 @@ function FloatingStepController({
             {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "waiting"}
           </span>
         </div>
-        <div className="text-[11px] leading-4 text-ink-400">{compactInstruction}</div>
+          <div className="text-[11px] leading-4 text-ink-400">{translate(language, compactInstruction)}</div>
         {step.subActions && step.subActions.length > 0 && (
           <div className="mt-2 space-y-1.5 border-t border-white/8 pt-2">
             {step.subActions.map((action) => {
@@ -3990,7 +4148,7 @@ function FloatingStepController({
                 >
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                     <button className="min-w-0 text-left" type="button" onClick={() => onSelectSubAction(action.id)}>
-                      <span className="truncate text-[11px] font-medium text-white">{action.label}</span>
+                      <span className="truncate text-[11px] font-medium text-white">{translate(language, action.label)}</span>
                     </button>
                     <span
                       className={[
@@ -4005,10 +4163,10 @@ function FloatingStepController({
                   </div>
                   <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2">
                     <div className="min-w-0">
-                      <div className="truncate text-[10px] text-ink-500">{action.description}</div>
+                      <div className="truncate text-[10px] text-ink-500">{translate(language, action.description)}</div>
                       {action.preferredViewMode && (
                         <div className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-ink-400">
-                          Recommended: {action.preferredViewMode}
+                          {translate(language, "Recommended:")} {translate(language, action.preferredViewMode)}
                         </div>
                       )}
                     </div>
@@ -4073,7 +4231,7 @@ function FloatingStepController({
         {!usesSubActionCollectButtons && targetUrl && (
           <button className="secondary-button h-9 px-3" type="button" onClick={() => onOpenTarget()}>
             <ExternalLink size={14} />
-            Open Target
+            {translate(language, "Open Target")}
           </button>
         )}
       </div>
@@ -4100,7 +4258,7 @@ function FloatingStepController({
       ))}
       {usesSubActionCollectButtons && !step.ready && (
         <div className="mt-2 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
-          Open the matching product page before collecting Product Detail data.
+          {translate(language, "Open the matching product page before collecting Product Detail data.")}
         </div>
       )}
       {(onAttachFile || onOpenAndroid) && (
@@ -4108,13 +4266,13 @@ function FloatingStepController({
           {onOpenAndroid && (
             <button className="secondary-button h-9 px-2 text-xs" type="button" onClick={onOpenAndroid}>
               <Smartphone size={14} />
-              Open TikTok
+              {translate(language, "Open TikTok")}
             </button>
           )}
           {onAttachFile && (
             <button className="secondary-button h-9 px-2 text-xs" type="button" onClick={onAttachFile}>
               <ImagePlus size={14} />
-              Attach Shot
+              {translate(language, "Attach Shot")}
             </button>
           )}
         </div>
@@ -4281,6 +4439,7 @@ function ScreenshotReviewModal({
   onCancel: () => void;
   onSave: (payload: ManualEvidencePayload) => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const panStartRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
@@ -4386,12 +4545,12 @@ function ScreenshotReviewModal({
       <div className="mio-panel mio-screenshot-dialog flex h-[calc(100vh-32px)] w-full max-w-[calc(100vw-32px)] flex-col rounded-[18px] border p-5 shadow-glow">
         <div className="mio-screenshot-dialog-header mb-4">
           <div>
-            <div className="mio-screenshot-title text-sm font-semibold">Review Screenshot</div>
+            <div className="mio-screenshot-title text-sm font-semibold">{translate(language, "Review Screenshot")}</div>
             <div className="mio-screenshot-copy mt-1 text-xs">{capture.stepLabel}</div>
           </div>
           <div className="mio-screenshot-action-toolbar">
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => { onSavingStart(); onSave(capture.payload); }} disabled={saving}>
-              Save Full
+              {translate(language, "Save Full")}
             </button>
             <button className="primary-button h-9 w-auto px-4" type="button" onClick={() => void saveSelected()} disabled={saving}>
               {saving ? "Saving" : selection ? "Save Selected" : "Save Screenshot"}
@@ -4415,7 +4574,7 @@ function ScreenshotReviewModal({
               {selectionMode ? "Selecting" : "Select Area"}
             </button>
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onCancel} disabled={saving}>
-              Redo
+              {translate(language, "Redo")}
             </button>
           </div>
         </div>
@@ -4451,7 +4610,7 @@ function ScreenshotReviewModal({
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <div className="mio-screenshot-copy text-xs">
-            Scroll to move through the preview. Use zoom buttons or Ctrl/Command + wheel to zoom, then drag to pan. Use Select Area before dragging a crop box.
+            {translate(language, "Scroll to move through the preview. Use zoom buttons or Ctrl/Command + wheel to zoom, then drag to pan. Use Select Area before dragging a crop box.")}
           </div>
         </div>
       </div>
@@ -4654,6 +4813,7 @@ function ProjectsView() {
       <Panel
         title="Keyword Projects"
         icon={Table2}
+        className="mio-keyword-projects-panel"
         action={
           <div className="flex items-center gap-2">
             <label className="mio-project-search">
@@ -4689,7 +4849,7 @@ function ProjectsView() {
                 key={project.id}
                 role="button"
                 tabIndex={0}
-                aria-label={`Inspect ${project.name}`}
+                aria-label={`${translate(language, "Inspect")} ${project.name}`}
                 onPointerEnter={() => prefetchProjectDetail(project.id)}
                 onFocus={() => prefetchProjectDetail(project.id)}
                 onClick={() => setInspectingProjectId(project.id)}
@@ -4719,14 +4879,14 @@ function ProjectsView() {
                   <div className="mio-card-chip-row">
                     <span className="mio-card-chip">{marketplaceLabel(project.marketplace)}</span>
                     <span className="mio-card-chip">{project.keyword}</span>
-                    <span className="mio-card-chip">{project.productCategory ?? "No category"}</span>
-                    <span className="mio-card-chip">{project.counts.products} products</span>
-                    <span className="mio-card-chip">{project.counts.stores} stores</span>
+                    <span className="mio-card-chip">{project.productCategory ?? translate(language, "No category")}</span>
+                    <span className="mio-card-chip">{project.counts.products} {translate(language, "products")}</span>
+                    <span className="mio-card-chip">{project.counts.stores} {translate(language, "stores")}</span>
                   </div>
                   <ProjectFilterMetadata project={project} chips />
                   <div className="mio-result-card-description flex items-center justify-between gap-3">
-                    <span>{collectionState.stageLabel}</span>
-                    <span>{collectionState.progressPercent}% complete</span>
+                    <span>{translate(language, collectionState.stageLabel)}</span>
+                    <span>{collectionState.progressPercent}% {translate(language, "complete")}</span>
                   </div>
                 </div>
                 <div className={projectViewMode === "list" ? "mio-result-card-actions flex shrink-0 flex-wrap items-center gap-2" : "mio-result-card-actions flex flex-wrap items-center gap-2"}>
@@ -4745,8 +4905,8 @@ function ProjectsView() {
                     type="button"
                     onClick={(event) => { event.stopPropagation(); confirmDeleteProject(project); }}
                     disabled={deleteProject.isPending}
-                    aria-label={`Delete ${project.name}`}
-                    title={`Delete ${project.name}`}
+                    aria-label={`${translate(language, "Delete")} ${project.name}`}
+                    title={`${translate(language, "Delete")} ${project.name}`}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -4788,6 +4948,7 @@ function ProjectDeleteDialog({
   onCancel: () => void;
   onDelete: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   useEffect(() => () => restoreRendererFocus(), []);
 
   if (!project) {
@@ -4797,17 +4958,17 @@ function ProjectDeleteDialog({
   return (
     <Modal
       open
-      title="Delete keyword project?"
+      title={translate(language, "Delete keyword project?")}
       description={(
         <span className="mio-delete-dialog-copy">
-          This permanently removes the project, evidence, reports, and local files. Type <strong>{project.name}</strong> to confirm.
+          {translate(language, "This permanently removes the project, evidence, reports, and local files. Type")} <strong>{project.name}</strong> {translate(language, "to confirm.")}
         </span>
       )}
       onClose={onCancel}
       className="mio-delete-dialog"
       actions={(
         <>
-          <Button variant="ghost" onClick={onCancel} disabled={deleting}>Cancel</Button>
+          <Button variant="ghost" onClick={onCancel} disabled={deleting}>{translate(language, "Cancel")}</Button>
           <Button
             variant="danger"
             onClick={onDelete}
@@ -4815,7 +4976,7 @@ function ProjectDeleteDialog({
             disabled={confirmationName !== project.name}
           >
             <Trash2 size={15} />
-            {deleting ? "Deleting" : "Delete"}
+            {translate(language, deleting ? "Deleting" : "Delete")}
           </Button>
         </>
       )}
@@ -4824,7 +4985,7 @@ function ProjectDeleteDialog({
         data-mio-autofocus
         value={confirmationName}
         onChange={(event) => onConfirmationNameChange(event.target.value)}
-        aria-label="Project name confirmation"
+        aria-label={translate(language, "Project name confirmation")}
       />
       {error && <div className="mio-form-error mt-3">{error}</div>}
     </Modal>
@@ -4849,6 +5010,7 @@ function ProjectInspectionPanel({
   const queryClient = useQueryClient();
   const marketSummary = useMemo(() => projectMarketSummary(detail), [detail]);
   const collectionState = useMemo(() => projectCollectionState(detail.project), [detail.project]);
+  const localizedFilters = useMemo(() => localizedProjectFilterMetadata(detail.project, language), [detail.project, language]);
   const completed = isProjectComplete(detail.project);
   const outlineItems = useMemo(() => projectOutlineItems(detail), [detail]);
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
@@ -4895,56 +5057,67 @@ function ProjectInspectionPanel({
         </button>
       </div>
 
-      <div className="mio-inspector-summary-row">
-        <div className={["mio-inspector-metrics-grid mio-inspector-market-summary grid grid-cols-2 gap-3", completed ? "mio-completion-highlight" : ""].join(" ")}>
-          <Metric
-            icon={ShoppingBag}
-            label={translate(language, "Price Range")}
-            value={marketSummary.priceRange}
-            detail={`${marketSummary.pricedProducts} / ${detail.products.length} ${translate(language, "products with price evidence")}`}
-          />
-          <Metric
-            icon={Store}
-            label={translate(language, "Stores")}
-            value={detail.stores.length}
-            detail={translate(language, "collected marketplace stores")}
-          />
-        </div>
-
-        <div className={["mio-saved-progress-compact rounded-md border border-white/8 bg-white/5 p-3", completed ? "mio-completion-highlight" : ""].join(" ")}>
-          <div className="grid items-center gap-4 md:grid-cols-[auto_minmax(0,1fr)_minmax(0,1.2fr)]">
-          <CircularProgress value={collectionState.progressPercent} />
-          <div className="min-w-0">
-            <div className="text-base font-semibold text-white">{translate(language, "Saved Collection Progress")}</div>
-            <div className="mt-1 truncate text-sm text-ink-500">{collectionState.stageLabel}</div>
-            <div className="mt-2"><ProjectFilterMetadata project={detail.project} /></div>
-            <div className="mt-2 text-xs text-ink-500">{marketplaceLabel(detail.project.marketplace)} · {formatDateTime(detail.project.createdAt)}</div>
+      <div className="mio-inspector-summary-grid">
+        <section className={["mio-inspector-summary-card mio-inspector-scope-card", completed ? "mio-completion-highlight" : ""].join(" ")}>
+          <div className="mio-inspector-card-heading">
+            <span className="mio-inspector-card-icon"><Search size={20} /></span>
+            <span><strong>{translate(language, "Market Scope")}</strong><small>{translate(language, "Applied filters & market coverage")}</small></span>
           </div>
-          <div className="min-w-0 space-y-3">
-            {collectionState.browserUrl ? (
-              <button className="secondary-button h-8 w-auto max-w-full rounded-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(collectionState.browserUrl ?? "")}>
-                <span className="truncate">{translate(language, "Saved URL")}</span>
-                <ExternalLink size={13} />
-              </button>
-            ) : (
-              <div className="text-xs text-ink-400">{translate(language, "No browser URL saved")}</div>
-            )}
-            <div className="grid grid-cols-2 gap-3 text-xs text-ink-400">
-              <InfoLine label={translate(language, "Current Step")} value={collectionState.currentStepId ?? translate(language, "Not selected")} />
-              <InfoLine label={translate(language, "View Mode")} value={collectionState.viewMode ?? translate(language, "Default")} />
+          <div className="mio-inspector-price-block">
+            <span>{translate(language, "Price Range")}</span>
+            <strong>{marketSummary.priceRange}</strong>
+          </div>
+          <div className="mio-inspector-filter-grid">
+            <div><ShoppingBag size={15} /><span><small>{translate(language, "Shop type")}</small><strong>{localizedFilters.storeType}</strong></span></div>
+            <div><Gauge size={15} /><span><small>{translate(language, "Price range")}</small><strong>{localizedFilters.priceRange}</strong></span></div>
+          </div>
+          <div className="mio-inspector-evidence-line">
+            <ListChecks size={16} />
+            <span><small>{translate(language, "Product evidence")}</small><strong>{marketSummary.pricedProducts} / {detail.products.length} {translate(language, "products with price evidence")}</strong></span>
+          </div>
+        </section>
+
+        <section className={["mio-inspector-summary-card mio-inspector-store-card", completed ? "mio-completion-highlight" : ""].join(" ")}>
+          <div className="mio-inspector-card-heading">
+            <span className="mio-inspector-card-icon"><Store size={20} /></span>
+            <span><strong>{translate(language, "Stores")}</strong><small>{translate(language, "Collected marketplace stores")}</small></span>
+          </div>
+          <div className="mio-inspector-store-total">{detail.stores.length}</div>
+          <div className="mio-inspector-store-caption">{translate(language, "collected marketplace stores")}</div>
+        </section>
+
+        <section className={["mio-inspector-summary-card mio-saved-progress-compact", completed ? "mio-completion-highlight" : ""].join(" ")}>
+          <div className="mio-saved-progress-layout">
+            <CircularProgress value={collectionState.progressPercent} />
+            <div className="min-w-0">
+              <div className="text-base font-semibold text-white">{translate(language, "Saved Collection Progress")}</div>
+              <div className="mt-2 truncate text-sm text-ink-500">{translate(language, collectionState.stageLabel)}</div>
+              <div className="mt-2"><ProjectFilterMetadata project={detail.project} /></div>
+              <div className="mt-3 text-xs text-ink-500">{marketplaceLabel(detail.project.marketplace)} · {formatDateTime(detail.project.createdAt)}</div>
+            </div>
+            <div className="mio-saved-progress-context">
+              {collectionState.browserUrl ? (
+                <button className="secondary-button h-8 w-auto max-w-full rounded-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(collectionState.browserUrl ?? "")}>
+                  <span className="truncate">{translate(language, "Saved URL")}</span>
+                  <ExternalLink size={13} />
+                </button>
+              ) : <div className="text-xs text-ink-400">{translate(language, "No browser URL saved")}</div>}
+              <div className="grid grid-cols-2 gap-5 text-xs text-ink-400">
+                <InfoLine label={translate(language, "Current Step")} value={collectionState.currentStepId ?? translate(language, "Not selected")} />
+                <InfoLine label={translate(language, "View Mode")} value={translate(language, collectionState.viewMode === "mobile" ? "Mobile" : collectionState.viewMode === "desktop" ? "Desktop" : "Default")} />
+              </div>
             </div>
           </div>
-          <div className="mio-saved-progress-actions flex flex-wrap items-center justify-end gap-2 md:col-span-3">
+          <div className="mio-saved-progress-actions flex flex-wrap items-center justify-end gap-2">
             <button className="primary-button h-10 w-auto px-5" type="button" onClick={onContinueCollection}>
               <ClipboardCheck size={15} />
               {translate(language, completed ? "Collect Again" : "Continue Collection")}
             </button>
-            <button className="secondary-button mio-danger-round mio-round-icon-button h-10 w-10 px-0" type="button" onClick={onDelete} disabled={deleting} aria-label="Delete project" title="Delete project">
+            <button className="secondary-button mio-danger-round mio-round-icon-button h-10 w-10 px-0" type="button" onClick={onDelete} disabled={deleting} aria-label={translate(language, "Delete project")} title={translate(language, "Delete project")}>
               <Trash2 size={16} />
             </button>
           </div>
-        </div>
-      </div>
+        </section>
       </div>
 
       <EvidenceTranslationContext.Provider value={evidenceTranslations.text}>
@@ -4993,8 +5166,7 @@ function projectEvidenceTranslationValues(detail: ProjectDetailPayload): Array<s
     ]),
     ...detail.reviews.map((review) => reviewCommentCell(review)),
     ...detail.products.flatMap((product) => [product.description, product.selectionReason]),
-    ...detail.analyses.flatMap(analysisTranslationValues),
-    projectOverviewText(detail)
+    ...detail.analyses.flatMap(analysisTranslationValues)
   ];
 }
 
@@ -5014,7 +5186,6 @@ function ProjectReportOutline({
   onContinueCollection: () => void;
 }) {
   const language = useUiStore((state) => state.language);
-  const evidenceText = useContext(EvidenceTranslationContext);
   const searchFilters = projectCollectionState(detail.project).searchFilters;
   const relevanceProducts = useMemo(
     () => detail.products.filter((product) => product.source === "Relevance"),
@@ -5041,36 +5212,24 @@ function ProjectReportOutline({
   }, [detail.reviews]);
   return (
     <div className="space-y-3">
-      <ReportOutlineSection id="project-overview" title={translate(language, "Overview")}>
-        <div className="rounded-md border border-white/8 bg-white/5 p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-medium uppercase tracking-[0.1em] text-ink-500">
-              {translate(language, detail.analyses.length > 0 ? "AI evidence analysis" : "Evidence-based overview")}
-            </span>
-            {intelligenceAnalyzing && <span className="text-xs text-signal-blue">{translate(language, "Analyzing current evidence…")}</span>}
-          </div>
-          {intelligenceAnalyzing ? <LoadingSkeleton lines={4} compact /> : <p className="whitespace-pre-line text-sm leading-6 text-ink-300">{evidenceText(projectOverviewText(detail))}</p>}
-        </div>
-      </ReportOutlineSection>
-
       <ReportOutlineSection id="keyword-general" title="Keyword General">
         <div className="mb-3 grid gap-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs sm:grid-cols-2">
           <InfoLine
-            label="Shop Type Filters"
+            label={translate(language, "Shop Type Filters")}
             value={
               searchFilters?.shopTypes.length
                 ? searchFilters.shopTypes
-                    .map((id) => SHOPEE_SHOP_TYPE_OPTIONS.find((option) => option.id === id)?.label ?? id)
+                    .map((id) => translate(language, SHOPEE_SHOP_TYPE_OPTIONS.find((option) => option.id === id)?.label ?? id))
                     .join(", ")
-                : "All shop types"
+                : translate(language, "All shop types")
             }
           />
           <InfoLine
-            label="Price Range"
+            label={translate(language, "Price Range")}
             value={
               searchFilters?.priceMin !== undefined || searchFilters?.priceMax !== undefined
-                ? `${searchFilters.priceMin !== undefined ? formatCurrency(searchFilters.priceMin) : "No minimum"} - ${searchFilters.priceMax !== undefined ? formatCurrency(searchFilters.priceMax) : "No maximum"}`
-                : "All prices"
+                ? `${searchFilters.priceMin !== undefined ? formatCurrency(searchFilters.priceMin) : translate(language, "No minimum")} - ${searchFilters.priceMax !== undefined ? formatCurrency(searchFilters.priceMax) : translate(language, "No maximum")}`
+                : translate(language, "All prices")
             }
           />
         </div>
@@ -5086,8 +5245,8 @@ function ProjectReportOutline({
 
       <ReportOutlineSection id="key-product" title="Key Product">
         <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
-          Monthly sold only applies to Top Sales result snapshots. Total sold is collected from PDP evidence when visible.
-          Rating is the star value; Reviews is the rating/review count. Price ranges are stored as estimated average price.
+          {translate(language, "Monthly sold only applies to Top Sales result snapshots. Total sold is collected from PDP evidence when visible.")}
+          {" "}{translate(language, "Rating is the star value; Reviews is the rating/review count. Price ranges are stored as estimated average price.")}
         </div>
         <div id="key-product-info" className="scroll-mt-20">
           <ProductInfoTable products={keyProducts} manuallyAddedIdentities={manualKeyProductIds} />
@@ -5131,7 +5290,6 @@ function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; 
   const keyProducts = projectSavedKeyProductCandidates(detail);
   const storeCandidates = projectSavedStoreCandidates(detail);
   return [
-    { id: "project-overview", label: "Overview", depth: 0 },
     { id: "keyword-general", label: "Keyword General", depth: 0 },
     { id: "keyword-relevance", label: "Relevance", depth: 1 },
     { id: "keyword-top-sales", label: "Top sales", depth: 1 },
@@ -5511,7 +5669,7 @@ function StoreRatingSamples({
                     <video key={url} src={imageSource(url)} controls preload="metadata" className="h-24 w-24 rounded-md bg-black object-cover" />
                   ) : (
                     <button key={url} type="button" className="overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal-blue/60" onClick={() => setPreviewUrl(url)}>
-                      <img src={imageSource(url)} alt={`${sample.reviewer || "Store"} rating evidence`} loading="lazy" decoding="async" className="h-24 w-24 object-cover" />
+                      <MediaThumbnail src={imageSource(url)} alt={`${sample.reviewer || "Store"} rating evidence`} loading="lazy" decoding="async" className="h-24 w-24 object-cover" />
                     </button>
                   ))}
                 </div>
@@ -5520,8 +5678,8 @@ function StoreRatingSamples({
           </article>
         ))}
       </div>
-      <Modal open={Boolean(previewUrl)} title="Rating evidence" onClose={() => setPreviewUrl("")} className="mio-file-preview-modal">
-        {previewUrl ? <div className="mio-file-preview-image"><img src={imageSource(previewUrl)} alt="Store rating evidence preview" /></div> : null}
+      <Modal open={Boolean(previewUrl)} title={translate(language, "Rating evidence")} onClose={() => setPreviewUrl("")} className="mio-file-preview-modal">
+        {previewUrl ? <ZoomableImagePreview src={imageSource(previewUrl)} alt={translate(language, "Store rating evidence preview")} /> : null}
       </Modal>
     </>
   );
@@ -5552,48 +5710,6 @@ function collectedStoreConclusions(
     summary,
     description !== "-" ? description : "This summary is based on the collected profile, ratings, categories, products, promotions, and visual evidence."
   ].join("\n\n"), 1500).split("\n\n");
-}
-
-function projectOverviewText(detail: ProjectDetailPayload): string {
-  const latestAnalysis = [...detail.analyses]
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
-    .find((analysis) => {
-      try {
-        const value = JSON.parse(analysis.resultJson) as Record<string, unknown>;
-        return typeof value.executiveSummary === "string" && value.executiveSummary.trim().length > 0;
-      } catch {
-        return false;
-      }
-    });
-  if (latestAnalysis) {
-    try {
-      const value = JSON.parse(latestAnalysis.resultJson) as Record<string, unknown>;
-      if (typeof value.executiveSummary === "string") {
-        return limitCharacters(value.executiveSummary, 2500);
-      }
-    } catch {
-      // Fall through to the deterministic evidence summary.
-    }
-  }
-  const completedStores = detail.stores.filter((store) =>
-    [store.productsCount, store.followers, store.rating, store.chatResponse, store.description]
-      .some((value) => value !== null && value !== undefined && value !== "")
-  );
-  const topSalesCount = detail.products.filter((product) => product.source === "Top Sales").length;
-  const relevanceCount = detail.products.filter((product) => product.source === "Relevance").length;
-  const leadingStore = [...completedStores].sort((left, right) => (right.followers ?? 0) - (left.followers ?? 0))[0];
-  return limitCharacters([
-    `${detail.project.name} currently contains ${detail.products.length} collected products, including ${relevanceCount} relevance results and ${topSalesCount} top-sales results, supported by ${detail.assets.length} evidence files and ${detail.reviews.length} review records.`,
-    completedStores.length > 0
-      ? `${completedStores.length} store profiles have structured evidence${leadingStore ? `; ${leadingStore.name} currently leads the collected set with ${formatOptionalNumber(leadingStore.followers)} followers and a ${leadingStore.rating ?? "-"} rating` : ""}.`
-      : "Store-level conclusions will become more specific as profile, rating, category, product, and visual evidence is collected.",
-    "This local overview is tied directly to saved marketplace evidence and will be replaced automatically by the configured AI analysis when available."
-  ].join("\n\n"), 2500);
-}
-
-function limitCharacters(value: string, maximum: number): string {
-  const normalized = value.replace(/\s+/gu, " ").trim();
-  return normalized.length <= maximum ? normalized : `${normalized.slice(0, Math.max(0, maximum - 1)).trimEnd()}…`;
 }
 
 function sanitizeStoreMetric(value?: string | null): string {
@@ -5687,9 +5803,22 @@ function ProjectOutlineNav({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const groups = useMemo(() => groupProjectOutlineItems(items), [items]);
   const [activeTargetId, setActiveTargetId] = useState(items[0]?.id ?? "");
   const sectionExpansion = useContext(ReportSectionExpansionContext);
+  function OutlineIcon({ id, size = 16 }: { id: string; size?: number }) {
+    const Icon = id === "keyword-general"
+      ? Search
+      : id === "key-product"
+        ? ShoppingBag
+        : id === "product-detail-qualified"
+          ? CheckCircle2
+          : id === "key-store-pages"
+            ? Store
+            : Gauge;
+    return <Icon size={size} strokeWidth={1.7} aria-hidden="true" />;
+  }
   function outlinePath(id: string): string[] {
     for (const group of groups) {
       if (group.id === id) return [group.id];
@@ -5761,7 +5890,7 @@ function ProjectOutlineNav({
   if (collapsed) {
     return (
       <nav className="mio-inspector-nav sticky top-20 self-start rounded-md border border-white/8 bg-white/5 p-2 text-sm">
-        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label="Show project outline" title="Show project outline">
+        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label={translate(language, "Show project outline")} title={translate(language, "Show project outline")}>
           <PanelLeftOpen size={15} />
         </button>
       </nav>
@@ -5770,22 +5899,23 @@ function ProjectOutlineNav({
   return (
     <nav className="mio-inspector-nav sticky top-20 max-h-[calc(100vh-96px)] self-start overflow-auto rounded-md border border-white/8 bg-white/5 p-3 text-sm">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="font-semibold text-white">Project sections</div>
-        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label="Hide project outline" title="Hide project outline">
+        <div className="font-semibold text-white">{translate(language, "Project sections")}</div>
+        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label={translate(language, "Hide project outline")} title={translate(language, "Hide project outline")}>
           <PanelLeftClose size={15} />
         </button>
       </div>
       <div className="space-y-1">
         {groups.map((group) => group.children.length > 0 ? (
           <details key={`${group.id}-${group.label}`} open={sectionExpansion.openSectionIds.has(group.id)} className="mio-outline-group rounded-md">
-            <summary aria-current={activeTargetId === group.id ? "location" : undefined} onClick={(event) => handleOutlineSummaryClick(event, group.id)} className="mio-outline-link cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200">
-              {group.label}
+            <summary aria-current={activeTargetId === group.id ? "location" : undefined} onClick={(event) => handleOutlineSummaryClick(event, group.id)} className="mio-outline-link mio-outline-link-primary cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200">
+              <OutlineIcon id={group.id} />
+              <span>{translate(language, group.label)}</span>
             </summary>
             <div className="mt-1 space-y-1">
               {group.children.map((item) => item.children.length > 0 ? (
                 <details key={`${item.id}-${item.label}`} open={sectionExpansion.openSectionIds.has(item.id)} className="mio-outline-subgroup ml-3 rounded-md">
                   <summary aria-current={activeTargetId === item.id ? "location" : undefined} onClick={(event) => handleOutlineSummaryClick(event, item.id)} className="mio-outline-link cursor-pointer select-none rounded px-2 py-1.5 text-xs font-medium text-ink-300">
-                    {item.label}
+                    {translate(language, item.label)}
                   </summary>
                   <div className="mt-1 space-y-1">
                     {item.children.map((child) => (
@@ -5796,7 +5926,7 @@ function ProjectOutlineNav({
                         onClick={(event) => handleOutlineLinkClick(event, child.id)}
                         className="mio-outline-link block rounded px-2 py-1.5 pl-5 text-xs text-ink-400"
                       >
-                        {child.label}
+                        {translate(language, child.label)}
                       </a>
                     ))}
                   </div>
@@ -5809,7 +5939,7 @@ function ProjectOutlineNav({
                   onClick={(event) => handleOutlineLinkClick(event, item.id)}
                   className="mio-outline-link ml-3 block rounded px-2 py-1.5 text-xs text-ink-400"
                 >
-                  {item.label}
+                  {translate(language, item.label)}
                 </a>
               ))}
             </div>
@@ -5820,9 +5950,10 @@ function ProjectOutlineNav({
             href={`#${group.id}`}
             aria-current={activeTargetId === group.id ? "location" : undefined}
             onClick={(event) => handleOutlineLinkClick(event, group.id)}
-            className="mio-outline-link block rounded px-2 py-1.5 text-sm font-semibold text-ink-200"
+            className="mio-outline-link mio-outline-link-primary rounded px-2 py-1.5 text-sm font-semibold text-ink-200"
           >
-            {group.label}
+            <OutlineIcon id={group.id} />
+            <span>{translate(language, group.label)}</span>
           </a>
         ))}
       </div>
@@ -5856,8 +5987,18 @@ function groupProjectOutlineItems(items: Array<{ id: string; label: string; dept
 }
 
 function ReportOutlineSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  const language = useUiStore((state) => state.language);
   const sectionExpansion = useContext(ReportSectionExpansionContext);
   const open = sectionExpansion.openSectionIds.has(id);
+  const SectionIcon = id === "keyword-general"
+    ? Search
+    : id === "key-product"
+      ? ShoppingBag
+      : id === "product-detail-qualified"
+        ? CheckCircle2
+        : id === "key-store-pages"
+          ? Store
+          : Gauge;
   return (
     <details
       id={id}
@@ -5872,7 +6013,8 @@ function ReportOutlineSection({ id, title, children }: { id: string; title: stri
           sectionExpansion.setSectionOpen(id, !open);
         }}
       >
-        {title}
+        <span className="mio-report-summary-label"><SectionIcon size={17} strokeWidth={1.7} />{translate(language, title)}</span>
+        <ChevronDown size={17} className="mio-report-summary-chevron" aria-hidden="true" />
       </summary>
       {open ? <div className="mio-lazy-section-body mt-4">{children}</div> : null}
     </details>
@@ -5880,6 +6022,7 @@ function ReportOutlineSection({ id, title, children }: { id: string; title: stri
 }
 
 function NestedReportSection({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
+  const language = useUiStore((state) => state.language);
   const sectionExpansion = useContext(ReportSectionExpansionContext);
   const open = id ? sectionExpansion.openSectionIds.has(id) : false;
   return (
@@ -5897,14 +6040,79 @@ function NestedReportSection({ id, title, children }: { id?: string; title: stri
           sectionExpansion.setSectionOpen(id, !open);
         }}
       >
-        {title}
+        {translate(language, title)}
       </summary>
       {open ? <div className="mio-lazy-section-body mt-3">{children}</div> : null}
     </details>
   );
 }
 
+function ZoomableImagePreview({ src, alt }: { src: string; alt: string }) {
+  const language = useUiStore((state) => state.language);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const dragState = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => setZoom(1), [src]);
+  const applyImageZoom = (value: number) => setZoom(Math.max(0.5, Math.min(4, Math.round(value * 10) / 10)));
+  function handleWheel(event: WheelEvent<HTMLDivElement>) {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    applyImageZoom(zoom + (event.deltaY < 0 ? 0.2 : -0.2));
+  }
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !viewportRef.current) return;
+    dragState.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      scrollLeft: viewportRef.current.scrollLeft,
+      scrollTop: viewportRef.current.scrollTop
+    };
+    viewportRef.current.setPointerCapture(event.pointerId);
+  }
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragState.current;
+    if (!drag || drag.pointerId !== event.pointerId || !viewportRef.current) return;
+    viewportRef.current.scrollLeft = drag.scrollLeft - (event.clientX - drag.x);
+    viewportRef.current.scrollTop = drag.scrollTop - (event.clientY - drag.y);
+  }
+  function finishPointerDrag(event: PointerEvent<HTMLDivElement>) {
+    if (dragState.current?.pointerId !== event.pointerId) return;
+    dragState.current = null;
+    if (viewportRef.current?.hasPointerCapture(event.pointerId)) {
+      viewportRef.current.releasePointerCapture(event.pointerId);
+    }
+  }
+  return (
+    <div className="mio-zoomable-image-preview">
+      <div className="mio-image-preview-toolbar">
+        <span>{translate(language, "Use Ctrl/Command + wheel to zoom, then drag to pan.")}</span>
+        <div className="flex items-center gap-2">
+          <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={() => applyImageZoom(zoom - 0.2)} aria-label={translate(language, "Zoom out")} title={translate(language, "Zoom out")}><ZoomOut size={15} /></button>
+          <button className="secondary-button h-9 min-w-[70px] px-3 text-xs" type="button" onClick={() => applyImageZoom(1)}>{Math.round(zoom * 100)}%</button>
+          <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={() => applyImageZoom(zoom + 0.2)} aria-label={translate(language, "Zoom in")} title={translate(language, "Zoom in")}><ZoomIn size={15} /></button>
+        </div>
+      </div>
+      <div
+        ref={viewportRef}
+        className="mio-image-preview-viewport"
+        onWheel={handleWheel}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={finishPointerDrag}
+        onPointerCancel={finishPointerDrag}
+        onDoubleClick={() => applyImageZoom(zoom === 1 ? 2 : 1)}
+      >
+        <div className="mio-image-preview-canvas" style={{ width: `${zoom * 100}%` }}>
+          <MediaThumbnail src={src} alt={alt} draggable={false} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AssetList({ assets, limit = 24 }: { assets: ProjectDetailPayload["assets"]; limit?: number }) {
+  const language = useUiStore((state) => state.language);
   const [preview, setPreview] = useState<{
     asset: ProjectDetailPayload["assets"][number];
     loading: boolean;
@@ -5953,7 +6161,7 @@ function AssetList({ assets, limit = 24 }: { assets: ProjectDetailPayload["asset
       {assets.slice(0, limit).map((asset) => (
         <button key={asset.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void openAssetPreview(asset)}>
           <div className="aspect-video overflow-hidden rounded bg-white/10">
-            {asset.mimeType.startsWith("image/") ? <img src={toFileImageSrc(asset.path)} alt={asset.label} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
+            {asset.mimeType.startsWith("image/") ? <MediaThumbnail src={asset.path} alt={asset.label} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
           </div>
           <div className="mt-2 truncate text-xs font-medium text-white">{asset.label}</div>
           <div className="mt-1 truncate text-[11px] text-ink-500">{asset.kind}</div>
@@ -5962,21 +6170,21 @@ function AssetList({ assets, limit = 24 }: { assets: ProjectDetailPayload["asset
     </div>
     <Modal
       open={Boolean(preview)}
-      title={preview?.asset.label ?? "File preview"}
+      title={preview?.asset.label ?? translate(language, "File preview")}
       description={preview?.asset.kind}
       className="mio-file-preview-modal"
       onClose={() => setPreview(null)}
       actions={preview ? (
         <Button variant="secondary" onClick={() => void window.marketplaceOS?.platform?.showItemInFolder(preview.asset.path)}>
           <FolderOpen size={15} />
-          Show in folder
+          {translate(language, "Show in folder")}
         </Button>
       ) : undefined}
     >
       {preview?.loading ? <EmptyState label="Preparing preview..." /> : null}
       {preview?.error ? <div className="mio-inline-error">{preview.error}</div> : null}
       {preview?.dataUrl && preview.mimeType?.startsWith("image/") ? (
-        <div className="mio-file-preview-image"><img src={preview.dataUrl} alt={preview.asset.label} /></div>
+        <ZoomableImagePreview src={preview.dataUrl} alt={preview.asset.label} />
       ) : null}
       {preview?.dataUrl && preview.mimeType === "application/pdf" ? (
         <object className="mio-file-preview-pdf" data={preview.dataUrl} type="application/pdf">
@@ -5984,7 +6192,7 @@ function AssetList({ assets, limit = 24 }: { assets: ProjectDetailPayload["asset
         </object>
       ) : null}
       {preview?.documentBlocks ? (
-        <article className="mio-docx-preview" aria-label="DOCX document preview">
+        <article className="mio-docx-preview" aria-label={translate(language, "DOCX document preview")}>
           {preview.documentBlocks.map((block, index) => block.kind === "heading"
             ? <h3 key={`${index}-${block.text}`} data-level={block.level}>{block.text}</h3>
             : <p key={`${index}-${block.text}`}>{block.text}</p>)}
@@ -6021,79 +6229,96 @@ async function readDocxPreviewBlocks(dataBase64: string): Promise<Array<{ kind: 
 }
 
 function ProductCardGrid({ products, limit = 80 }: { products: ProjectProductEvidence[]; limit?: number }) {
+  const language = useUiStore((state) => state.language);
   const [view, setView] = useState<"cards" | "list">("cards");
+  const [previewImage, setPreviewImage] = useState<{ src: string; title: string } | null>(null);
   const evidenceText = useContext(EvidenceTranslationContext);
   if (products.length === 0) {
     return <EmptyState label="No rendered product rows extracted yet." />;
   }
   if (view === "list") {
     return (
+      <>
       <div>
         <ProductViewToggle value={view} onChange={setView} />
         <div className="mio-result-list mt-3 overflow-hidden">
           {products.slice(0, limit).map((product) => (
-            <button key={product.id} type="button" className="mio-result-list-row grid w-full grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 text-left" onClick={() => void apiClient.openUrl(product.productUrl)}>
-              <ResultCardMedia imageUrl={product.imageUrl} alt={displayProductTitle(product)} variant="product" />
-              <div className="min-w-0">
+            <div key={product.id} className="mio-result-list-row grid w-full grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 text-left">
+              <button type="button" className="mio-inspect-image-button" onClick={() => product.imageUrl && setPreviewImage({ src: product.imageUrl, title: displayProductTitle(product) })} aria-label={translate(language, "Preview product image")}>
+                <ResultCardMedia imageUrl={product.imageUrl} alt={displayProductTitle(product)} variant="product" />
+              </button>
+              <button type="button" className="min-w-0 text-left" onClick={() => void apiClient.openUrl(product.productUrl)}>
                 <div className="line-clamp-1 text-sm font-medium text-white">{displayProductTitle(product)}</div>
                 <div className="mio-card-chip-row">
                   <span className="mio-card-chip">{formatCurrency(product.priceAverage)}</span>
-                  <span className="mio-card-chip">Rating {productRatingText(product)}</span>
+                  <span className="mio-card-chip">{translate(language, "Rating")} {productRatingText(product)}</span>
                   <span className="mio-card-chip">{productSoldMetricLabel(product)} {productSoldMetricText(product)}</span>
                   <StoreTypeMark value={product.storeType} showLabel />
                 </div>
-              </div>
+              </button>
               <div className="text-right text-xs text-ink-500">
                 <div>{productSourcePlacement(product)}</div>
-                <div className="mt-1 max-w-44 truncate">{product.storeName ?? "Store pending"}</div>
+                <div className="mt-1 max-w-44 truncate">{product.storeName ?? translate(language, "Store pending")}</div>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </div>
+      <Modal open={Boolean(previewImage)} title={previewImage?.title ?? translate(language, "Product image preview")} onClose={() => setPreviewImage(null)} className="mio-file-preview-modal">
+        {previewImage ? <ZoomableImagePreview src={previewImage.src} alt={previewImage.title} /> : null}
+      </Modal>
+      </>
     );
   }
   return (
+    <>
     <div>
       <ProductViewToggle value={view} onChange={setView} />
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {products.slice(0, limit).map((product) => (
-          <button key={product.id} type="button" className="mio-result-card mio-product-result-card text-left" onClick={() => void apiClient.openUrl(product.productUrl)}>
-            <ResultCardMedia imageUrl={product.imageUrl} alt={displayProductTitle(product)} variant="product">
-              <span className="mio-card-chip">{productSourcePlacement(product)}</span>
-            </ResultCardMedia>
+          <article key={product.id} className="mio-result-card mio-product-result-card text-left">
+            <button type="button" className="mio-result-card-media-button" onClick={() => product.imageUrl && setPreviewImage({ src: product.imageUrl, title: displayProductTitle(product) })} aria-label={translate(language, "Preview product image")}>
+              <ResultCardMedia imageUrl={product.imageUrl} alt={displayProductTitle(product)} variant="product">
+                <span className="mio-card-chip">{productSourcePlacement(product)}</span>
+              </ResultCardMedia>
+            </button>
             <div className="mio-result-card-body min-w-0">
               <div className="mio-result-card-title-row">
                 <div className="line-clamp-2 text-sm font-medium text-white">{displayProductTitle(product)}</div>
-                <span className="mio-card-action-pill">Open</span>
+                <button type="button" className="mio-card-action-pill" onClick={() => void apiClient.openUrl(product.productUrl)}>{translate(language, "Open")}</button>
               </div>
               <div className="mio-card-chip-row">
                 <span className="mio-card-chip">{formatCurrency(product.priceAverage)}</span>
-                <span className="mio-card-chip">Rating {productRatingText(product)}</span>
+                <span className="mio-card-chip">{translate(language, "Rating")} {productRatingText(product)}</span>
                 <span className="mio-card-chip">{productSoldMetricLabel(product)} {productSoldMetricText(product)}</span>
               </div>
               <div className="mio-result-card-description">
-                {evidenceText(product.selectionReason) || product.storeName || "Marketplace product evidence"}
+                {evidenceText(product.selectionReason) || product.storeName || translate(language, "Marketplace product evidence")}
               </div>
               <div className="mio-result-card-footer">
-                <span className="truncate">{product.storeName ?? "Store pending"}</span>
+                <span className="truncate">{product.storeName ?? translate(language, "Store pending")}</span>
                 <StoreTypeMark value={product.storeType} />
               </div>
             </div>
-          </button>
+          </article>
         ))}
       </div>
     </div>
+    <Modal open={Boolean(previewImage)} title={previewImage?.title ?? translate(language, "Product image preview")} onClose={() => setPreviewImage(null)} className="mio-file-preview-modal">
+      {previewImage ? <ZoomableImagePreview src={previewImage.src} alt={previewImage.title} /> : null}
+    </Modal>
+    </>
   );
 }
 
 function ProductViewToggle({ value, onChange }: { value: "cards" | "list"; onChange: (value: "cards" | "list") => void }) {
+  const language = useUiStore((state) => state.language);
   return (
     <div className="flex justify-end gap-1">
-      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "cards" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("cards")} aria-label="Card view" title="Card view">
+      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "cards" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("cards")} aria-label={translate(language, "Card view")} title={translate(language, "Card view")}>
         <LayoutGrid size={14} />
       </button>
-      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "list" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("list")} aria-label="List view" title="List view">
+      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "list" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("list")} aria-label={translate(language, "List view")} title={translate(language, "List view")}>
         <Rows3 size={14} />
       </button>
     </div>
@@ -6113,6 +6338,7 @@ function ProductInfoTable({
   checkedProductIds?: string[];
   onToggleProduct?: (productId: string) => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const evidenceText = useContext(EvidenceTranslationContext);
   if (products.length === 0) {
     return <EmptyState label="Product info table is empty. Capture Relevance and Top Sales pages first." />;
@@ -6122,20 +6348,20 @@ function ProductInfoTable({
       <table className="min-w-[1160px] text-left text-xs">
         <thead className="bg-white/8 text-ink-500">
           <tr>
-            {onToggleProduct && <th className="w-10 px-3 py-2">Select</th>}
-            <th className="px-3 py-2">No</th>
-            <th className="px-3 py-2">Source</th>
-            <th className="px-3 py-2">Reason</th>
-            <th className="px-3 py-2">Product Title</th>
-            <th className="px-3 py-2">Product Type</th>
-            <th className="px-3 py-2">Monthly Sold</th>
-            <th className="px-3 py-2">Store Name</th>
-            <th className="px-3 py-2">Store Type</th>
-            <th className="px-3 py-2">Price</th>
-            <th className="px-3 py-2">Rating</th>
-            <th className="px-3 py-2">Reviews</th>
-            <th className="px-3 py-2">Total Sold</th>
-            {onRemoveProduct && <th className="w-12 px-3 py-2" aria-label="Actions" />}
+            {onToggleProduct && <th className="w-10 px-3 py-2">{translate(language, "Select")}</th>}
+            <th className="px-3 py-2">{translate(language, "No")}</th>
+            <th className="px-3 py-2">{translate(language, "Source")}</th>
+            <th className="px-3 py-2">{translate(language, "Reason")}</th>
+            <th className="px-3 py-2">{translate(language, "Product Title")}</th>
+            <th className="px-3 py-2">{translate(language, "Product Type")}</th>
+            <th className="px-3 py-2">{translate(language, "Monthly Sold")}</th>
+            <th className="px-3 py-2">{translate(language, "Store Name")}</th>
+            <th className="px-3 py-2">{translate(language, "Store Type")}</th>
+            <th className="px-3 py-2">{translate(language, "Price")}</th>
+            <th className="px-3 py-2">{translate(language, "Rating")}</th>
+            <th className="px-3 py-2">{translate(language, "Reviews")}</th>
+            <th className="px-3 py-2">{translate(language, "Total Sold")}</th>
+            {onRemoveProduct && <th className="w-12 px-3 py-2" aria-label={translate(language, "Actions")} />}
           </tr>
         </thead>
         <tbody>
@@ -6172,7 +6398,7 @@ function ProductInfoTable({
                     type="button"
                     onClick={() => onRemoveProduct(product.id)}
                     aria-label={`Remove ${displayProductTitle(product)}`}
-                    title="Remove product"
+                    title={translate(language, "Remove product")}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -6211,6 +6437,7 @@ function KeyProductTableReview({
   onApprove: () => void;
   onNext: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const [productToAdd, setProductToAdd] = useState("");
   const [selectedQualifiedIds, setSelectedQualifiedIds] = useState<string[]>([]);
   const [selectedAvailableIds, setSelectedAvailableIds] = useState<string[]>([]);
@@ -6222,17 +6449,17 @@ function KeyProductTableReview({
       action={
         <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onBackToBrowser}>
           <ChevronLeft size={15} />
-          Browser
+          {translate(language, "Browser")}
         </button>
       }
     >
       <div className="mb-4 rounded-md border border-signal-blue/20 bg-signal-blue/10 p-4 text-sm leading-6 text-ink-300">
-        Product Qualified starts with Top Sales evidence, then uses Relevance evidence to enrich and rank commercially valid products.
-        GIMMICK, NOT FOR SALE, FREE GIFT, irrelevant, and duplicate rows are excluded. Review up to 20 products before approval.
-        Showing {products.length} selected product{products.length === 1 ? "" : "s"} from {totalProducts} extracted row{totalProducts === 1 ? "" : "s"}.
+        {translate(language, "Product Qualified starts with Top Sales evidence, then uses Relevance evidence to enrich and rank commercially valid products.")}{" "}
+        {translate(language, "GIMMICK, NOT FOR SALE, FREE GIFT, irrelevant, and duplicate rows are excluded. Review up to 20 products before approval.")}{" "}
+        {translate(language, "Showing")} {products.length} {translate(language, products.length === 1 ? "selected product" : "selected products")} {translate(language, "from")} {totalProducts} {translate(language, totalProducts === 1 ? "extracted row" : "extracted rows")}.
       </div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <strong className="text-sm text-ink-200">{products.length} / 20 selected</strong>
+        <strong className="text-sm text-ink-200">{products.length} / 20 {translate(language, "selected")}</strong>
         <button
           className="secondary-button h-9 w-auto px-3"
           type="button"
@@ -6242,19 +6469,19 @@ function KeyProductTableReview({
             setSelectedQualifiedIds([]);
           }}
         >
-          Exclude selected
+          {translate(language, "Exclude selected")}
         </button>
       </div>
       <div className="mb-4 flex flex-wrap items-end gap-2">
         <label className="min-w-[280px] flex-1 text-xs font-medium text-ink-400">
-          Add another qualified product
+          {translate(language, "Add another qualified product")}
           <select
             className="input mt-1"
             value={productToAdd}
             onChange={(event) => setProductToAdd(event.target.value)}
             disabled={products.length >= 20 || availableProducts.length === 0}
           >
-            <option value="">Select product</option>
+            <option value="">{translate(language, "Select product")}</option>
             {availableProducts.map((product) => (
               <option key={product.id} value={product.id}>
                 {productSourcePlacement(product)} - {displayProductTitle(product)}
@@ -6272,7 +6499,7 @@ function KeyProductTableReview({
           }}
         >
           <Plus size={16} />
-          Add Product
+          {translate(language, "Add Product")}
         </button>
         <button
           className="secondary-button h-10 w-auto px-4"
@@ -6284,7 +6511,7 @@ function KeyProductTableReview({
           }}
         >
           <Plus size={16} />
-          Add 5 more product
+          {translate(language, "Add 5 more product")}
         </button>
         <span className="pb-3 text-xs text-ink-500">{products.length}/20</span>
       </div>
@@ -6297,7 +6524,7 @@ function KeyProductTableReview({
       {availableProducts.length > 0 && (
         <div className="mt-4 rounded-md border border-white/8 p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <strong className="text-sm text-ink-200">Available products</strong>
+            <strong className="text-sm text-ink-200">{translate(language, "Available products")}</strong>
             <button
               className="secondary-button h-9 w-auto px-3"
               type="button"
@@ -6307,7 +6534,7 @@ function KeyProductTableReview({
                 setSelectedAvailableIds([]);
               }}
             >
-              Add selected
+              {translate(language, "Add selected")}
             </button>
           </div>
           <div className="grid max-h-64 gap-2 overflow-auto md:grid-cols-2">
@@ -6328,12 +6555,12 @@ function KeyProductTableReview({
               </label>
             ))}
           </div>
-          {products.length >= 20 && <p className="mt-2 text-xs text-signal-red">Maximum 20 qualified products reached.</p>}
+          {products.length >= 20 && <p className="mt-2 text-xs text-signal-red">{translate(language, "Maximum 20 qualified products reached.")}</p>}
         </div>
       )}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-5 text-ink-500">
-          Store Name, Total Sold, review detail, slides, description, and shop homepage are enriched during Product Detail Qualified collection.
+          {translate(language, "Store Name, Total Sold, review detail, slides, description, and shop homepage are enriched during Product Detail Qualified collection.")}
         </div>
         <div className="flex flex-wrap gap-2">
           <button className="secondary-button h-10 w-auto px-4" type="button" onClick={onApprove} disabled={products.length === 0 || approved}>
@@ -6341,7 +6568,7 @@ function KeyProductTableReview({
             {approved ? "Product Qualified Approved" : "Approve Product Qualified"}
           </button>
           <button className="primary-button h-10 w-auto px-4" type="button" onClick={onNext} disabled={!approved || products.length === 0}>
-            Next
+            {translate(language, "Next")}
             <ChevronRight size={16} />
           </button>
         </div>
@@ -6370,7 +6597,7 @@ function ProductQualifiedSection({
         <InfoLine label="Price" value={formatCurrency(product.priceAverage)} />
         <InfoLine label="Store Name" value={product.storeName ?? "-"} />
         <div>
-          <div className="text-[10px] uppercase text-ink-500">Store Type</div>
+          <div className="text-[10px] uppercase text-ink-500"><TranslatedText>Store Type</TranslatedText></div>
           <StoreTypeMark value={product.storeType} showLabel className="mt-1" />
         </div>
         <InfoLine label="GMV ETA" value={formatCurrency((product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0))} />
@@ -6495,6 +6722,7 @@ function isDisplayableProductMediaUrl(value: string): boolean {
 }
 
 function ProductPromotionSignals({ product }: { product: ProjectProductEvidence }) {
+  const language = useUiStore((state) => state.language);
   const rows = [
     { label: "Shop Vouchers", values: product.shopVouchers },
     { label: "Bundle Deals", values: product.bundleDeals }
@@ -6503,9 +6731,9 @@ function ProductPromotionSignals({ product }: { product: ProjectProductEvidence 
     <div className="mt-3 grid gap-3 lg:grid-cols-2">
       {rows.map((row) => (
         <div key={row.label} className="rounded-md border border-white/8 bg-white/[0.04] p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">{row.label}</div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">{translate(language, row.label)}</div>
           <div className="space-y-1 text-sm text-ink-300">
-            {row.values.length > 0 ? row.values.slice(0, 8).map((value) => <div key={value}>{value}</div>) : <span className="text-ink-500">No promotion signal captured yet.</span>}
+            {row.values.length > 0 ? row.values.slice(0, 8).map((value) => <div key={value}>{value}</div>) : <span className="text-ink-500">{translate(language, "No promotion signal captured yet.")}</span>}
           </div>
         </div>
       ))}
@@ -6534,17 +6762,17 @@ function _ProductDossierSummary({
       </div>
 
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Slides and Images</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Slides and Images</TranslatedText></div>
         <ProductImageGrid images={product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []} />
       </div>
 
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Videos</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Videos</TranslatedText></div>
         <ProductVideoGrid videos={product.videos} />
       </div>
 
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Media in User</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Media in User</TranslatedText></div>
         <ProductImageGrid images={product.reviewMediaImages} />
         {product.reviewMediaVideos.length > 0 && (
           <div className="mt-3">
@@ -6554,7 +6782,7 @@ function _ProductDossierSummary({
       </div>
 
       <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Description</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Description</TranslatedText></div>
         <p className="line-clamp-6 text-sm leading-6 text-ink-300">
           {product.description ?? "No browser-readable product description captured yet. Save Product Description evidence from the guided collector."}
         </p>
@@ -6567,18 +6795,18 @@ function _ProductDossierSummary({
 
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Variants</div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Variants</TranslatedText></div>
           <div className="flex flex-wrap gap-2">
             {product.variants.slice(0, 16).map((variant) => (
               <span key={variant} className="rounded-full border border-white/8 bg-white/5 px-2 py-1 text-xs text-ink-300">
                 {variant}
               </span>
             ))}
-            {product.variants.length === 0 && <span className="text-sm text-ink-500">No variants detected.</span>}
+            {product.variants.length === 0 && <span className="text-sm text-ink-500"><TranslatedText>No variants detected.</TranslatedText></span>}
           </div>
         </div>
         <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Specifications</div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Specifications</TranslatedText></div>
           <div className="space-y-1 text-xs text-ink-300">
             {Object.entries(product.specifications).slice(0, 10).map(([key, value]) => (
               <div key={key} className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
@@ -6586,7 +6814,7 @@ function _ProductDossierSummary({
                 <span>{value}</span>
               </div>
             ))}
-            {Object.keys(product.specifications).length === 0 && <span className="text-sm text-ink-500">No specifications detected.</span>}
+            {Object.keys(product.specifications).length === 0 && <span className="text-sm text-ink-500"><TranslatedText>No specifications detected.</TranslatedText></span>}
           </div>
         </div>
       </div>
@@ -6597,17 +6825,20 @@ function _ProductDossierSummary({
 }
 
 function ProductImageGrid({ images }: { images: string[] }) {
+  const language = useUiStore((state) => state.language);
   const [brokenImages, setBrokenImages] = useState<Set<string>>(() => new Set());
+  const [previewImage, setPreviewImage] = useState("");
   const visibleImages = uniqueMediaValues(images).filter((image) => isDisplayableProductMediaUrl(image) && !brokenImages.has(image));
   if (visibleImages.length === 0) {
     return <EmptyState label="No product image URLs captured yet." />;
   }
   return (
+    <>
     <div className="grid grid-cols-3 gap-3">
       {visibleImages.slice(0, 9).map((image, index) => (
-        <button key={`${image}-${index}`} type="button" className="overflow-hidden rounded-md border border-white/8 bg-white/5" onClick={() => void apiClient.openUrl(image)}>
+        <button key={`${image}-${index}`} type="button" className="mio-inspect-image-button overflow-hidden rounded-md border border-white/8 bg-white/5" onClick={() => setPreviewImage(image)}>
           <div className="aspect-square bg-white/10">
-            <img
+            <MediaThumbnail
               src={image}
               alt={`Product slide ${index + 1}`}
               loading="lazy"
@@ -6616,14 +6847,19 @@ function ProductImageGrid({ images }: { images: string[] }) {
               onError={() => setBrokenImages((current) => new Set(current).add(image))}
             />
           </div>
-          <div className="px-2 py-1 text-left text-[11px] text-ink-500">Slide {index + 1}</div>
+          <div className="px-2 py-1 text-left text-[11px] text-ink-500">{translate(language, "Slide")} {index + 1}</div>
         </button>
       ))}
     </div>
+    <Modal open={Boolean(previewImage)} title={translate(language, "Product image preview")} onClose={() => setPreviewImage("")} className="mio-file-preview-modal">
+      {previewImage ? <ZoomableImagePreview src={previewImage} alt={translate(language, "Product image preview")} /> : null}
+    </Modal>
+    </>
   );
 }
 
 function ProductVideoGrid({ videos, limit = 9 }: { videos: string[]; limit?: number }) {
+  const language = useUiStore((state) => state.language);
   const visibleVideos = uniqueMediaValues(videos);
   if (visibleVideos.length === 0) {
     return <EmptyState label="No product video URLs captured yet." />;
@@ -6635,7 +6871,7 @@ function ProductVideoGrid({ videos, limit = 9 }: { videos: string[]; limit?: num
           <div className="mio-product-video-frame bg-black">
             <video src={video} className="h-full w-full object-contain" muted controls playsInline />
           </div>
-          <div className="px-2 py-1 text-left text-[11px] text-ink-500">Video {index + 1}</div>
+          <div className="px-2 py-1 text-left text-[11px] text-ink-500">{translate(language, "Video")} {index + 1}</div>
         </button>
       ))}
     </div>
@@ -6695,6 +6931,7 @@ function reviewCommentCell(review: ProjectDetailPayload["reviews"][number]): str
 }
 
 function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["reviews"] }) {
+  const language = useUiStore((state) => state.language);
   const curatedReviews = curatedShopeeReviews(reviews);
   const evidenceText = useContext(EvidenceTranslationContext);
   if (curatedReviews.length === 0) {
@@ -6705,9 +6942,9 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
       <table className="min-w-[680px] text-left text-xs">
         <thead className="bg-white/8 text-ink-500">
           <tr>
-            <th className="px-3 py-2">Type</th>
-            <th className="px-3 py-2">Star Rated</th>
-            <th className="px-3 py-2">Comment - Include timestamp</th>
+            <th className="px-3 py-2">{translate(language, "Type")}</th>
+            <th className="px-3 py-2">{translate(language, "Star Rated")}</th>
+            <th className="px-3 py-2">{translate(language, "Comment - Include timestamp")}</th>
           </tr>
         </thead>
         <tbody>
@@ -6738,6 +6975,7 @@ type BulkReportHistoryEntry = {
 const BULK_REPORT_HISTORY_KEY = "mio.bulk-report-history.v1";
 
 export function LegacyBulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[]; themeMode: ThemeMode }) {
+  const language = useUiStore((state) => state.language);
   const queryClient = useQueryClient();
   const [step, setStep] = useState(1);
   const [category, setCategory] = useState("");
@@ -6840,7 +7078,7 @@ export function LegacyBulkReportWizard({ projects, themeMode }: { projects: Proj
             className={`mio-bulk-step rounded-full px-3 py-2 text-xs font-medium transition ${step === index + 1 ? "bg-signal-blue text-white" : "bg-white/7 text-ink-500"}`}
             onClick={() => index + 1 <= step && setStep(index + 1)}
           >
-            {index + 1}. {label}
+            {index + 1}. {translate(language, label)}
           </button>
         ))}
       </div>
@@ -6848,7 +7086,7 @@ export function LegacyBulkReportWizard({ projects, themeMode }: { projects: Proj
       {step === 1 && (
         <Field label="Select by category">
           <select value={category} onChange={(event) => selectCategory(event.target.value)} className="input">
-            <option value="">Choose a category</option>
+            <option value="">{translate(language, "Choose a category")}</option>
             {categories.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
         </Field>
@@ -6857,8 +7095,8 @@ export function LegacyBulkReportWizard({ projects, themeMode }: { projects: Proj
       {step === 2 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3 text-xs text-ink-500">
-            <span>Select multiple projects from {category}</span>
-            <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => setProjectIds(eligibleProjects.map((project) => project.id))}>Select all</button>
+            <span>{translate(language, "Select multiple projects from")} {category}</span>
+            <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => setProjectIds(eligibleProjects.map((project) => project.id))}>{translate(language, "Select all")}</button>
           </div>
           <div className="grid gap-2 md:grid-cols-2">
             {eligibleProjects.map((project) => {
@@ -6919,19 +7157,19 @@ export function LegacyBulkReportWizard({ projects, themeMode }: { projects: Proj
       )}
       {generateBulk.data && (
         <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
-          <span>{generateBulk.data.fileCount} files packaged in {generateBulk.data.zipPath}</span>
-          <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(generateBulk.data.zipPath)}>Open ZIP</button>
+          <span>{generateBulk.data.fileCount} {translate(language, "files packaged in")} {generateBulk.data.zipPath}</span>
+          <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(generateBulk.data.zipPath)}>{translate(language, "Open ZIP")}</button>
         </div>
       )}
       {generateBulk.error && <div className="mt-4 rounded-2xl bg-signal-rose/12 p-3 text-sm text-signal-rose">{generateBulk.error.message}</div>}
 
       <div className="mt-5 flex justify-between gap-3">
         <button className="secondary-button h-10 w-auto rounded-full px-5" type="button" disabled={step === 1 || generateBulk.isPending} onClick={() => setStep((current) => Math.max(1, current - 1))}>
-          <ChevronLeft size={16} /> Back
+          <ChevronLeft size={16} /> {translate(language, "Back")}
         </button>
         {step < 4 ? (
           <button className="primary-button h-10 w-auto rounded-full px-5" type="button" disabled={!canContinue()} onClick={() => setStep((current) => Math.min(4, current + 1))}>
-            Next <ChevronRight size={16} />
+            {translate(language, "Next")} <ChevronRight size={16} />
           </button>
         ) : (
           <button className="primary-button h-10 w-auto rounded-full px-5" type="button" disabled={!canContinue() || generateBulk.isPending} onClick={generate}>
@@ -6940,16 +7178,16 @@ export function LegacyBulkReportWizard({ projects, themeMode }: { projects: Proj
         )}
       </div>
       <div className="mt-6 border-t border-white/8 pt-5">
-        <div className="mb-3 text-sm font-semibold text-white">Bulk Report History</div>
+        <div className="mb-3 text-sm font-semibold text-white">{translate(language, "Bulk Report History")}</div>
         <div className="space-y-2">
           {history.map((entry) => (
             <div key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/5 p-3">
               <div>
                 <div className="text-sm font-semibold text-white">{entry.category}</div>
-                <div className="mt-1 text-xs text-ink-500">{entry.projectCount} projects · {entry.fileCount} files · {formatDateTime(entry.generatedAt)}</div>
+                <div className="mt-1 text-xs text-ink-500">{entry.projectCount} {translate(language, "projects")} · {entry.fileCount} {translate(language, "files")} · {formatDateTime(entry.generatedAt)}</div>
               </div>
               <button className="secondary-button h-9 w-auto rounded-full px-4 text-xs" type="button" onClick={() => void apiClient.openPath(entry.zipPath)}>
-                <Archive size={14} /> Open ZIP
+                <Archive size={14} /> {translate(language, "Open ZIP")}
               </button>
             </div>
           ))}
@@ -6991,10 +7229,12 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
     onMutate: () => {
       setReportProgress(8);
     },
-    onSuccess: () => {
+    onSuccess: async (result) => {
       setReportProgress(100);
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["reports"] });
+      const preview = await apiClient.reportHtml(result.reportId).catch(() => null);
+      if (preview) setPreviewReport(preview);
     },
     onError: () => {
       setReportProgress(0);
@@ -7282,7 +7522,7 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
             )}
             {generateReport.data && (
               <div className="rounded-md border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
-                Report generated at {generateReport.data.pdfPath}
+                {translate(language, "Report generated at")} {generateReport.data.pdfPath}
               </div>
             )}
           </form>
@@ -7333,9 +7573,9 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
       </div>
       <Panel title="2. Choose Report Content" icon={ListChecks} className="mio-report-inline-content-hidden">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/8 bg-white/[0.04] px-3 py-2 text-xs">
-          <span className="text-ink-400">Enable the sections needed in the final report. Drag section groups to reorder them.</span>
+          <span className="text-ink-400">{translate(language, "Enable the sections needed in the final report. Drag section groups to reorder them.")}</span>
           <span className="rounded-full bg-white/8 px-2.5 py-1 font-medium text-ink-200">
-            {sections.filter((section) => section.enabled).length} of {sections.length} enabled
+            {sections.filter((section) => section.enabled).length} {translate(language, "of")} {sections.length} {translate(language, "enabled")}
           </span>
         </div>
         <div className="space-y-3">
@@ -7357,8 +7597,8 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
               >
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-white">{group.title}</div>
-                    <div className="mt-1 text-xs text-ink-500">Drag this parent section to change report order.</div>
+                    <div className="text-sm font-semibold text-white">{translate(language, group.title)}</div>
+                    <div className="mt-1 text-xs text-ink-500">{translate(language, "Drag this parent section to change report order.")}</div>
                   </div>
                   <Rows3 size={16} className="cursor-grab text-ink-500" aria-label={`Reorder ${group.title}`} />
                 </div>
@@ -7451,9 +7691,17 @@ function prepareContinuousReportPreview(html: string): { html: string; headings:
 }
 
 function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; onClose: () => void }) {
+  const language = useUiStore((state) => state.language);
   const [copied, setCopied] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const preview = useMemo(() => prepareContinuousReportPreview(report.html), [report.html]);
+  const reportOpenTargets = useMemo(() => {
+    const formats = report.formats?.length ? report.formats : ["HTML"] as BulkReportFormat[];
+    return formats.flatMap((format) => {
+      const path = format === "PDF" ? report.pdfPath : format === "DOCX" ? report.docxPath : report.htmlPath;
+      return path ? [{ format, path }] : [];
+    });
+  }, [report.docxPath, report.formats, report.htmlPath, report.pdfPath]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -7491,32 +7739,34 @@ function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; on
       className="mio-report-preview-overlay fixed inset-0 z-[150] overflow-y-auto bg-black/55 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Report preview"
+      aria-label={translate(language, "Report preview")}
     >
       <div className="flex min-h-full items-start justify-center">
         <div className="mio-panel mio-report-preview-modal flex h-[calc(100dvh-32px)] w-[min(1180px,calc(100vw-32px))] min-w-0 flex-col overflow-hidden rounded-[18px] border border-white/12 bg-ink-900/95 shadow-glow">
           <div className="mio-report-preview-header sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-white/12 bg-ink-900/95 p-4 backdrop-blur-xl">
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">Report Preview</div>
+              <div className="text-sm font-semibold text-white">{translate(language, "Report Preview")}</div>
               <div className="mt-1 truncate text-xs text-ink-500">{report.htmlPath}</div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void copyReport()}>
                 <Copy size={14} />
-                {copied ? "Copied" : "Copy Report"}
+                {translate(language, copied ? "Copied" : "Copy Report")}
               </button>
-              <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(report.htmlPath)}>
-                <FileText size={14} />
-                Open HTML
-              </button>
-              <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onClose} aria-label="Close report preview">
+              {reportOpenTargets.map((target) => (
+                <button key={target.format} className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(target.path)}>
+                  <FileText size={14} />
+                  {translate(language, "Open")} {target.format}
+                </button>
+              ))}
+              <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onClose} aria-label={translate(language, "Close report preview")}>
                 <X size={16} />
               </button>
             </div>
           </div>
           <div className="mio-report-preview-workspace min-h-0 flex-1">
-            <aside className="mio-report-preview-outline" aria-label="Report headings">
-              <div className="mio-report-preview-outline-title">Contents</div>
+            <aside className="mio-report-preview-outline" aria-label={translate(language, "Report headings")}>
+              <div className="mio-report-preview-outline-title">{translate(language, "Contents")}</div>
               <nav>
                 {preview.headings.map((heading) => (
                   <button
@@ -7532,7 +7782,7 @@ function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; on
               </nav>
             </aside>
             <div className="mio-report-preview-document-shell">
-              <iframe ref={iframeRef} title="Report preview" srcDoc={preview.html} className="mio-report-preview-frame h-full min-h-0 w-full border-0 bg-white" />
+              <iframe ref={iframeRef} title={translate(language, "Report preview")} srcDoc={preview.html} className="mio-report-preview-frame h-full min-h-0 w-full border-0 bg-white" />
             </div>
           </div>
         </div>
@@ -7604,23 +7854,11 @@ function SegmentButton({
   );
 }
 
-function Metric({ icon: Icon, label, value, detail }: { icon: LucideIcon; label: string; value: ReactNode; detail?: string }) {
-  return (
-    <div className="mio-metric-card rounded-md border border-white/8 bg-white/6 p-4">
-      <div className="mb-4 flex items-center justify-between text-ink-500">
-        <span className="text-xs uppercase tracking-[0.14em]">{label}</span>
-        <Icon size={17} />
-      </div>
-      <div className="mio-metric-value text-3xl font-semibold text-white">{value}</div>
-      {detail && <div className="mt-2 text-[11px] leading-4 text-ink-500">{detail}</div>}
-    </div>
-  );
-}
-
 function InfoLine({ label, value }: { label: string; value: string }) {
+  const language = useUiStore((state) => state.language);
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{label}</div>
+      <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{translate(language, label)}</div>
       <div className="mt-1 break-words text-sm text-white">{value}</div>
     </div>
   );
@@ -7636,6 +7874,7 @@ function ProjectStatusPill({ completed }: { completed: boolean }) {
 }
 
 function LoadStatePill({ state }: { state: "idle" | "loading" | "ready" | "failed" }) {
+  const language = useUiStore((state) => state.language);
   const labels: Record<typeof state, string> = {
     idle: "Idle",
     loading: "Loading",
@@ -7652,7 +7891,7 @@ function LoadStatePill({ state }: { state: "idle" | "loading" | "ready" | "faile
         state === "idle" ? "border-white/10 bg-white/6 text-ink-300" : ""
       ].join(" ")}
     >
-      {labels[state]}
+      {translate(language, labels[state])}
     </div>
   );
 }
@@ -7760,8 +7999,29 @@ function projectFilterMetadata(project: ProjectSummary): { storeType: string; pr
   };
 }
 
+function localizedProjectFilterMetadata(project: ProjectSummary, language: AppLanguage): { storeType: string; priceRange: string } {
+  const filters = projectCollectionState(project).searchFilters;
+  const storeTypes = (filters?.shopTypes ?? []).map(
+    (shopType) => translate(language, SHOPEE_SHOP_TYPE_OPTIONS.find((option) => option.id === shopType)?.label ?? shopType)
+  );
+  const priceMin = filters?.priceMin;
+  const priceMax = filters?.priceMax;
+  return {
+    storeType: storeTypes.length > 0 ? storeTypes.join(", ") : translate(language, "All shop types"),
+    priceRange:
+      priceMin !== undefined && priceMax !== undefined
+        ? `${formatCurrency(priceMin)} - ${formatCurrency(priceMax)}`
+        : priceMin !== undefined
+          ? `${translate(language, "From")} ${formatCurrency(priceMin)}`
+          : priceMax !== undefined
+            ? `${translate(language, "Up to")} ${formatCurrency(priceMax)}`
+            : translate(language, "All prices")
+  };
+}
+
 function ProjectFilterMetadata({ project, chips = false }: { project: ProjectSummary; chips?: boolean }) {
-  const metadata = projectFilterMetadata(project);
+  const language = useUiStore((state) => state.language);
+  const metadata = localizedProjectFilterMetadata(project, language);
   return (
     <div className={chips ? "mio-card-chip-row" : "mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-400"}>
       <span className={chips ? "mio-card-chip" : "truncate"}>{metadata.storeType}</span>
@@ -8336,7 +8596,7 @@ function buildShopeeStoreCollectionStep(
     "Collect the full first page of store products sorted by Popular.",
     {
       collectLabel: "Add Popular Products",
-      targetSelector: ".shop-page__all-products-section",
+      targetSelector: ".shop-page__all-products-section, [class*='shop-page__all-products'], [class*='all-products-section'], [class*='shop-search-result-view']",
       metadata: { dataOnly: true }
     }
   ));
@@ -8350,7 +8610,7 @@ function buildShopeeStoreCollectionStep(
     "Collect the full first page of store products sorted by Top Sales.",
     {
       collectLabel: "Collect Best Sellers",
-      targetSelector: ".shop-page__all-products-section",
+      targetSelector: ".shop-page__all-products-section, [class*='shop-page__all-products'], [class*='all-products-section'], [class*='shop-search-result-view']",
       metadata: { dataOnly: true }
     }
   ));
@@ -9229,6 +9489,27 @@ function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): str
   }
 }
 
+async function selectShopeeStoreRatingTab(webview: WebviewElement | null, rating: 1 | 5): Promise<boolean> {
+  if (!webview?.executeJavaScript) return false;
+  return webview.executeJavaScript<boolean>(`
+    (() => {
+      const rating = ${rating};
+      const compact = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+      const exactLabel = new RegExp("^" + rating + "\\\\s*(?:star|stars|bintang)(?:\\\\s*\\\\(.*\\\\))?$", "i");
+      const candidates = Array.from(document.querySelectorAll(
+        "button, [role='tab'], [role='button'], .product-rating-overview__filter, [class*='rating-overview'][class*='filter'], [class*='rating'][class*='filter']"
+      ));
+      const target = candidates
+        .filter((element) => exactLabel.test(compact(element.textContent)))
+        .sort((left, right) => compact(left.textContent).length - compact(right.textContent).length)[0];
+      if (!(target instanceof HTMLElement)) return false;
+      target.scrollIntoView({ block: "center", inline: "nearest" });
+      target.click();
+      return true;
+    })()
+  `).catch(() => false);
+}
+
 async function extractRenderedPageSnapshot(
   webview: WebviewElement,
   productScopeSelector?: string,
@@ -9337,7 +9618,7 @@ async function extractRenderedPageSnapshot(
       const productScopeSelector = ${JSON.stringify(productScopeSelector ?? "")};
       const includeHtml = ${JSON.stringify(options.includeHtml !== false)};
       const productScopeRoot = productScopeSelector ? document.querySelector(productScopeSelector) || htmlRoot : htmlRoot;
-      const isStoreProductScope = /shop-page__all-products-section/i.test(productScopeSelector);
+      const isStoreProductScope = /shop-page__all-products|all-products-section|shop-search-result-view/i.test(productScopeSelector);
       const isSearchProductScope = /shopee-search-item-result/i.test(productScopeSelector);
       const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
       const hydrateProductScope = async () => {
@@ -10293,7 +10574,7 @@ async function extractRenderedPageSnapshot(
               : absoluteUrl(element.getAttribute("src") || imageUrlFrom(element) || ""))
             .map((value) => value?.replace(/@resize_[^/?#]+/iu, ""))
             .filter((value) => value && !/(avatar|profile|default[-_]?avatar|sprite|icon)/iu.test(value)));
-          const detectedRating = row.querySelectorAll(".icon-rating-solid").length;
+          const detectedRating = row.querySelectorAll(".rGdC5O .icon-rating-solid").length;
           const productUrl = productAnchor ? absoluteUrl(productAnchor.getAttribute("href") || productAnchor.href || "") : undefined;
           const productTitle = compact(
             textFrom(row.querySelector(".EQ3yLe, [class*='product-name'], [class*='item-name'], [class*='product-title']")) ||
@@ -10410,7 +10691,7 @@ async function extractRenderedPageSnapshot(
         : "";
       const requestedRatingRows = requestedStoreRating
         ? storeRatingRowCandidates
-            .filter((row) => row.querySelectorAll(".rGdC5O .icon-rating-solid, .icon-rating-solid").length === requestedStoreRating)
+            .filter((row) => row.querySelectorAll(".rGdC5O .icon-rating-solid").length === requestedStoreRating)
             .slice(0, 30)
             .map((row) => row.outerHTML || "")
             .filter(Boolean)
@@ -10574,7 +10855,7 @@ async function waitForRenderedProductRows(
         const scope = target || document;
         const productSelector = 'a[href*="-i."], a[href*="/product/"], a[href*="i."]';
         const scopedCount = scope.querySelectorAll(productSelector).length;
-        const documentCount = target ? 0 : document.querySelectorAll(productSelector).length;
+        const documentCount = document.querySelectorAll(productSelector).length;
         return {
           readyState: document.readyState,
           productCount: Math.max(scopedCount, documentCount)

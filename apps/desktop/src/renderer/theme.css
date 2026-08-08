@@ -2881,6 +2881,388 @@ textarea.input {
   }
 }
 
+/* Keyword Projects: compact research-library composition. */
+.mio-keyword-projects-panel {
+  border-radius: 14px !important;
+  background:
+    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--mio-accent-color) 7%, transparent), transparent 34%),
+    var(--mio-surface-1) !important;
+  padding: 22px !important;
+}
+
+.mio-keyword-projects-panel > .mio-panel-header {
+  margin-bottom: 20px !important;
+  padding: 0 4px;
+}
+
+.mio-keyword-projects-panel > .mio-panel-header + div:not(.space-y-2) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(390px, 100%), 1fr));
+  gap: 12px;
+}
+
+.mio-keyword-projects-panel .mio-project-result-card:not(.grid) {
+  min-height: 204px;
+  border-radius: 12px !important;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--mio-surface-2) 72%, transparent), transparent 72%),
+    var(--mio-surface-1) !important;
+}
+
+.mio-keyword-projects-panel .mio-project-result-card:not(.grid) .mio-result-card-body {
+  min-height: 142px;
+  padding: 18px 20px 10px;
+}
+
+.mio-keyword-projects-panel .mio-project-result-card:not(.grid) .mio-result-card-actions {
+  padding: 0 20px 18px;
+}
+
+.mio-keyword-projects-panel .mio-project-card-title {
+  font-size: 18px;
+  letter-spacing: -0.018em;
+}
+
+/* Inspect Project: reference-aligned scope, stores, progress, outline and evidence surfaces. */
+.mio-project-inspector-page {
+  --mio-inspector-radius: 12px;
+  padding: 0 2px 24px;
+}
+
+.mio-project-inspector-back-row {
+  margin-bottom: 18px;
+}
+
+.mio-inspector-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(330px, 1.05fr) minmax(210px, 0.64fr) minmax(580px, 1.95fr);
+  gap: 16px;
+}
+
+.mio-inspector-summary-card {
+  min-width: 0;
+  min-height: 244px;
+  border: 1px solid var(--mio-border-subtle);
+  border-radius: var(--mio-inspector-radius);
+  background:
+    radial-gradient(circle at 90% 5%, color-mix(in srgb, var(--mio-accent-color) 6%, transparent), transparent 42%),
+    var(--mio-panel-surface);
+  padding: 18px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.07);
+}
+
+.mio-inspector-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mio-inspector-card-heading > span:last-child,
+.mio-inspector-evidence-line > span,
+.mio-inspector-filter-grid span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.mio-inspector-card-heading strong {
+  color: var(--mio-text-primary);
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.mio-inspector-card-heading small,
+.mio-inspector-evidence-line small,
+.mio-inspector-filter-grid small {
+  color: var(--mio-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.mio-inspector-card-icon {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--mio-accent-color) 24%, var(--mio-border-subtle));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--mio-accent-color) 22%, var(--mio-surface-2));
+  color: color-mix(in srgb, var(--mio-accent-color) 70%, white);
+}
+
+.mio-inspector-price-block {
+  margin-top: 14px;
+  border: 1px solid var(--mio-border-subtle);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--mio-surface-2) 82%, transparent);
+  padding: 10px 12px;
+}
+
+.mio-inspector-price-block span {
+  display: block;
+  color: var(--mio-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mio-inspector-price-block strong {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  color: var(--mio-text-primary);
+  font-size: clamp(16px, 1.5vw, 20px);
+  font-weight: 560;
+}
+
+.mio-inspector-filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.mio-inspector-filter-grid > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--mio-border-subtle);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--mio-surface-2) 72%, transparent);
+  padding: 9px 10px;
+  color: var(--mio-text-secondary);
+}
+
+.mio-inspector-filter-grid strong,
+.mio-inspector-evidence-line strong {
+  overflow: hidden;
+  color: var(--mio-text-primary);
+  font-size: 11px;
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mio-inspector-evidence-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--mio-accent-color);
+}
+
+.mio-inspector-store-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.mio-inspector-store-total {
+  margin-top: auto;
+  color: var(--mio-text-primary);
+  font-size: 34px;
+  font-weight: 560;
+  line-height: 1;
+}
+
+.mio-inspector-store-caption {
+  margin-top: 6px;
+  color: var(--mio-text-muted);
+  font-size: 11px;
+}
+
+.mio-saved-progress-layout {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) minmax(260px, 1.2fr);
+  align-items: center;
+  gap: 20px;
+}
+
+.mio-saved-progress-layout .mio-circular-progress {
+  width: 92px;
+  height: 92px;
+  font-size: 17px;
+}
+
+.mio-saved-progress-context {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.mio-project-inspector-page .mio-project-workspace {
+  align-items: start;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.mio-project-inspector-page .mio-project-workspace > * {
+  border: 1px solid var(--mio-border-subtle) !important;
+  border-radius: var(--mio-inspector-radius) !important;
+  background:
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--mio-accent-color) 5%, transparent), transparent 34%),
+    var(--mio-panel-surface) !important;
+}
+
+.mio-project-inspector-page .mio-project-workspace > :last-child {
+  padding: 14px;
+}
+
+.mio-project-inspector-page .mio-inspector-nav {
+  padding: 14px !important;
+}
+
+.mio-outline-link-primary {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+}
+
+.mio-outline-link-primary[aria-current="location"] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--mio-accent-color) 78%, #315f9f), color-mix(in srgb, var(--mio-accent-color) 48%, var(--mio-surface-active)));
+  color: white !important;
+}
+
+.mio-project-inspector-page .mio-report-section {
+  overflow: hidden;
+  border-radius: 9px !important;
+  padding: 0 !important;
+}
+
+.mio-project-inspector-page .mio-report-section > summary {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  list-style: none;
+}
+
+.mio-project-inspector-page .mio-report-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mio-report-summary-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mio-report-summary-chevron {
+  flex: 0 0 auto;
+  transition: transform 150ms ease-out;
+}
+
+.mio-report-section[data-expanded="true"] > summary .mio-report-summary-chevron {
+  transform: rotate(180deg);
+}
+
+.mio-project-inspector-page .mio-report-section > .mio-lazy-section-body {
+  margin-top: 0 !important;
+  border-top: 1px solid var(--mio-border-subtle);
+  padding: 14px;
+}
+
+/* Evidence images use the same zoom and drag vocabulary as screenshot review. */
+.mio-result-card-media-button,
+.mio-inspect-image-button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: inherit;
+}
+
+.mio-inspect-image-button {
+  cursor: zoom-in;
+}
+
+.mio-zoomable-image-preview {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mio-image-preview-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--mio-text-muted);
+  font-size: 11px;
+}
+
+.mio-image-preview-viewport {
+  min-height: 440px;
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--mio-border-subtle);
+  border-radius: 10px;
+  background: #090a0c;
+  cursor: grab;
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+
+.mio-image-preview-viewport:active {
+  cursor: grabbing;
+}
+
+.mio-image-preview-canvas {
+  display: grid;
+  min-width: 50%;
+  min-height: 100%;
+  margin: 0 auto;
+  place-items: start center;
+  transition: width 150ms ease-out;
+}
+
+.mio-image-preview-canvas img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  user-select: none;
+}
+
+@media (max-width: 1320px) {
+  .mio-inspector-summary-grid {
+    grid-template-columns: minmax(320px, 1fr) minmax(220px, 0.7fr);
+  }
+
+  .mio-inspector-summary-grid > .mio-saved-progress-compact {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 900px) {
+  .mio-inspector-summary-grid,
+  .mio-saved-progress-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .mio-inspector-summary-grid > .mio-saved-progress-compact {
+    grid-column: auto;
+  }
+
+  .mio-image-preview-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .mio-light .mio-settings-view article {
   border-color: var(--mio-border-subtle) !important;
   background: var(--mio-surface-1) !important;
@@ -3446,10 +3828,55 @@ textarea.input {
   font-size: 11px;
 }
 
+.mio-report-structure-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.mio-report-structure-actions > span {
+  border: 1px solid var(--mio-border-subtle);
+  border-radius: var(--mio-radius-pill);
+  background: var(--mio-surface-2);
+  padding: 4px 9px;
+  color: var(--mio-text-muted);
+  font-size: 11px;
+}
+
+.mio-report-structure-actions .mio-button {
+  min-height: 32px;
+  padding-inline: 10px;
+}
+
 .mio-report-section-order {
   display: grid;
-  gap: 8px;
+  gap: 0;
   padding: 12px;
+}
+
+.mio-report-drop-zone {
+  height: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--mio-radius-sm);
+  transition: height var(--mio-transition-fast), margin var(--mio-transition-fast), border-color var(--mio-transition-fast), background var(--mio-transition-fast);
+}
+
+.mio-report-drop-zone-active {
+  height: 28px;
+  margin-block: 3px;
+  border-color: color-mix(in srgb, var(--mio-accent-color) 48%, transparent);
+  background: color-mix(in srgb, var(--mio-accent-color) 10%, transparent);
+}
+
+.mio-report-drop-zone-active::after {
+  display: block;
+  width: calc(100% - 16px);
+  height: 2px;
+  margin: 12px auto 0;
+  border-radius: var(--mio-radius-pill);
+  background: var(--mio-accent-color);
+  content: "";
 }
 
 .mio-report-group-row {
@@ -3481,8 +3908,16 @@ textarea.input {
 
 .mio-report-subsection-order {
   display: grid;
-  gap: 7px;
+  gap: 0;
   padding: 8px;
+}
+
+.mio-report-subsection-drop-zone {
+  height: 6px;
+}
+
+.mio-report-subsection-drop-zone.mio-report-drop-zone-active {
+  height: 24px;
 }
 
 .mio-report-section-row {
@@ -3493,6 +3928,7 @@ textarea.input {
   border: 1px solid var(--mio-border-subtle);
   border-radius: var(--mio-radius-sm);
   background: var(--mio-surface-2);
+  margin-block: 2px;
   transition: border-color var(--mio-transition-fast), background var(--mio-transition-fast), opacity var(--mio-transition-fast);
 }
 

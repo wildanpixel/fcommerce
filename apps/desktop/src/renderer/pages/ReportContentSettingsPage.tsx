@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -43,6 +43,8 @@ export function ReportContentSettingsPage({
   const [draft, setDraft] = useState(() => applyIntelligenceAvailability(sections, aiConfigured));
   const [draggedGroupId, setDraggedGroupId] = useState<ReportSectionGroupId | null>(null);
   const [draggedSectionId, setDraggedSectionId] = useState<ReportSectionId | null>(null);
+  const [groupDropIndex, setGroupDropIndex] = useState<number | null>(null);
+  const [sectionDropTarget, setSectionDropTarget] = useState<{ groupId: ReportSectionGroupId; index: number } | null>(null);
 
   useEffect(() => {
     if (!editing) setDraft(applyIntelligenceAvailability(sections, aiConfigured));
@@ -57,16 +59,18 @@ export function ReportContentSettingsPage({
     );
   }
 
-  function moveGroup(targetGroupId: ReportSectionGroupId) {
-    if (!editing || !draggedGroupId || draggedGroupId === targetGroupId) return;
-    setDraft((current) => reorderReportGroup(current, draggedGroupId, targetGroupId));
+  function moveGroup(dropIndex: number) {
+    if (!editing || !draggedGroupId) return;
+    setDraft((current) => reorderReportGroup(current, draggedGroupId, dropIndex));
     setDraggedGroupId(null);
+    setGroupDropIndex(null);
   }
 
-  function moveSection(targetSectionId: ReportSectionId, groupId: ReportSectionGroupId) {
-    if (!editing || !draggedSectionId || draggedSectionId === targetSectionId) return;
-    setDraft((current) => reorderReportSubsection(current, groupId, draggedSectionId, targetSectionId));
+  function moveSection(groupId: ReportSectionGroupId, dropIndex: number) {
+    if (!editing || !draggedSectionId) return;
+    setDraft((current) => reorderReportSubsection(current, groupId, draggedSectionId, dropIndex));
     setDraggedSectionId(null);
+    setSectionDropTarget(null);
   }
 
   function cancel() {
@@ -99,20 +103,6 @@ export function ReportContentSettingsPage({
             <ChevronLeft size={15} />
             {translate(language, "Back")}
           </Button>
-          {editing ? (
-            <>
-              <Button variant="secondary" onClick={cancel}>{translate(language, "Cancel")}</Button>
-              <Button variant="primary" loading={saving} onClick={save}>
-                <Save size={15} />
-                {translate(language, "Save")}
-              </Button>
-            </>
-          ) : (
-            <Button variant="secondary" onClick={() => setEditing(true)}>
-              <Pencil size={15} />
-              {translate(language, "Edit")}
-            </Button>
-          )}
         </div>
       </div>
 
@@ -125,7 +115,23 @@ export function ReportContentSettingsPage({
                 {translate(language, "Drag sections to reorder the generated document.")}
               </div>
             </div>
-            <span>{enabledSections.length}/{draft.length}</span>
+            <div className="mio-report-structure-actions">
+              <span>{enabledSections.length}/{draft.length}</span>
+              {editing ? (
+                <>
+                  <Button variant="ghost" onClick={cancel}>{translate(language, "Cancel")}</Button>
+                  <Button variant="primary" loading={saving} onClick={save}>
+                    <Save size={15} />
+                    {translate(language, "Save")}
+                  </Button>
+                </>
+              ) : (
+                <Button variant="secondary" onClick={() => setEditing(true)}>
+                  <Pencil size={15} />
+                  {translate(language, "Edit")}
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="mio-report-section-order" aria-label={translate(language, "Report structure")}>
@@ -135,14 +141,32 @@ export function ReportContentSettingsPage({
               const children = draft.filter((section) => group.sectionIds.some((sectionId) => sectionId === section.id));
               const intelligenceLocked = group.id === "intelligence" && !aiConfigured;
               return (
+                <Fragment key={group.id}>
+                <div
+                  className={["mio-report-drop-zone", draggedGroupId && groupDropIndex === groupIndex ? "mio-report-drop-zone-active" : ""].join(" ")}
+                  aria-hidden="true"
+                  onDragOver={(event) => {
+                    if (!editing || !draggedGroupId) return;
+                    event.preventDefault();
+                    setGroupDropIndex(groupIndex);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    moveGroup(groupIndex);
+                  }}
+                />
                 <section
-                  key={group.id}
                   className={["mio-report-group-row", intelligenceLocked ? "mio-report-section-row-locked" : ""].join(" ")}
                   draggable={editing && !intelligenceLocked}
-                  onDragStart={() => setDraggedGroupId(group.id)}
-                  onDragEnd={() => setDraggedGroupId(null)}
-                  onDragOver={(event) => editing && event.preventDefault()}
-                  onDrop={() => moveGroup(group.id)}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", group.id);
+                    setDraggedGroupId(group.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedGroupId(null);
+                    setGroupDropIndex(null);
+                  }}
                 >
                   <header className="mio-report-group-heading">
                     <span className="mio-report-section-position">{String(groupIndex + 1).padStart(2, "0")}</span>
@@ -152,25 +176,35 @@ export function ReportContentSettingsPage({
                   </header>
                   <div className="mio-report-subsection-order">
                     {children.map((section, sectionIndex) => (
+                      <Fragment key={section.id}>
                       <div
-                        key={section.id}
+                        className={["mio-report-drop-zone mio-report-subsection-drop-zone", draggedSectionId && sectionDropTarget?.groupId === group.id && sectionDropTarget.index === sectionIndex ? "mio-report-drop-zone-active" : ""].join(" ")}
+                        aria-hidden="true"
+                        onDragOver={(event) => {
+                          if (!editing || !draggedSectionId) return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setSectionDropTarget({ groupId: group.id, index: sectionIndex });
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          moveSection(group.id, sectionIndex);
+                        }}
+                      />
+                      <div
                         className="mio-report-section-row"
                         draggable={editing && !intelligenceLocked && children.length > 1}
                         onDragStart={(event) => {
                           event.stopPropagation();
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", section.id);
                           setDraggedSectionId(section.id);
                         }}
                         onDragEnd={(event) => {
                           event.stopPropagation();
                           setDraggedSectionId(null);
-                        }}
-                        onDragOver={(event) => {
-                          if (editing) event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onDrop={(event) => {
-                          event.stopPropagation();
-                          moveSection(section.id, group.id);
+                          setSectionDropTarget(null);
                         }}
                       >
                         <button
@@ -186,7 +220,23 @@ export function ReportContentSettingsPage({
                         </button>
                         <span className="mio-report-section-grip" aria-hidden="true"><GripVertical size={16} /></span>
                       </div>
+                      </Fragment>
                     ))}
+                    <div
+                      className={["mio-report-drop-zone mio-report-subsection-drop-zone", draggedSectionId && sectionDropTarget?.groupId === group.id && sectionDropTarget.index === children.length ? "mio-report-drop-zone-active" : ""].join(" ")}
+                      aria-hidden="true"
+                      onDragOver={(event) => {
+                        if (!editing || !draggedSectionId) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setSectionDropTarget({ groupId: group.id, index: children.length });
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        moveSection(group.id, children.length);
+                      }}
+                    />
                   </div>
                   {intelligenceLocked ? (
                     <div className="mio-report-intelligence-note">
@@ -194,6 +244,22 @@ export function ReportContentSettingsPage({
                     </div>
                   ) : null}
                 </section>
+                {groupIndex === groupOrder.length - 1 ? (
+                  <div
+                    className={["mio-report-drop-zone", draggedGroupId && groupDropIndex === groupOrder.length ? "mio-report-drop-zone-active" : ""].join(" ")}
+                    aria-hidden="true"
+                    onDragOver={(event) => {
+                      if (!editing || !draggedGroupId) return;
+                      event.preventDefault();
+                      setGroupDropIndex(groupOrder.length);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      moveGroup(groupOrder.length);
+                    }}
+                  />
+                ) : null}
+                </Fragment>
               );
             })}
           </div>
@@ -296,15 +362,15 @@ function orderedReportGroups(sections: ReportSectionConfig[]): ReportSectionGrou
 function reorderReportGroup(
   sections: ReportSectionConfig[],
   sourceGroupId: ReportSectionGroupId,
-  targetGroupId: ReportSectionGroupId
+  dropIndex: number
 ): ReportSectionConfig[] {
   const groupOrder = orderedReportGroups(sections);
   const sourceIndex = groupOrder.indexOf(sourceGroupId);
-  const targetIndex = groupOrder.indexOf(targetGroupId);
-  if (sourceIndex < 0 || targetIndex < 0) return sections;
+  if (sourceIndex < 0) return sections;
   const nextGroupOrder = [...groupOrder];
   const [moved] = nextGroupOrder.splice(sourceIndex, 1);
-  nextGroupOrder.splice(targetIndex, 0, moved);
+  const adjustedDropIndex = sourceIndex < dropIndex ? dropIndex - 1 : dropIndex;
+  nextGroupOrder.splice(Math.max(0, Math.min(adjustedDropIndex, nextGroupOrder.length)), 0, moved);
   const groupedIds = new Set<ReportSectionId>(REPORT_SECTION_GROUPS.flatMap((group) => [...group.sectionIds]));
   const ordered = nextGroupOrder.flatMap((groupId) => {
     const group = REPORT_SECTION_GROUPS.find((item) => item.id === groupId);
@@ -319,19 +385,19 @@ function reorderReportSubsection(
   sections: ReportSectionConfig[],
   groupId: ReportSectionGroupId,
   sourceSectionId: ReportSectionId,
-  targetSectionId: ReportSectionId
+  dropIndex: number
 ): ReportSectionConfig[] {
   const group = REPORT_SECTION_GROUPS.find((item) => item.id === groupId);
-  if (!group || !group.sectionIds.some((id) => id === sourceSectionId) || !group.sectionIds.some((id) => id === targetSectionId)) {
+  if (!group || !group.sectionIds.some((id) => id === sourceSectionId)) {
     return sections;
   }
   const children = sections.filter((section) => group.sectionIds.some((id) => id === section.id));
   const sourceIndex = children.findIndex((section) => section.id === sourceSectionId);
-  const targetIndex = children.findIndex((section) => section.id === targetSectionId);
-  if (sourceIndex < 0 || targetIndex < 0) return sections;
+  if (sourceIndex < 0) return sections;
   const reordered = [...children];
   const [moved] = reordered.splice(sourceIndex, 1);
-  reordered.splice(targetIndex, 0, moved);
+  const adjustedDropIndex = sourceIndex < dropIndex ? dropIndex - 1 : dropIndex;
+  reordered.splice(Math.max(0, Math.min(adjustedDropIndex, reordered.length)), 0, moved);
   let childIndex = 0;
   return sections.map((section) => group.sectionIds.some((id) => id === section.id) ? reordered[childIndex++] : section);
 }

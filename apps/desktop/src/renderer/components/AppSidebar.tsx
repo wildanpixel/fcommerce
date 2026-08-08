@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { ChevronRight, ExternalLink, FileDown, HardDrive, PanelLeftClose, PanelLeftOpen, Search, Settings, Table2, UserRound } from "lucide-react";
+import { ChevronRight, ExternalLink, FileDown, HardDrive, Mail, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Search, Send, Settings, Table2, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { motion } from "framer-motion";
 import { APP_AUTHOR_LINKEDIN, APP_AUTHOR_NAME } from "../app/appMetadata.js";
@@ -139,6 +139,58 @@ export const AppSidebar = memo(function AppSidebar({ collapsed, themeMode, onTog
           <IconButton label={translate(language, "Open Settings")} variant="ghost" onClick={() => setActiveView("settings")}>
             <Settings size={17} />
           </IconButton>
+          <Popover
+            align="start"
+            trigger={({ open, toggle }) => (
+              <IconButton
+                label={translate(language, "Add feedback")}
+                variant="ghost"
+                aria-expanded={open}
+                aria-haspopup="menu"
+                data-mio-popover-trigger
+                onClick={toggle}
+              >
+                <MessageSquarePlus size={17} />
+              </IconButton>
+            )}
+          >
+            {({ close }) => (
+              <>
+                <div className="mio-popover-heading">
+                  <MessageSquarePlus size={16} />
+                  <span>{translate(language, "Send feedback")}</span>
+                </div>
+                <p className="mio-popover-copy">
+                  {translate(language, "Employee ID feedback to")} <strong>119994 (Wildan Ega Pradana)</strong>
+                </p>
+                <div className="mio-popover-separator" />
+                <Button
+                  variant="ghost"
+                  className="mio-popover-row"
+                  onClick={() => {
+                    close();
+                    void apiClient.openUrl("mailto:wildan.pixell@gmail.com?subject=Research%20Product%20Market%20Feedback%20-%20119994");
+                  }}
+                >
+                  <Mail size={16} />
+                  <span>Gmail</span>
+                  <ChevronRight size={14} className="ml-auto" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="mio-popover-row"
+                  onClick={() => {
+                    close();
+                    void apiClient.openUrl("mailto:wildanega_pra@flashexpress.id?subject=Research%20Product%20Market%20Feedback%20-%20119994");
+                  }}
+                >
+                  <Send size={16} />
+                  <span>{translate(language, "Lark / Tencent Mail")}</span>
+                  <ChevronRight size={14} className="ml-auto" />
+                </Button>
+              </>
+            )}
+          </Popover>
         </div>
 
         <Popover
