@@ -1944,14 +1944,17 @@ table tbody tr:hover {
   display: grid;
   width: 100%;
   aspect-ratio: 16 / 8;
+  max-height: 168px;
   place-items: center;
   overflow: hidden;
   border-bottom: 1px solid var(--mio-border-subtle);
   background: var(--mio-surface-2);
+  contain: paint;
 }
 
 .mio-result-card-media-product {
   aspect-ratio: 4 / 3;
+  max-height: 154px;
   background: #f1f1ef;
 }
 
@@ -1963,6 +1966,12 @@ table tbody tr:hover {
 
 .mio-result-card-media-product > img {
   object-fit: contain;
+}
+
+.mio-result-card-media img,
+.mio-store-type-mark > img,
+.mio-inspect-image-button img {
+  image-rendering: auto;
 }
 
 .mio-result-card-media-overlay {
@@ -2907,6 +2916,8 @@ textarea.input {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--mio-surface-2) 72%, transparent), transparent 72%),
     var(--mio-surface-1) !important;
+  content-visibility: auto;
+  contain-intrinsic-size: 204px;
 }
 
 .mio-keyword-projects-panel .mio-project-result-card:not(.grid) .mio-result-card-body {
@@ -2921,6 +2932,11 @@ textarea.input {
 .mio-keyword-projects-panel .mio-project-card-title {
   font-size: 18px;
   letter-spacing: -0.018em;
+}
+
+.mio-keyword-projects-panel .mio-project-result-card.grid {
+  content-visibility: auto;
+  contain-intrinsic-size: 92px;
 }
 
 /* Inspect Project: reference-aligned scope, stores, progress, outline and evidence surfaces. */
@@ -3169,6 +3185,32 @@ textarea.input {
   margin-top: 0 !important;
   border-top: 1px solid var(--mio-border-subtle);
   padding: 14px;
+}
+
+.mio-project-inspector-page .mio-product-card-grid > .mio-product-result-card,
+.mio-project-inspector-page .mio-asset-grid > .mio-asset-card,
+.mio-project-inspector-page .mio-product-image-grid > .mio-inspect-image-button,
+.mio-project-inspector-page .mio-store-rating-evidence,
+.mio-project-inspector-page .mio-result-list-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 210px;
+}
+
+.mio-project-inspector-page .mio-result-list-row {
+  contain-intrinsic-size: 72px;
+}
+
+.mio-project-inspector-page .mio-asset-thumbnail,
+.mio-project-inspector-page .mio-product-image-grid .aspect-square {
+  max-height: 142px;
+  contain: paint;
+}
+
+.mio-project-inspector-page .mio-asset-thumbnail img,
+.mio-project-inspector-page .mio-product-image-grid img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* Evidence images use the same zoom and drag vocabulary as screenshot review. */

@@ -6157,10 +6157,10 @@ function AssetList({ assets, limit = 24 }: { assets: ProjectDetailPayload["asset
   }
   return (
     <>
-    <div className="grid grid-cols-3 gap-3">
+    <div className="mio-asset-grid grid grid-cols-3 gap-3">
       {assets.slice(0, limit).map((asset) => (
-        <button key={asset.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void openAssetPreview(asset)}>
-          <div className="aspect-video overflow-hidden rounded bg-white/10">
+        <button key={asset.id} type="button" className="mio-asset-card rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void openAssetPreview(asset)}>
+          <div className="mio-asset-thumbnail aspect-video overflow-hidden rounded bg-white/10">
             {asset.mimeType.startsWith("image/") ? <MediaThumbnail src={asset.path} alt={asset.label} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
           </div>
           <div className="mt-2 truncate text-xs font-medium text-white">{asset.label}</div>
@@ -6274,7 +6274,7 @@ function ProductCardGrid({ products, limit = 80 }: { products: ProjectProductEvi
     <>
     <div>
       <ProductViewToggle value={view} onChange={setView} />
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="mio-product-card-grid mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {products.slice(0, limit).map((product) => (
           <article key={product.id} className="mio-result-card mio-product-result-card text-left">
             <button type="button" className="mio-result-card-media-button" onClick={() => product.imageUrl && setPreviewImage({ src: product.imageUrl, title: displayProductTitle(product) })} aria-label={translate(language, "Preview product image")}>
@@ -6834,7 +6834,7 @@ function ProductImageGrid({ images }: { images: string[] }) {
   }
   return (
     <>
-    <div className="grid grid-cols-3 gap-3">
+    <div className="mio-product-image-grid grid grid-cols-3 gap-3">
       {visibleImages.slice(0, 9).map((image, index) => (
         <button key={`${image}-${index}`} type="button" className="mio-inspect-image-button overflow-hidden rounded-md border border-white/8 bg-white/5" onClick={() => setPreviewImage(image)}>
           <div className="aspect-square bg-white/10">

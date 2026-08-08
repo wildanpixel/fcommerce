@@ -1,4 +1,4 @@
-import { useEffect, useState, type ImgHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import type { StoreType } from "../../shared/storeTypes.js";
 import { storeTypeImage, storeTypeLabel } from "../../shared/storeTypes.js";
 
@@ -52,46 +52,88 @@ export function ResultCardMedia({
   );
 }
 
-export function MediaThumbnail({ src, onError, ...props }: Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & { src?: string | null }) {
+export function MediaThumbnail({
+  src,
+  onError,
+  loading = "lazy",
+  decoding = "async",
+  ...props
+}: Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & { src?: string | null }) {
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const normalizedSource = useMemo(() => normalizeMediaSource(src), [src]);
+  const localPath = useMemo(() => normalizedSource ? localMediaPath(normalizedSource) : undefined, [normalizedSource]);
   const [resolvedSource, setResolvedSource] = useState<string>();
   const [failed, setFailed] = useState(false);
+  const [visibleEnough, setVisibleEnough] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    const source = normalizeMediaSource(src);
+    setVisibleEnough(false);
+  }, [normalizedSource]);
+
+  useEffect(() => {
     setFailed(false);
-    if (!source) {
+    if (!normalizedSource) {
       setResolvedSource(undefined);
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
-    const localPath = localMediaPath(source);
+    if (!localPath) {
+      setResolvedSource(normalizedSource);
+      return;
+    }
+    if (window.location.protocol === "file:") {
+      setResolvedSource(localPathToFileUrl(localPath));
+      return;
+    }
     const readPreviewFile = window.marketplaceOS?.platform?.readPreviewFile;
-    if (!localPath || !readPreviewFile) {
-      setResolvedSource(source);
-      return () => {
-        cancelled = true;
-      };
+    if (!readPreviewFile) {
+      setResolvedSource(localPathToFileUrl(localPath));
+      return;
     }
-    setResolvedSource(undefined);
+    if (!visibleEnough) {
+      setResolvedSource(undefined);
+      return;
+    }
+    let cancelled = false;
     void readPreviewFile(localPath)
       .then((result) => {
         if (!cancelled) setResolvedSource(`data:${result.mimeType};base64,${result.dataBase64}`);
       })
       .catch(() => {
-        if (!cancelled) setResolvedSource(source);
+        if (!cancelled) setResolvedSource(localPathToFileUrl(localPath));
       });
     return () => {
       cancelled = true;
     };
-  }, [src]);
+  }, [localPath, normalizedSource, visibleEnough]);
 
-  if (!resolvedSource || failed) return null;
+  useEffect(() => {
+    if (!localPath || visibleEnough || window.location.protocol === "file:") return;
+    const target = imageRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") {
+      setVisibleEnough(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleEnough(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "900px 0px" }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [localPath, visibleEnough]);
+
+  if (!normalizedSource || failed) return null;
   return (
     <img
       {...props}
-      src={resolvedSource}
+      ref={imageRef}
+      src={resolvedSource ?? TRANSPARENT_PIXEL_SRC}
+      loading={loading}
+      decoding={decoding}
       onError={(event) => {
         setFailed(true);
         onError?.(event);
@@ -99,6 +141,8 @@ export function MediaThumbnail({ src, onError, ...props }: Omit<ImgHTMLAttribute
     />
   );
 }
+
+const TRANSPARENT_PIXEL_SRC = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 function normalizeMediaSource(value?: string | null): string {
   const source = value?.trim() ?? "";
@@ -116,6 +160,13 @@ function localMediaPath(source: string): string | undefined {
   } catch {
     return source.replace(/^file:\/{2,3}/iu, "");
   }
+}
+
+function localPathToFileUrl(path: string): string {
+  const normalized = path.replace(/\\/gu, "/");
+  if (/^[a-z]:\//iu.test(normalized)) return `file:///${normalized}`;
+  if (normalized.startsWith("/")) return `file://${normalized}`;
+  return normalized;
 }
 
 function MarketplaceCardPlaceholder({ variant, label }: { variant: ResultCardVariant; label: string }) {
