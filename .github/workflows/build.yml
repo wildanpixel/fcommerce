@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - "codex/**"
     tags:
       - "v*"
   pull_request:
@@ -98,3 +99,79 @@ jobs:
             --generate-notes `
             "$($portable.FullName)#Windows Portable" `
             "$($checksum.FullName)#SHA-256 checksum"
+
+  macos:
+    name: macOS Desktop
+    needs: windows
+    runs-on: macos-14
+
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm prisma:generate
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build React and Electron code
+        run: pnpm build
+
+      - name: Stage Puppeteer browser for Intel macOS
+        run: pnpm --filter @marketplace-intelligence-os/desktop stage:puppeteer -- --platform=darwin --arch=x64
+
+      - name: Stage Puppeteer browser for Apple Silicon macOS
+        run: pnpm --filter @marketplace-intelligence-os/desktop stage:puppeteer -- --platform=darwin --arch=arm64
+
+      - name: Package macOS Intel and Apple Silicon
+        run: pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --mac --x64 --arm64
+
+      - name: Create macOS checksums
+        run: |
+          cd apps/desktop/release
+          shasum -a 256 *.dmg > Research-Product-Market-macOS.sha256
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-product-market-macos
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish tagged macOS release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            apps/desktop/release/*.dmg \
+            apps/desktop/release/*.sha256 \
+            --repo "${{ github.repository }}" \
+            --clobber
