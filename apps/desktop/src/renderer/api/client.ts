@@ -11,6 +11,8 @@ import type {
   CollectionState,
   CreateJobPayload,
   DashboardSnapshot,
+  EvidenceTranslationPayload,
+  EvidenceTranslationResult,
   HealthPayload,
   HtmlSnapshotPayload,
   HtmlSnapshotResult,
@@ -20,6 +22,8 @@ import type {
   ManualEvidenceResult,
   ManualFileEvidencePayload,
   NewProjectInput,
+  LicenseActivationPayload,
+  LicenseStatusPayload,
   PlatformPayload,
   ProjectDetailPayload,
   ReportGenerationPayload,
@@ -37,6 +41,7 @@ const apiBaseUrl =
   new URLSearchParams(window.location.search).get("apiBaseUrl") ??
   import.meta.env.VITE_API_BASE_URL ??
   "http://127.0.0.1:4123/api";
+let licenseSessionToken = "";
 
 export type MarketplaceOption = {
   id: string;
@@ -47,6 +52,19 @@ export type MarketplaceOption = {
 
 export const apiClient = {
   health: () => request<HealthPayload>("/health"),
+  licenseStatus: async () => {
+    const result = await request<LicenseStatusPayload>("/license/status");
+    licenseSessionToken = result.sessionToken ?? "";
+    return result;
+  },
+  activateLicense: async (payload: LicenseActivationPayload) => {
+    const result = await request<LicenseStatusPayload>("/license/activate", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    licenseSessionToken = result.sessionToken ?? "";
+    return result;
+  },
   dashboard: () => request<DashboardSnapshot>("/dashboard"),
   platform: () => request<PlatformPayload>("/platform"),
   browsers: () => request<BrowserOption[]>("/browsers"),
@@ -83,6 +101,11 @@ export const apiClient = {
   saveSettings: (payload: SaveSettingsPayload) =>
     request<SettingsPayload>("/settings", {
       method: "PUT",
+      body: JSON.stringify(payload)
+    }),
+  translateEvidence: (payload: EvidenceTranslationPayload) =>
+    request<EvidenceTranslationResult>("/translations/evidence", {
+      method: "POST",
       body: JSON.stringify(payload)
     }),
   createProject: (payload: NewProjectInput) =>
@@ -157,6 +180,16 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify({ path })
     }),
+  revealPath: async (path: string) => {
+    if (window.marketplaceOS?.platform?.showItemInFolder) {
+      return window.marketplaceOS.platform.showItemInFolder(path);
+    }
+    await request<{ ok: true }>("/platform/open-path", {
+      method: "POST",
+      body: JSON.stringify({ path })
+    });
+    return true;
+  },
   openUrl: (url: string) =>
     request<{ ok: true }>("/platform/open-url", {
       method: "POST",
@@ -169,6 +202,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(licenseSessionToken ? { "X-MIO-Session": licenseSessionToken } : {}),
       ...init?.headers
     }
   });

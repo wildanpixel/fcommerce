@@ -1770,3 +1770,353 @@ button[aria-label="Next step"] {
 .mio-dark .mio-screenshot-copy {
   color: #94a3b8;
 }
+
+.mio-sidebar-collapsed {
+  overflow: visible;
+}
+
+.mio-sidebar-collapsed::after {
+  display: none;
+}
+
+.mio-sidebar-collapsed .mio-nav-button {
+  position: relative;
+}
+
+.mio-sidebar-collapsed .mio-nav-button[data-tooltip]::after {
+  position: absolute;
+  z-index: 120;
+  top: 50%;
+  left: calc(100% + 12px);
+  padding: 7px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.22);
+  color: #f8fafc;
+  content: attr(data-tooltip);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-4px, -50%);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+  white-space: nowrap;
+}
+
+.mio-sidebar-collapsed .mio-nav-button[data-tooltip]:hover::after,
+.mio-sidebar-collapsed .mio-nav-button[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+.mio-top-bar {
+  background: linear-gradient(180deg, rgba(9, 11, 16, 0.96), rgba(9, 11, 16, 0.72) 72%, transparent);
+  backdrop-filter: blur(18px) saturate(1.12);
+  transition:
+    height 280ms ease,
+    min-height 280ms ease,
+    box-shadow 280ms ease,
+    background-color 280ms ease;
+}
+
+.mio-top-bar h1 {
+  transform-origin: left center;
+  transition: transform 280ms ease;
+}
+
+.mio-top-bar-compact {
+  box-shadow: 0 10px 28px rgba(3, 7, 18, 0.1);
+}
+
+.mio-top-bar-compact h1 {
+  transform: scale(0.92);
+}
+
+.mio-light .mio-top-bar {
+  background: linear-gradient(180deg, rgba(247, 250, 253, 0.97), rgba(247, 250, 253, 0.78) 72%, transparent);
+}
+
+.mio-new-research-backdrop {
+  --mio-pointer-x: 50%;
+  --mio-pointer-y: 50%;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.mio-new-research-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at var(--mio-pointer-x) var(--mio-pointer-y),
+    rgba(59, 130, 246, 0.14),
+    transparent 26%
+  );
+}
+
+.mio-marketplace-icon {
+  position: absolute;
+  display: flex;
+  width: 52px;
+  height: 52px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(96, 165, 250, 0.42);
+  animation: mio-marketplace-float 8s ease-in-out infinite;
+  backdrop-filter: blur(8px);
+  will-change: transform;
+}
+
+.mio-marketplace-icon-1 {
+  top: 15%;
+  left: 12%;
+}
+
+.mio-marketplace-icon-2 {
+  top: 24%;
+  right: 14%;
+  animation-delay: -2.4s;
+}
+
+.mio-marketplace-icon-3 {
+  bottom: 19%;
+  left: 18%;
+  animation-delay: -4.6s;
+}
+
+.mio-marketplace-icon-4 {
+  right: 20%;
+  bottom: 15%;
+  animation-delay: -6.1s;
+}
+
+.mio-research-particles span {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(96, 165, 250, 0.42);
+  animation: mio-research-particle 7s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.mio-research-particles span:nth-child(1) { top: 12%; left: 28%; }
+.mio-research-particles span:nth-child(2) { top: 18%; left: 67%; animation-delay: -1s; }
+.mio-research-particles span:nth-child(3) { top: 34%; left: 8%; animation-delay: -2s; }
+.mio-research-particles span:nth-child(4) { top: 38%; left: 84%; animation-delay: -3s; }
+.mio-research-particles span:nth-child(5) { top: 61%; left: 10%; animation-delay: -4s; }
+.mio-research-particles span:nth-child(6) { top: 68%; left: 89%; animation-delay: -5s; }
+.mio-research-particles span:nth-child(7) { top: 82%; left: 33%; animation-delay: -6s; }
+.mio-research-particles span:nth-child(8) { top: 78%; left: 72%; animation-delay: -2.5s; }
+.mio-research-particles span:nth-child(9) { top: 47%; left: 24%; animation-delay: -3.5s; }
+.mio-research-particles span:nth-child(10) { top: 52%; left: 75%; animation-delay: -4.5s; }
+.mio-research-particles span:nth-child(11) { top: 26%; left: 42%; animation-delay: -5.5s; }
+.mio-research-particles span:nth-child(12) { top: 72%; left: 52%; animation-delay: -1.5s; }
+
+.mio-new-research-backdrop[data-paused] *,
+.mio-new-research-backdrop[data-paused] *::before,
+.mio-new-research-backdrop[data-paused] *::after {
+  animation-play-state: paused !important;
+}
+
+.mio-light .mio-marketplace-icon {
+  border-color: rgba(71, 85, 105, 0.12);
+  background: rgba(255, 255, 255, 0.48);
+  color: rgba(37, 99, 235, 0.38);
+}
+
+@keyframes mio-marketplace-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(-2deg);
+  }
+  50% {
+    transform: translate3d(0, -14px, 0) rotate(2deg);
+  }
+}
+
+@keyframes mio-research-particle {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: translate3d(0, 8px, 0) scale(0.8);
+  }
+  50% {
+    opacity: 0.72;
+    transform: translate3d(0, -10px, 0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mio-marketplace-icon,
+  .mio-research-particles span {
+    animation: none !important;
+  }
+
+  .mio-new-research-glow {
+    display: none;
+  }
+}
+/* Legacy application shell reset. */
+:root {
+  --mio-shell-bg: #ffffff;
+  --mio-surface: #f8f9fa;
+  --mio-surface-raised: #ffffff;
+  --mio-border: #e1e4e8;
+  --mio-text: #202124;
+  --mio-muted: #5f6368;
+  --mio-accent: #1a73e8;
+  --mio-accent-soft: #e8f0fe;
+}
+
+body {
+  background: var(--mio-shell-bg);
+  color: var(--mio-text);
+}
+
+.mio-app,
+.mio-main,
+.mio-light,
+.mio-light .mio-main {
+  background: var(--mio-shell-bg);
+  color: var(--mio-text);
+}
+
+.mio-main::before,
+.mio-light .mio-main::before {
+  background: transparent;
+}
+
+.mio-sidebar,
+.mio-light .mio-sidebar {
+  background: var(--mio-surface);
+  border-color: var(--mio-border);
+  box-shadow: none;
+}
+
+.mio-panel,
+.mio-light .mio-panel,
+.mio-glass,
+.mio-light .mio-glass {
+  background: var(--mio-surface-raised);
+  border-color: var(--mio-border);
+  box-shadow: none;
+}
+
+.input,
+.mio-light .input,
+.secondary-button,
+.mio-light .secondary-button {
+  background: var(--mio-surface-raised);
+  border-color: var(--mio-border);
+  color: var(--mio-text);
+  box-shadow: none;
+  border-radius: 8px;
+}
+
+.primary-button,
+.mio-light .primary-button {
+  background: var(--mio-accent);
+  border-color: var(--mio-accent);
+  color: #ffffff;
+  box-shadow: none;
+  border-radius: 8px;
+}
+
+.primary-button:hover,
+.mio-light .primary-button:hover {
+  background: #1765cc;
+  border-color: #1765cc;
+}
+
+.mio-nav-button {
+  border-radius: 8px;
+  color: var(--mio-muted);
+}
+
+.mio-nav-button:hover,
+.mio-nav-button[aria-current="page"] {
+  background: var(--mio-accent-soft);
+  color: var(--mio-accent);
+}
+
+.mio-top-bar,
+.mio-light .mio-top-bar {
+  background: color-mix(in srgb, var(--mio-shell-bg) 88%, transparent);
+  border-color: var(--mio-border);
+  box-shadow: none;
+  backdrop-filter: blur(16px);
+}
+
+.mio-round-icon-button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.mio-app *,
+.mio-app *::before,
+.mio-app *::after {
+  transition-duration: 200ms;
+}
+
+.mio-dark {
+  --mio-shell-bg: #181818;
+  --mio-surface: #1f1f1f;
+  --mio-surface-raised: #242424;
+  --mio-border: #353535;
+  --mio-text: #e8eaed;
+  --mio-muted: #9aa0a6;
+  --mio-accent: #8ab4f8;
+  --mio-accent-soft: #263850;
+}
+
+.mio-dark,
+.mio-dark .mio-main {
+  background: var(--mio-shell-bg);
+  color: var(--mio-text);
+}
+
+.mio-dark .mio-sidebar,
+.mio-dark .mio-panel,
+.mio-dark .mio-glass,
+.mio-dark .input,
+.mio-dark .secondary-button {
+  background: var(--mio-surface);
+  border-color: var(--mio-border);
+  color: var(--mio-text);
+  box-shadow: none;
+}
+
+.mio-dark .mio-top-bar {
+  background: color-mix(in srgb, var(--mio-shell-bg) 88%, transparent);
+  border-color: var(--mio-border);
+}
+
+.mio-dark .primary-button {
+  background: #8ab4f8;
+  border-color: #8ab4f8;
+  color: #202124;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mio-app *,
+  .mio-app *::before,
+  .mio-app *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

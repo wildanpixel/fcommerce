@@ -1,0 +1,4 @@
+?? .codex-state.json
+?? .codex-state.txt
+?? .codex-status.txt
+?? docs/social/

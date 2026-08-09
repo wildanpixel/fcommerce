@@ -5,7 +5,13 @@ on:
   push:
     branches:
       - main
+      - "codex/**"
+    tags:
+      - "v*"
   pull_request:
+
+permissions:
+  contents: write
 
 jobs:
   windows:
@@ -51,31 +57,56 @@ jobs:
       - name: Package Windows
         run: pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --win --x64
 
+      - name: Create portable checksum
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem "apps/desktop/release/*Portable*.exe" | Select-Object -First 1
+          if (-not $portable) {
+            throw "Windows portable executable was not generated."
+          }
+
+          $checksumPath = Join-Path $portable.DirectoryName "$($portable.BaseName).sha256"
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $portable.FullName).Hash.ToLowerInvariant()
+          "$hash  $($portable.Name)" | Set-Content -LiteralPath $checksumPath -Encoding ascii
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: marketplace-intelligence-os-windows
+          name: marketplace-keyword-competitor-analysis-windows
           path: |
             apps/desktop/release/*.exe
             apps/desktop/release/*.blockmap
+            apps/desktop/release/*.sha256
           if-no-files-found: error
           retention-days: 30
 
+      - name: Publish tagged Windows portable release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $portable = Get-ChildItem "apps/desktop/release/*Portable*.exe" | Select-Object -First 1
+          $checksum = Get-ChildItem "apps/desktop/release/*Portable*.sha256" | Select-Object -First 1
+          if (-not $portable -or -not $checksum) {
+            throw "Portable executable or checksum is missing."
+          }
+
+          gh release create "${{ github.ref_name }}" `
+            --repo "${{ github.repository }}" `
+            --verify-tag `
+            --title "MarketPlace Keyword Competitor Analysis ${{ github.ref_name }}" `
+            --generate-notes `
+            "$($portable.FullName)#Windows Portable" `
+            "$($checksum.FullName)#SHA-256 checksum"
+
   macos:
-    name: macOS Desktop (${{ matrix.label }})
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            label: Intel
-            artifact: marketplace-intelligence-os-macos-intel
-          - arch: arm64
-            label: Apple Silicon
-            artifact: marketplace-intelligence-os-macos-apple-silicon
+    name: macOS Desktop
+    needs: windows
+    runs-on: macos-14
+
     env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      CSC_IDENTITY_AUTO_DISCOVERY: false
 
     steps:
       - name: Checkout
@@ -110,18 +141,37 @@ jobs:
       - name: Build React and Electron code
         run: pnpm build
 
-      - name: Stage Puppeteer browser
-        run: pnpm --filter @marketplace-intelligence-os/desktop stage:puppeteer -- --platform=darwin --arch=${{ matrix.arch }}
+      - name: Stage Puppeteer browser for Intel macOS
+        run: pnpm --filter @marketplace-intelligence-os/desktop stage:puppeteer -- --platform=darwin --arch=x64
 
-      - name: Package macOS
-        run: pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --mac --${{ matrix.arch }}
+      - name: Stage Puppeteer browser for Apple Silicon macOS
+        run: pnpm --filter @marketplace-intelligence-os/desktop stage:puppeteer -- --platform=darwin --arch=arm64
+
+      - name: Package macOS Intel and Apple Silicon
+        run: pnpm --filter @marketplace-intelligence-os/desktop exec electron-builder --mac --x64 --arm64
+
+      - name: Create macOS checksums
+        run: |
+          cd apps/desktop/release
+          shasum -a 256 *.dmg > Research-Product-Market-macOS.sha256
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: research-product-market-macos
           path: |
             apps/desktop/release/*.dmg
-            apps/desktop/release/mac*/
+            apps/desktop/release/*.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish tagged macOS release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            apps/desktop/release/*.dmg \
+            apps/desktop/release/*.sha256 \
+            --repo "${{ github.repository }}" \
+            --clobber

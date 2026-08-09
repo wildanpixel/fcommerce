@@ -10,6 +10,19 @@ const recommendationSchema = z.object({
   rationale: z.string()
 });
 
+const competitionMatrixRowSchema = z.object({
+  productName: z.string().min(1),
+  priceRange: z.string().min(1),
+  uspKeyClaim: z.string().min(1),
+  rating: z.string().min(1),
+  shortDescription: z.string().min(1)
+});
+
+const categoryInsightSchema = z.object({
+  title: z.string().min(1),
+  insight: z.string().min(1)
+});
+
 const analysisSchema: z.ZodType<AiAnalysisJson> = z.object({
   schemaVersion: z.literal("1.0"),
   subjectType: z.enum(["PROJECT", "PRODUCT", "STORE", "REVIEW_SET", "CREATIVE_SET"]),
@@ -37,6 +50,8 @@ const analysisSchema: z.ZodType<AiAnalysisJson> = z.object({
     observations: z.array(z.string())
   }),
   executiveSummary: z.string(),
+  keywordCompetitionMatrix: z.array(competitionMatrixRowSchema).max(10),
+  synthesizedCategoryInsights: z.array(categoryInsightSchema).length(5),
   swot: z.object({
     strengths: z.array(z.string()),
     weaknesses: z.array(z.string()),
@@ -53,6 +68,16 @@ const analysisSchema: z.ZodType<AiAnalysisJson> = z.object({
   recommendations: z.array(recommendationSchema),
   automationLimitations: z.array(z.string())
 });
+
+const translationResponseSchema = z.object({
+  translations: z.array(z.string())
+});
+
+export type EvidenceTranslationResult = {
+  translations: string[];
+  translated: boolean;
+  provider: "openai" | "gemini" | "source" | "unavailable";
+};
 
 export class CompositeAIAnalysisService implements AIAnalysisService {
   constructor(
@@ -88,6 +113,48 @@ export class CompositeAIAnalysisService implements AIAnalysisService {
       "No AI API key is configured; local deterministic analysis was used."
     ]);
   }
+
+  async translateTexts(texts: string[], language: "id-ID" | "en-US" | "zh-CN"): Promise<EvidenceTranslationResult> {
+    const sourceTexts = texts.map((text) => text.trim()).filter(Boolean).slice(0, 100);
+    if (sourceTexts.length === 0 || language === "en-US") {
+      return { translations: sourceTexts, translated: false, provider: "source" };
+    }
+
+    const [openAiKey, geminiKey] = await Promise.all([
+      this.settings.getSecret("openai"),
+      this.settings.getSecret("gemini")
+    ]);
+
+    if (openAiKey) {
+      try {
+        return {
+          translations: await requestOpenAITranslation(openAiKey, sourceTexts, language),
+          translated: true,
+          provider: "openai"
+        };
+      } catch {
+        // Try the configured fallback provider before returning source evidence.
+      }
+    }
+
+    if (geminiKey) {
+      try {
+        return {
+          translations: await requestGeminiTranslation(geminiKey, sourceTexts, language),
+          translated: true,
+          provider: "gemini"
+        };
+      } catch {
+        // Source evidence remains readable when provider translation is unavailable.
+      }
+    }
+
+    return {
+      translations: sourceTexts,
+      translated: false,
+      provider: openAiKey || geminiKey ? "unavailable" : "source"
+    };
+  }
 }
 
 export class LocalHeuristicAnalysisService {
@@ -115,6 +182,8 @@ export class LocalHeuristicAnalysisService {
       .slice()
       .sort((left, right) => (right.followers ?? 0) - (left.followers ?? 0))[0];
     const evidenceSummary = `${input.products.length} products, ${input.stores.length} stores, ${input.reviews.length} review signals, and ${input.screenshotPaths.length} screenshots were evaluated for "${input.keyword}".`;
+    const keywordCompetitionMatrix = buildKeywordCompetitionMatrix(input);
+    const synthesizedCategoryInsights = buildSynthesizedCategoryInsights(input, keywordCompetitionMatrix);
 
     return {
       schemaVersion: "1.0",
@@ -158,6 +227,8 @@ export class LocalHeuristicAnalysisService {
         ]
       },
       executiveSummary: `${evidenceSummary} The strongest opportunity is to combine current sales momentum with credible store presentation, complete promotion evidence, and consistent product visuals.`,
+      keywordCompetitionMatrix,
+      synthesizedCategoryInsights,
       swot: {
         strengths: [
           `${monthlyLeaders.length || input.products.length} commercially relevant product signal(s) provide a basis for competitor comparison.`,
@@ -250,6 +321,156 @@ export class LocalHeuristicAnalysisService {
   }
 }
 
+function buildKeywordCompetitionMatrix(input: AnalysisInput): AiAnalysisJson["keywordCompetitionMatrix"] {
+  const products = new Map<string, AnalysisInput["products"][number]>();
+  for (const product of input.products.filter((item) => !item.source?.startsWith("Store Products") && !item.source?.startsWith("Store Best Sellers"))) {
+    const identity = competitionProductIdentity(product);
+    const existing = products.get(identity);
+    if (!existing || competitionProductScore(product) > competitionProductScore(existing)) {
+      products.set(identity, product);
+    }
+  }
+
+  return [...products.values()]
+    .sort((left, right) =>
+      competitionProductScore(right) - competitionProductScore(left)
+      || left.rank - right.rank
+      || competitionProductIdentity(left).localeCompare(competitionProductIdentity(right))
+    )
+    .slice(0, 10)
+    .map((product) => ({
+      productName: product.title,
+      priceRange: competitionPriceRange(product),
+      uspKeyClaim: competitionProductClaim(product),
+      rating: isNumber(product.rating) ? `${product.rating.toFixed(1)} / 5` : "Not available",
+      shortDescription: competitionProductDescription(product)
+    }));
+}
+
+function buildSynthesizedCategoryInsights(
+  input: AnalysisInput,
+  matrix: AiAnalysisJson["keywordCompetitionMatrix"]
+): AiAnalysisJson["synthesizedCategoryInsights"] {
+  const prices = input.products
+    .map((product) => product.price.average ?? product.price.min ?? product.price.max)
+    .filter(isNumber)
+    .sort((left, right) => left - right);
+  const ratings = input.products.map((product) => product.rating).filter(isNumber);
+  const monthlyLeaders = [...input.products]
+    .filter((product) => isNumber(product.monthlySold))
+    .sort((left, right) => (right.monthlySold ?? 0) - (left.monthlySold ?? 0));
+  const minimumPrice = prices[0];
+  const maximumPrice = prices[prices.length - 1];
+  const medianPrice = prices.length > 0 ? prices[Math.floor(prices.length / 2)] : undefined;
+  const averageRating = average(ratings);
+  const leader = monthlyLeaders[0];
+  const language = input.language === "id-ID" ? "id-ID" : input.language === "zh-CN" ? "zh-CN" : "en-US";
+  const priceSpan = minimumPrice !== undefined && maximumPrice !== undefined
+    ? `${formatCompetitionMoney(minimumPrice)}–${formatCompetitionMoney(maximumPrice)}`
+    : "not yet verified";
+  const median = medianPrice !== undefined ? formatCompetitionMoney(medianPrice) : "not yet verified";
+  const trust = averageRating !== undefined ? `${averageRating.toFixed(2)} / 5 across ${ratings.length} rated products` : "insufficient verified rating data";
+  const momentum = leader
+    ? `${leader.title} leads the visible monthly demand signal with ${formatCompetitionCount(leader.monthlySold)} sold`
+    : "monthly-sales evidence is not yet complete";
+
+  if (language === "id-ID") {
+    return [
+      { title: "ARSITEKTUR & TINGKAT HARGA", insight: `Rentang harga terverifikasi adalah ${priceSpan} dengan median ${median}. Gunakan median sebagai jangkar kategori, lalu bedakan tingkat ekonomis, inti, dan premium melalui manfaat yang dapat dibuktikan.` },
+      { title: "POSISI KOMPETITIF & KLAIM UTAMA", insight: `${matrix.length} produk kompetitif dibandingkan. Klaim harus menonjolkan manfaat produk yang spesifik, bukti spesifikasi, dan alasan membeli yang tidak mudah ditiru oleh listing generik.` },
+      { title: "KEPERCAYAAN PELANGGAN & SINYAL PENILAIAN", insight: `Sinyal kepercayaan saat ini adalah ${trust}. Prioritaskan bukti ulasan, identitas toko resmi, dan respons penjual untuk memperkuat klaim produk.` },
+      { title: "KONSENTRASI PERMINTAAN & MOMENTUM PRODUK", insight: `${momentum}. Gunakan pemimpin permintaan sebagai tolok ukur penawaran, tetapi validasi momentum dengan total penjualan dan kualitas ulasan sebelum meniru strategi.` },
+      { title: "PELUANG KATEGORI & TINDAKAN YANG DIREKOMENDASIKAN", insight: `Bangun penawaran di sekitar celah antara harga, klaim utama, dan bukti kepercayaan. Uji satu proposisi yang jelas terhadap produk Top 10 dan pertahankan hanya diferensiasi yang didukung bukti marketplace.` }
+    ];
+  }
+
+  if (language === "zh-CN") {
+    return [
+      { title: "价格架构与分层", insight: `已验证价格范围为 ${priceSpan}，中位价为 ${median}。以中位价为类别锚点，并通过可验证的利益点区分入门、核心和高端层级。` },
+      { title: "竞争定位与核心主张", insight: `本次比较了 ${matrix.length} 个竞争产品。核心主张应聚焦具体产品利益、规格证据和不易被普通商品页复制的购买理由。` },
+      { title: "客户信任与评分信号", insight: `当前信任信号为 ${trust}。优先使用评论证据、官方店铺身份和卖家回复来支撑产品主张。` },
+      { title: "需求集中度与产品动能", insight: `${momentum}。可将需求领先产品作为报价基准，但在复制策略前应结合累计销量和评论质量验证其动能。` },
+      { title: "品类机会与建议行动", insight: `围绕价格、核心主张和信任证据之间的空白构建产品方案。针对 Top 10 产品测试一个清晰价值主张，仅保留有市场证据支持的差异化。` }
+    ];
+  }
+
+  return [
+    { title: "PRICING ARCHITECTURE & TIERING", insight: `The verified price span is ${priceSpan}, with a median of ${median}. Use the median as the category anchor, then separate entry, core, and premium tiers through provable benefits rather than price alone.` },
+    { title: "COMPETITIVE POSITIONING & KEY CLAIMS", insight: `${matrix.length} competitive products were compared. Positioning should emphasize a specific product benefit, specification evidence, and a reason to buy that generic listings cannot easily duplicate.` },
+    { title: "CUSTOMER TRUST & RATING SIGNALS", insight: `The current trust signal is ${trust}. Prioritize review evidence, official-store identity, and seller responsiveness to substantiate product claims.` },
+    { title: "DEMAND CONCENTRATION & PRODUCT MOMENTUM", insight: `${momentum}. Use demand leaders as offer benchmarks, but validate momentum against total sales and review quality before copying their strategy.` },
+    { title: "CATEGORY OPPORTUNITIES & RECOMMENDED ACTIONS", insight: `Build the offer around gaps between price, key claims, and trust evidence. Test one clear proposition against the Top 10 set and retain only differentiation supported by marketplace evidence.` }
+  ];
+}
+
+function competitionProductIdentity(product: AnalysisInput["products"][number]): string {
+  if (product.marketplaceProductId) return `id:${product.marketplaceProductId}`;
+  try {
+    const url = new URL(product.url);
+    return `url:${url.hostname.toLowerCase()}${url.pathname.replace(/\/$/u, "").toLowerCase()}`;
+  } catch {
+    return `fallback:${product.storeName?.toLowerCase() ?? ""}|${product.title.toLowerCase().replace(/\s+/gu, " ").trim()}`;
+  }
+}
+
+function competitionProductScore(product: AnalysisInput["products"][number]): number {
+  const sourceScore = product.source === "Top Sales" ? 180 : product.source === "Relevance" ? 110 : 40;
+  const rankScore = Math.max(0, 80 - Math.min(product.rank, 80));
+  const monthlyScore = isNumber(product.monthlySold) ? Math.log10(product.monthlySold + 1) * 30 : 0;
+  const totalScore = isNumber(product.totalSold) ? Math.log10(product.totalSold + 1) * 18 : 0;
+  const ratingScore = isNumber(product.rating) ? product.rating * 10 : 0;
+  return sourceScore + rankScore + monthlyScore + totalScore + ratingScore;
+}
+
+function competitionPriceRange(product: AnalysisInput["products"][number]): string {
+  const { min, max, average } = product.price;
+  if (isNumber(min) && isNumber(max) && min !== max) {
+    return `${formatCompetitionMoney(min)}–${formatCompetitionMoney(max)}`;
+  }
+  const price = average ?? min ?? max;
+  return isNumber(price) ? formatCompetitionMoney(price) : "Not available";
+}
+
+function competitionProductClaim(product: AnalysisInput["products"][number]): string {
+  const specifications = Object.entries(product.specifications)
+    .slice(0, 2)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("; ");
+  const badges = [product.officialStatus || product.mallStatus ? "Official/Mall store" : undefined, product.starSeller ? "Star seller" : undefined]
+    .filter(Boolean)
+    .join("; ");
+  return compactCompetitionText(
+    specifications || product.voucherText || product.description || badges || product.selectionReason || "Marketplace product offer",
+    150
+  );
+}
+
+function competitionProductDescription(product: AnalysisInput["products"][number]): string {
+  if (product.description?.trim()) return compactCompetitionText(product.description, 190);
+  const demand = isNumber(product.monthlySold)
+    ? `${formatCompetitionCount(product.monthlySold)} monthly sold`
+    : isNumber(product.totalSold) ? `${formatCompetitionCount(product.totalSold)} total sold` : "sales not verified";
+  const store = product.storeName ? ` from ${product.storeName}` : "";
+  return compactCompetitionText(`${product.title}${store}; ${demand}.`, 190);
+}
+
+function compactCompetitionText(value: string, maximum: number): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  return normalized.length <= maximum ? normalized : `${normalized.slice(0, maximum - 1).trimEnd()}…`;
+}
+
+function formatCompetitionMoney(value: number): string {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+function formatCompetitionCount(value: number | undefined): string {
+  return isNumber(value) ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(value) : "-";
+}
+
 async function requestOpenAI(apiKey: string, input: AnalysisInput): Promise<AiAnalysisJson> {
   const body = {
     model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
@@ -298,11 +519,82 @@ async function requestGemini(apiKey: string, input: AnalysisInput): Promise<AiAn
   return validateAnalysis(text, "gemini", input);
 }
 
+async function requestOpenAITranslation(
+  apiKey: string,
+  texts: string[],
+  language: "id-ID" | "en-US" | "zh-CN"
+): Promise<string[]> {
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+      input: translationPrompt(texts, language)
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`OpenAI translation failed with status ${response.status}`);
+  }
+  const json = (await response.json()) as OpenAIResponse;
+  return validateTranslations(extractOpenAIText(json), texts);
+}
+
+async function requestGeminiTranslation(
+  apiKey: string,
+  texts: string[],
+  language: "id-ID" | "en-US" | "zh-CN"
+): Promise<string[]> {
+  const model = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: translationPrompt(texts, language) }] }] })
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Gemini translation failed with status ${response.status}`);
+  }
+  const json = (await response.json()) as GeminiResponse;
+  const text = json.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n") ?? "";
+  return validateTranslations(text, texts);
+}
+
+function translationPrompt(texts: string[], language: "id-ID" | "en-US" | "zh-CN"): string {
+  const target = language === "id-ID" ? "Bahasa Indonesia" : language === "zh-CN" ? "Simplified Chinese" : "English";
+  return [
+    `Translate each marketplace evidence string into ${target}.`,
+    "Preserve product names, store names, usernames, brands, SKUs, URLs, currencies, prices, dates, timestamps, measurements, and line breaks exactly.",
+    "Do not summarize, add commentary, remove facts, or translate identifiers.",
+    "Return only valid JSON in the form {\"translations\":[\"...\"]}, with exactly one output string for each input string in the same order.",
+    JSON.stringify({ texts })
+  ].join("\n");
+}
+
+function validateTranslations(text: string, sourceTexts: string[]): string[] {
+  const parsed = translationResponseSchema.parse(JSON.parse(stripCodeFence(text)) as unknown);
+  if (parsed.translations.length !== sourceTexts.length) {
+    throw new Error("Translation response length does not match the requested evidence batch.");
+  }
+  return parsed.translations.map((translation, index) => translation.trim() || sourceTexts[index]);
+}
+
 function buildPrompt(input: AnalysisInput, provider: string): string {
   return [
-    `You are analyzing marketplace intelligence evidence for ${input.keyword}.`,
+    `Act as a senior marketplace strategy specialist analyzing evidence for ${input.keyword}.`,
     `Provider target: ${provider}.`,
     `Language: ${input.language}.`,
+    "Write every narrative, observation, and recommendation in the requested language.",
+    "When citing marketplace comments or descriptions, translate their meaning while preserving product names, store names, SKUs, URLs, prices, dates, and measurements exactly.",
+    "Give evidence-grounded commercial recommendations with a clear action, rationale, and priority. Avoid generic advice, filler, AI self-reference, and unsupported claims.",
+    "Build keywordCompetitionMatrix from the strongest available competitive products only. Return one row per available product, up to 10 rows, without inventing products or evidence.",
+    "For each matrix row, make uspKeyClaim and shortDescription concise, commercially useful, and grounded in the supplied title, description, specifications, badges, sales, rating, and promotion evidence.",
+    "Return exactly five synthesizedCategoryInsights covering: pricing architecture and tiering; competitive positioning and key claims; customer trust and rating signals; demand concentration and product momentum; category opportunities and recommended actions.",
+    "Write the five insights in the voice of a marketplace category specialist. Translate their titles and content into the requested report language.",
     "Return only valid JSON matching this schema:",
     JSON.stringify(schemaExample()),
     "Use the screenshots as visual evidence when provided.",
@@ -317,7 +609,12 @@ function buildPrompt(input: AnalysisInput, provider: string): string {
           monthlySold: product.monthlySold,
           totalSold: product.totalSold,
           storeName: product.storeName,
-          voucherText: product.voucherText
+          voucherText: product.voucherText,
+          description: product.description,
+          specifications: product.specifications,
+          mallStatus: product.mallStatus,
+          officialStatus: product.officialStatus,
+          starSeller: product.starSeller
         })),
         stores: input.stores.map((store) => ({
           name: store.name,
@@ -347,6 +644,22 @@ function schemaExample(): AiAnalysisJson {
     competitivePosition: { score: 70, observations: ["observation"] },
     customerTrust: { score: 70, observations: ["observation"] },
     executiveSummary: "executive summary",
+    keywordCompetitionMatrix: [
+      {
+        productName: "product name",
+        priceRange: "IDR 100,000 - IDR 150,000",
+        uspKeyClaim: "evidence-grounded key claim",
+        rating: "4.9 / 5",
+        shortDescription: "concise competitive product description"
+      }
+    ],
+    synthesizedCategoryInsights: [
+      { title: "PRICING ARCHITECTURE & TIERING", insight: "specialist pricing insight" },
+      { title: "COMPETITIVE POSITIONING & KEY CLAIMS", insight: "specialist positioning insight" },
+      { title: "CUSTOMER TRUST & RATING SIGNALS", insight: "specialist trust insight" },
+      { title: "DEMAND CONCENTRATION & PRODUCT MOMENTUM", insight: "specialist demand insight" },
+      { title: "CATEGORY OPPORTUNITIES & RECOMMENDED ACTIONS", insight: "specialist opportunity insight" }
+    ],
     swot: {
       strengths: ["strength"],
       weaknesses: ["weakness"],

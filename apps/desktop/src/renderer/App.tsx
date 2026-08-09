@@ -1,11 +1,11 @@
-import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent, ReactNode, WheelEvent, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent, ReactNode, WheelEvent, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
+import JSZip from "jszip";
 import {
   Archive,
   AlertTriangle,
-  Brain,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -17,29 +17,27 @@ import {
   ExternalLink,
   FileDown,
   FileText,
-  Filter,
+  FolderOpen,
   Gauge,
   Globe2,
   ImagePlus,
-  KeyRound,
   LayoutGrid,
   ListChecks,
+  LockKeyhole,
+  Mail,
   Maximize2,
   Minimize2,
   Monitor,
-  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   RefreshCcw,
   Search,
   Settings,
-  ShieldCheck,
   ShoppingBag,
   Sparkles,
   Smartphone,
   Store,
-  Sun,
   Table2,
   TerminalSquare,
   Trash2,
@@ -64,32 +62,89 @@ import type {
   ProjectDetailPayload,
   ReportHtmlPayload,
   ReportSummary,
-  SaveSettingsPayload,
   ShopeeSearchFilters,
   ShopeeShopTypeFilter,
   StoreCollectionCandidate,
-  SettingsPayload
+  QualifiedProductReference
 } from "../shared/contracts.js";
+import type { AiAnalysisJson } from "../domain/models.js";
 import { SHOPEE_SHOP_TYPE_FILTERS } from "../shared/contracts.js";
-import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../shared/reportSections.js";
-import { apiClient } from "./api/client.js";
 import {
-  buildStoreCollectionCandidates,
+  DEFAULT_REPORT_SECTIONS,
+  REPORT_SECTION_GROUPS,
+  type ReportSectionConfig,
+  type ReportSectionGroupId,
+  type ReportSectionId
+} from "../shared/reportSections.js";
+import {
+  normalizeStoreType as normalizeStoreTypeValue,
+  STORE_TYPE_IMAGES,
+  storeTypeImage,
+  storeTypeLabel as storeTypeDisplayLabel,
+  type StoreType
+} from "../shared/storeTypes.js";
+import { apiClient } from "./api/client.js";
+import { APP_AUTHOR_NAME } from "./app/appMetadata.js";
+import { APP_LANGUAGES, translate, type AppLanguage } from "./app/languages.js";
+import { AppSidebar } from "./components/AppSidebar.js";
+import { AppTopBar } from "./components/AppTopBar.js";
+import { BulkReportWorkspace } from "./pages/BulkReportWorkspace.js";
+import { ReportContentSettingsPage } from "./pages/ReportContentSettingsPage.js";
+import { useEvidenceTranslations } from "./hooks/useEvidenceTranslations.js";
+import {
+  dedupeStoreCollectionCandidates,
+  extractShopeeShopId,
+  resolveCanonicalStoreList,
   stableStoreCandidateId,
   storeCategoriesUrl,
-  storeDetailsUrl,
   storeHomepageUrl,
   storeProductsUrl,
   storeRatingsUrl
 } from "./collectionKeyStore.js";
-import { buildShopeeSearchUrl, withShopeeProductDisplayModel } from "./shopeeUrls.js";
-import { type AppView, useUiStore } from "./store/uiStore.js";
+import {
+  assertEvidenceHasProductRows,
+  evidenceRequiresProductRows,
+  isCollectionPageReady,
+  preservesStoreEvidenceDuringReset
+} from "./collectionEvidence.js";
+import {
+  collectionAdvanceMode,
+  nextProductCollectionTarget,
+  nextPendingCollectionActionId,
+  previousCollectionActionId,
+  reusesCurrentStoreRatingsPage,
+  userMediaAdvanceTarget
+} from "./collectionProgression.js";
+import {
+  createQualifiedProductReference,
+  qualifiedProductRankingReason,
+  rankQualifiedProducts,
+  rankSelectedQualifiedProducts,
+  resolveCanonicalQualifiedProducts,
+  resolveQualifiedProductReferences,
+  sameQualifiedProduct,
+  stableProductIdentity
+} from "./qualifiedProducts.js";
+import { viewModeForCollectionStage } from "./collectionViewMode.js";
+import {
+  buildShopeeSearchUrl,
+  matchesShopeeSearchIntent,
+  toDesktopUrl,
+  toMobileUrl,
+  withShopeeProductDisplayModel
+} from "./shopeeUrls.js";
+import { useUiStore } from "./store/uiStore.js";
+import { EmptyState, Field, LoadingProgressModal, LoadingSkeleton, Panel } from "./components/ui.js";
+import { MarketplaceIllustration } from "./components/MarketplaceIllustration.js";
+import { MediaThumbnail, ResultCardMedia, StoreTypeMark } from "./components/ResultCardVisuals.js";
+import { Button, Checkbox, Chip, Input, Modal, SegmentedControl, Select } from "./components/primitives.js";
+import { SettingsView } from "./pages/SettingsView.js";
+import researchProductMarketLogo from "./assets/research-product-market-logo-dark.png";
+import wildanLogoBlack from "./assets/wildan-logo-black.png";
 
 const SHOPEE_HOME_URL = "https://shopee.co.id/";
 const TIKTOK_SHOP_URL = "https://www.tiktok.com/shop";
-const APP_DISPLAY_NAME = "MarketPlace Keyword Competitor Analysis";
-const APP_AUTHOR_NAME = "Wildan Ega Pradana";
-const APP_AUTHOR_LINKEDIN = "https://www.linkedin.com/in/wildanegapradana/";
+const SIDEBAR_STORAGE_KEY = "mio-sidebar-collapsed-v3";
 const PROJECT_DETAIL_STALE_TIME_MS = 5 * 60_000;
 const PROJECT_DETAIL_GC_TIME_MS = 30 * 60_000;
 
@@ -105,26 +160,20 @@ const ReportSectionExpansionContext = createContext<ReportSectionExpansionState>
   openSectionPath: () => undefined
 });
 
-type AppLanguage = "id-ID" | "en-US" | "zh-CN";
+const EvidenceTranslationContext = createContext<(value: string | null | undefined) => string>(
+  (value) => value ?? ""
+);
 
-const APP_LANGUAGES: Array<{ id: AppLanguage; label: string }> = [
-  { id: "id-ID", label: "Bahasa Indonesia" },
-  { id: "en-US", label: "English" },
-  { id: "zh-CN", label: "Chinese Modern" }
-];
+function TranslatedText({ children }: { children: string }) {
+  const language = useUiStore((state) => state.language);
+  return <>{translate(language, children)}</>;
+}
 
 const SHOPEE_SHOP_TYPE_OPTIONS: Array<{ id: ShopeeShopTypeFilter; label: string }> = [
   { id: "service_by_shopee_product_label_filter", label: "Fulfilled by Shopee" },
   { id: "OFFICIAL_MALL", label: "Shopee Mall" },
   { id: "PREFERRED_PLUS", label: "Star+" },
   { id: "PREFERRED", label: "Star" }
-];
-
-const navItems: Array<{ id: AppView; label: string; icon: LucideIcon }> = [
-  { id: "research", label: "New Research", icon: Search },
-  { id: "projects", label: "Keyword Projects", icon: Table2 },
-  { id: "reports", label: "Reports", icon: FileDown },
-  { id: "settings", label: "Settings", icon: Settings }
 ];
 
 type ResearchPlatform = Extract<MarketplaceId, "SHOPEE_ID" | "TIKTOK_SHOP">;
@@ -147,6 +196,7 @@ type CollectionSubAction = {
   id: string;
   label: string;
   mode: "screenshot" | "download" | "collect" | "sync" | "background";
+  kind?: ManualEvidenceKind;
   description: string;
   collectLabel?: string;
   captureMode?: "viewport" | "full-page";
@@ -155,6 +205,7 @@ type CollectionSubAction = {
   guidance?: string;
   targetUrl?: string;
   preferredViewMode?: PlatformViewMode;
+  metadata?: Record<string, unknown>;
 };
 
 type CollectionStep = {
@@ -225,7 +276,7 @@ const COLLECTION_STAGES: CollectionStage[] = ["KEYWORD_GENERAL", "PRODUCT_DETAIL
 type RenderedProductDetailSnapshot = {
   storeName?: string;
   storeUrl?: string;
-  storeType?: string;
+  storeType?: StoreType;
   rating?: number;
   ratingText?: string;
   reviewText?: string;
@@ -254,6 +305,7 @@ type RenderedStoreProfileSnapshot = {
   name?: string;
   url?: string;
   marketplaceStoreId?: string;
+  storeType?: StoreType;
   followers?: number;
   following?: number;
   productsCount?: number;
@@ -266,7 +318,12 @@ type RenderedStoreProfileSnapshot = {
   ratingSamples: Array<{
     rating: number;
     reviewer: string;
+    reviewerUrl?: string;
     comment: string;
+    productTitle?: string;
+    productUrl?: string;
+    productVariation?: string;
+    sellerResponse?: string;
     mediaUrls: string[];
     capturedAt?: string;
   }>;
@@ -350,11 +407,41 @@ function appPortalRoot(): Element {
 }
 
 export default function App() {
+  const queryClient = useQueryClient();
   const activeView = useUiStore((state) => state.activeView);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const requestNewResearch = useUiStore((state) => state.requestNewResearch);
+  const language = useUiStore((state) => state.language);
+  const setLanguage = useUiStore((state) => state.setLanguage);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true"
+  );
+  const [sidebarHoverExpanded, setSidebarHoverExpanded] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
+    window.localStorage.getItem("mio-theme") === "light" ? "light" : "dark"
+  );
   const [showSplash, setShowSplash] = useState(true);
   const [collectionPageActive, setCollectionPageActive] = useState(false);
+  const [projectHeaderTitle, setProjectHeaderTitle] = useState("");
+  const licenseStatus = useQuery({
+    queryKey: ["license-status"],
+    queryFn: apiClient.licenseStatus,
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: 1
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarHoverExpanded(false);
+    setSidebarCollapsed((current) => !current);
+  }, []);
+  const effectiveSidebarCollapsed = sidebarCollapsed && !sidebarHoverExpanded;
+
+  const toggleThemeMode = useCallback(() => {
+    setThemeMode((value) => (value === "dark" ? "light" : "dark"));
+  }, []);
+
+  const requestActivityToggle = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("mio:toggle-activity"));
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setShowSplash(false), 1800);
@@ -366,6 +453,18 @@ export default function App() {
   }, [activeView]);
 
   useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    window.localStorage.setItem("mio-theme", themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+
+  useEffect(() => {
     const handleCollectionPageState = (event: Event) => {
       setCollectionPageActive(Boolean((event as CustomEvent<boolean>).detail));
     };
@@ -373,41 +472,79 @@ export default function App() {
     return () => window.removeEventListener("mio:collection-page-state", handleCollectionPageState);
   }, []);
 
-  function requestActivityToggle() {
-    window.dispatchEvent(new CustomEvent("mio:toggle-activity"));
+  useEffect(() => {
+    const handleProjectHeaderContext = (event: Event) => {
+      setProjectHeaderTitle(String((event as CustomEvent<string | undefined>).detail ?? ""));
+    };
+    window.addEventListener("mio:project-header-context", handleProjectHeaderContext);
+    return () => window.removeEventListener("mio:project-header-context", handleProjectHeaderContext);
+  }, []);
+
+  const defaultTitle = { research: "Research Workspace", projects: "Keyword Projects", reports: "Reports", settings: "Settings" }[activeView];
+  const topBarTitle = activeView === "projects" && projectHeaderTitle ? projectHeaderTitle : defaultTitle;
+  const topBarBreadcrumbs = activeView === "projects" && projectHeaderTitle
+    ? ["Keyword Projects", projectHeaderTitle]
+    : [{ research: "New Research", projects: "Keyword Projects", reports: "Reports", settings: "Settings" }[activeView]];
+  const topBarDescription = activeView === "projects" && !projectHeaderTitle
+    ? "Inspect saved marketplace research or continue an active collection."
+    : undefined;
+
+  if (licenseStatus.isPending) {
+    return <div className="mio-app mio-dark min-h-screen bg-ink-950 text-ink-100"><LoadingSkeleton className="min-h-screen rounded-none" /></div>;
+  }
+  if (!licenseStatus.data?.authenticated) {
+    return (
+      <LicenseGate
+        machineId={licenseStatus.data?.machineId ?? "Unavailable"}
+        defaultEmail={licenseStatus.data?.email ?? ""}
+        statusError={licenseStatus.error instanceof Error ? licenseStatus.error.message : undefined}
+        onActivated={(status) => queryClient.setQueryData(["license-status"], status)}
+      />
+    );
   }
 
   return (
     <div className={`mio-app ${themeMode === "light" ? "mio-light" : "mio-dark"} min-h-screen bg-ink-950 text-ink-100`}>
-      <AnimatePresence>{showSplash && <SplashScreen />}</AnimatePresence>
-      <div className={["grid min-h-screen transition-[grid-template-columns] duration-300 ease-out", sidebarVisible ? "grid-cols-[264px_minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)]"].join(" ")}>
-        <AnimatePresence>{sidebarVisible && <Sidebar onHide={() => setSidebarVisible(false)} />}</AnimatePresence>
-        <main className="mio-main min-w-0 border-l border-white/8 bg-[linear-gradient(180deg,#10141d,#090b10_48%)]">
-          {!sidebarVisible && (
-            <button
-              type="button"
-              className="mio-sidebar-show secondary-button fixed left-4 top-4 z-[60] h-10 w-10 px-0"
-              aria-label="Show sidebar"
-              onClick={() => setSidebarVisible(true)}
-            >
-              <PanelLeftOpen size={17} />
-            </button>
-          )}
-          <TopBar
+      <AnimatePresence>{showSplash && <SplashScreen themeMode={themeMode} />}</AnimatePresence>
+      <div
+        className={[
+          "mio-shell grid min-h-screen transition-[grid-template-columns] duration-200 ease-out",
+          effectiveSidebarCollapsed ? "grid-cols-[68px_minmax(0,1fr)]" : "grid-cols-[220px_minmax(0,1fr)]"
+        ].join(" ")}
+      >
+        <AppSidebar
+          collapsed={effectiveSidebarCollapsed}
+          themeMode={themeMode}
+          onToggle={toggleSidebar}
+          onHoverChange={setSidebarHoverExpanded}
+        />
+        <main className="mio-main min-w-0 border-l border-white/8">
+          <AppTopBar
+            title={topBarTitle}
+            breadcrumbs={topBarBreadcrumbs}
+            description={topBarDescription}
+            action={activeView === "projects" && !projectHeaderTitle ? (
+              <Button variant="primary" onClick={requestNewResearch}>
+                <Plus size={15} />
+                {translate(language, "New Research")}
+              </Button>
+            ) : undefined}
             themeMode={themeMode}
-            onThemeToggle={() => setThemeMode((value) => (value === "dark" ? "light" : "dark"))}
+            onThemeToggle={toggleThemeMode}
+            language={language}
+            onLanguageChange={setLanguage}
             showActivityButton={collectionPageActive}
             onActivityToggle={requestActivityToggle}
           />
-          <div className="relative px-8 pb-10">
+          <div className="mio-content relative px-8 pb-10">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeView}
                 className="mio-page-transition"
-                initial={{ opacity: 0, y: 18, scale: 0.982, filter: "blur(10px)" }}
-                animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-                exit={{ opacity: 0, y: -12, scale: 0.992, filter: "blur(8px)" }}
-                transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.72 }}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.14, ease: "easeOut" }}
               >
                 {activeView === "research" && <ManualResearchExperience />}
                 {activeView === "projects" && <ProjectsView />}
@@ -422,26 +559,101 @@ export default function App() {
   );
 }
 
-function SplashScreen() {
+function LicenseGate({
+  machineId,
+  defaultEmail,
+  statusError,
+  onActivated
+}: {
+  machineId: string;
+  defaultEmail: string;
+  statusError?: string;
+  onActivated: (status: Awaited<ReturnType<typeof apiClient.activateLicense>>) => void;
+}) {
+  const [email, setEmail] = useState(defaultEmail);
+  const [password, setPassword] = useState("");
+  const [license, setLicense] = useState("");
+  const activate = useMutation({
+    mutationFn: apiClient.activateLicense,
+    onSuccess: onActivated
+  });
+
+  function submitLicense(event: FormEvent) {
+    event.preventDefault();
+    activate.mutate({ email, password, license });
+  }
+
+  return (
+    <div className="mio-app mio-dark grid min-h-screen place-items-center bg-ink-950 p-6 text-ink-100">
+      <form className="mio-panel w-full max-w-[520px] rounded-2xl border border-white/10 bg-ink-900 p-7 shadow-glow" onSubmit={submitLicense}>
+        <div className="mb-6 flex items-start gap-4">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/5"><LockKeyhole size={20} /></div>
+          <div>
+            <h1 className="text-xl font-semibold text-white"><TranslatedText>Activate Research Product Market</TranslatedText></h1>
+            <p className="mt-1 text-sm leading-6 text-ink-400"><TranslatedText>Enter the email, password, and signed license issued for this device.</TranslatedText></p>
+          </div>
+        </div>
+        <div className="space-y-4">
+          <Field label="Email"><Input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" /></Field>
+          <Field label="Password"><Input type="password" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></Field>
+          <Field label="License key">
+            <textarea className="mio-input min-h-28 w-full resize-y" required value={license} onChange={(event) => setLicense(event.target.value)} spellCheck={false} />
+          </Field>
+          <div className="rounded-lg border border-white/8 bg-white/5 p-3 text-xs text-ink-400">
+            <TranslatedText>Machine ID:</TranslatedText> <button className="font-mono text-ink-200" type="button" onClick={() => void navigator.clipboard.writeText(machineId)} title="Copy machine ID">{machineId}</button>
+          </div>
+          {(statusError || activate.error) && <div className="mio-form-error">{activate.error instanceof Error ? activate.error.message : statusError}</div>}
+          <Button className="w-full" variant="primary" type="submit" disabled={activate.isPending}>
+            <LockKeyhole size={15} /> {activate.isPending ? "Verifying license" : "Activate and sign in"}
+          </Button>
+          <div className="rounded-xl border border-white/8 bg-white/[0.04] p-3">
+            <div className="mb-2 text-xs font-semibold text-ink-200"><TranslatedText>Contact developer for license key</TranslatedText></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="justify-center"
+                onClick={() => void apiClient.openUrl("mailto:wildan.pixell@gmail.com?subject=Research%20Product%20Market%20License%20Key%20Request%20-%20119994")}
+              >
+                <Mail size={15} />
+                Gmail
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="justify-center"
+                onClick={() => void apiClient.openUrl("mailto:wildanega_pra@flashexpress.id?subject=Research%20Product%20Market%20License%20Key%20Request%20-%20119994")}
+              >
+                <Mail size={15} />
+                <TranslatedText>Lark / Tencent Mail</TranslatedText>
+              </Button>
+            </div>
+            <div className="mt-3 text-center text-[11px] text-ink-500">
+              <TranslatedText>Built by</TranslatedText> <span className="font-medium text-ink-300">119994 (Wildan Ega Pradana)</span>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function SplashScreen({ themeMode }: { themeMode: ThemeMode }) {
   return (
     <motion.div
       className="mio-splash fixed inset-0 z-[120] flex items-center justify-center bg-[#f6f8fb]"
       initial={{ opacity: 1 }}
-      exit={{ opacity: 0, filter: "blur(12px)" }}
-      transition={{ duration: 0.34, ease: "easeOut" }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
     >
       <motion.div
         className="mio-splash-card flex flex-col items-center text-center"
-        initial={{ y: 18, scale: 0.96, opacity: 0 }}
-        animate={{ y: 0, scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 240, damping: 20, mass: 0.8 }}
+        initial={{ y: 8, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.24, ease: "easeOut" }}
       >
-        <motion.div
-          className="mio-splash-logo mb-5 flex h-20 w-20 items-center justify-center rounded-[28px] bg-signal-blue text-white"
-          animate={{ y: [0, -8, 0], rotate: [0, -2, 2, 0] }}
-          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <Brain size={36} />
+        <motion.div className="mio-splash-logo mb-5 flex h-20 w-20 items-center justify-center">
+          <img src={themeMode === "light" ? wildanLogoBlack : researchProductMarketLogo} alt="" className="h-full w-full object-contain" />
         </motion.div>
         <motion.div
           className="text-4xl font-black tracking-[-0.04em] text-ink-950"
@@ -449,128 +661,24 @@ function SplashScreen() {
           animate={{ letterSpacing: "-0.04em", opacity: 1 }}
           transition={{ delay: 0.14, duration: 0.5 }}
         >
-          MarketPlace Keyword
+          Research Product Market
         </motion.div>
-        <div className="mt-2 text-sm font-medium text-ink-500">Competitor Analysis</div>
+        <div className="mt-2 text-sm font-medium text-ink-500"><TranslatedText>Marketplace research and evidence workspace</TranslatedText></div>
         <div className="mt-8 flex items-center gap-2 rounded-full bg-black/5 px-4 py-2 text-xs font-semibold text-ink-500">
           <Sparkles size={14} className="text-signal-blue" />
-          Made by {APP_AUTHOR_NAME}
+          <TranslatedText>Made by</TranslatedText> {APP_AUTHOR_NAME}
         </div>
       </motion.div>
     </motion.div>
   );
 }
 
-function Sidebar({ onHide }: { onHide: () => void }) {
-  const activeView = useUiStore((state) => state.activeView);
-  const setActiveView = useUiStore((state) => state.setActiveView);
-
-  return (
-    <motion.aside
-      className="mio-sidebar flex min-h-screen flex-col bg-ink-900 px-4 py-5 transition-all duration-300 ease-out"
-      initial={false}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: -24, opacity: 0 }}
-      transition={{ duration: 0.18 }}
-    >
-      <div className="mb-8 flex items-center gap-3 px-2">
-        <div className="mio-brand-mark flex h-9 w-9 items-center justify-center rounded-md bg-signal-blue/15 text-signal-blue">
-          <Brain size={20} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="mio-brand-title text-sm font-semibold leading-5">MarketPlace Keyword</div>
-          <div className="mio-brand-subtitle text-xs leading-5 text-ink-500">Competitor Analysis</div>
-        </div>
-        <button
-          type="button"
-          className="secondary-button mio-round-icon-button h-10 w-10 shrink-0 px-0"
-          aria-label="Hide sidebar"
-          title="Hide sidebar"
-          onClick={onHide}
-        >
-          <PanelLeftClose size={16} />
-        </button>
-      </div>
-
-      <nav className="space-y-1">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = activeView === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              className={[
-                "mio-nav-button flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition",
-                active ? "mio-nav-active bg-white/9 text-white shadow-glow" : "text-ink-300 hover:bg-white/6 hover:text-white"
-              ].join(" ")}
-              onClick={() => setActiveView(item.id)}
-            >
-              <Icon size={17} />
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
-
-      <div className="mt-auto space-y-3">
-        <button
-          type="button"
-          className="w-full rounded-md border border-white/8 bg-white/5 p-3 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10"
-          onClick={() => void apiClient.openUrl(APP_AUTHOR_LINKEDIN)}
-        >
-          <div className="mb-1 flex items-center gap-2 text-xs font-medium text-ink-300">
-            <ExternalLink size={14} />
-            Developer
-          </div>
-          <div className="text-xs leading-5 text-ink-500">{APP_AUTHOR_NAME}</div>
-        </button>
-        <div className="rounded-md border border-white/8 bg-white/5 p-3 transition-opacity duration-300">
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-ink-300">
-          <ShieldCheck size={14} />
-          Local Evidence Vault
-        </div>
-        <div className="text-xs leading-5 text-ink-500">
-          Keyword projects, screenshots, reports, browser sessions, and keys stay on this machine.
-        </div>
-        </div>
-      </div>
-    </motion.aside>
-  );
-}
-
-function TopBar({
-  themeMode,
-  onThemeToggle,
-  showActivityButton,
-  onActivityToggle
-}: {
-  themeMode: ThemeMode;
-  onThemeToggle: () => void;
-  showActivityButton?: boolean;
-  onActivityToggle?: () => void;
-}) {
-  return (
-    <header className="flex h-16 items-center justify-between px-8">
-      <h1 className="text-lg font-semibold text-white">Manual Evidence Collection</h1>
-      <div className="flex items-center gap-2">
-        <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onThemeToggle}>
-          {themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-          {themeMode === "dark" ? "Light" : "Dark"}
-        </button>
-        {showActivityButton && (
-          <button className="secondary-button mio-round-icon-button h-10 w-10 px-0" type="button" onClick={onActivityToggle} aria-label="Toggle activity" title="Activity">
-            <Gauge size={15} />
-          </button>
-        )}
-      </div>
-    </header>
-  );
-}
-
 function ManualResearchExperience() {
   const queryClient = useQueryClient();
   const openProjectInspector = useUiStore((state) => state.openProjectInspector);
+  const language = useUiStore((state) => state.language);
+  const researchSetupRequestId = useUiStore((state) => state.researchSetupRequestId);
+  const clearResearchSetupRequest = useUiStore((state) => state.clearResearchSetupRequest);
   const [mode, setMode] = useState<ResearchMode>("home");
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
   const [form, setForm] = useState<AnalysisFormState>({
@@ -578,12 +686,28 @@ function ManualResearchExperience() {
     productCategory: "",
     marketplace: "SHOPEE_ID",
     createdAt: new Date().toISOString(),
-    language: "id-ID",
+    language,
     searchFilters: {
       shopTypes: []
     }
   });
   const [browserUrl, setBrowserUrl] = useState(SHOPEE_HOME_URL);
+
+  useEffect(() => {
+    if (researchSetupRequestId <= 0) {
+      return;
+    }
+    setActiveProject(null);
+    setMode("setup");
+    setForm((current) => ({ ...current, language, createdAt: new Date().toISOString() }));
+    clearResearchSetupRequest();
+  }, [clearResearchSetupRequest, language, researchSetupRequestId]);
+
+  useEffect(() => {
+    if (mode === "home" || mode === "setup") {
+      setForm((current) => current.language === language ? current : { ...current, language });
+    }
+  }, [language, mode]);
 
   const createProject = useMutation({
     mutationFn: (payload: NewProjectInput) => apiClient.createProject(payload),
@@ -666,30 +790,39 @@ function ManualResearchExperience() {
 }
 
 function CreateAnalysisHome({ onCreate }: { onCreate: () => void }) {
+  const language = useUiStore((state) => state.language);
   return (
-    <section className="flex min-h-[calc(100vh-120px)] items-center justify-center">
+    <section className="mio-new-research relative flex min-h-[calc(100vh-120px)] items-center justify-center overflow-hidden">
+      <NewResearchBackdrop />
       <motion.button
         type="button"
-        className="mio-create-button group flex min-h-[168px] w-full max-w-[520px] flex-col items-start justify-between rounded-[26px] border border-white/16 bg-white/8 p-8 text-left shadow-glow backdrop-blur-2xl transition"
-        whileHover={{ y: -4, scale: 1.01 }}
+        className="mio-create-button mio-ambient-border relative z-10 group flex min-h-[168px] w-full max-w-[520px] flex-col items-start justify-between text-left"
+        whileHover={{ y: -1 }}
         whileTap={{ scale: 0.99 }}
         onClick={onCreate}
+        aria-describedby="create-analysis-description"
       >
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-signal-blue/18 text-signal-blue">
-          <ShoppingBag size={24} />
+        <span className="mio-create-illustration" aria-hidden="true">
+          <MarketplaceIllustration variant="research" label="Marketplace research workspace" />
         </span>
         <span>
-          <span className="block text-3xl font-semibold text-white">Create Analysis</span>
-          <span className="mt-3 block max-w-[420px] text-sm leading-6 text-ink-300">
-            Start a guided marketplace evidence session. You control the browser, the app captures each required report step.
+          <span className="block text-3xl font-semibold text-white">{translate(language, "Create Analysis")}</span>
+          <span id="create-analysis-description" className="mt-3 block max-w-[420px] text-sm leading-6 text-ink-300">
+            {translate(language, "Start a guided marketplace evidence session. You control the browser, the app captures each required report step.")}
           </span>
         </span>
-        <span className="inline-flex items-center gap-2 text-sm font-medium text-signal-blue">
-          Open setup
+        <span className="mio-create-action inline-flex items-center gap-2 text-sm font-medium">
+          {translate(language, "Open setup")}
           <ChevronRight size={16} />
         </span>
       </motion.button>
     </section>
+  );
+}
+
+function NewResearchBackdrop() {
+  return (
+    <div className="mio-new-research-backdrop" aria-hidden="true" />
   );
 }
 
@@ -708,6 +841,7 @@ function AnalysisSetupForm({
   onBack: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const priceRangeValid =
     form.searchFilters.priceMin === undefined ||
     form.searchFilters.priceMax === undefined ||
@@ -751,11 +885,11 @@ function AnalysisSetupForm({
   }, []);
 
   return (
-    <section className="mx-auto max-w-4xl">
-      <Panel title="Create Analysis" icon={ClipboardCheck}>
-        <form className="grid grid-cols-2 gap-5" onSubmit={onSubmit}>
-          <Field label="Desired Keyword">
-            <input
+    <section className="mio-analysis-setup mx-auto max-w-4xl">
+      <Panel title={translate(language, "Create Analysis")} icon={ClipboardCheck} className="mio-analysis-panel mio-ambient-panel">
+        <form className="mio-analysis-form grid grid-cols-2 gap-5" onSubmit={onSubmit}>
+          <Field label={translate(language, "Desired Keyword")}>
+            <Input
               ref={keywordInputRef}
               data-research-keyword-input
               aria-label="Desired Keyword"
@@ -765,8 +899,8 @@ function AnalysisSetupForm({
               placeholder="Example: bulu mata palsu"
             />
           </Field>
-          <Field label="Product Category">
-            <input
+          <Field label={translate(language, "Product Category")}>
+            <Input
               aria-label="Product Category"
               className="input"
               value={form.productCategory}
@@ -774,13 +908,12 @@ function AnalysisSetupForm({
               placeholder="Example: false eyelashes"
             />
           </Field>
-          <Field label="Date Created">
-            <input aria-label="Date Created" className="input" value={formatDateTime(form.createdAt)} readOnly />
+          <Field label={translate(language, "Date Created")}>
+            <Input aria-label="Date Created" value={formatDateTime(form.createdAt)} readOnly />
           </Field>
-          <Field label="Language">
-            <select
+          <Field label={translate(language, "Language")}>
+            <Select
               aria-label="Language"
-              className="input"
               value={form.language}
               onChange={(event) => onChange({ language: event.target.value as AppLanguage })}
             >
@@ -789,9 +922,9 @@ function AnalysisSetupForm({
                   {language.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
-          <Field label="Collection Platform">
+          <Field label={translate(language, "Collection Platform")}>
             <div className="grid grid-cols-2 gap-2">
               <PlatformButton
                 active={form.marketplace === "SHOPEE_ID"}
@@ -803,7 +936,7 @@ function AnalysisSetupForm({
                 active={form.marketplace === "TIKTOK_SHOP"}
                 icon={Smartphone}
                 label="TIKTOK SHOP"
-                badge="Coming soon"
+                badge={translate(language, "Coming soon")}
                 disabled
                 onClick={() => onChange({ marketplace: "TIKTOK_SHOP" })}
               />
@@ -811,35 +944,25 @@ function AnalysisSetupForm({
           </Field>
           {form.marketplace === "SHOPEE_ID" && (
             <>
-              <Field label="Shop Type">
-                <div className="grid grid-cols-2 gap-2" aria-label="Shopee Shop Type">
+              <Field label={translate(language, "Shop Type")}>
+                <div className="mio-shop-type-grid grid grid-cols-2 gap-2" aria-label="Shopee Shop Type">
                   {SHOPEE_SHOP_TYPE_OPTIONS.map((option) => {
                     const checked = form.searchFilters.shopTypes.includes(option.id);
                     return (
-                      <label
+                      <Checkbox
                         key={option.id}
-                        className={[
-                          "flex min-h-11 cursor-pointer items-center gap-3 rounded-md border px-3 text-sm transition",
-                          checked
-                            ? "border-signal-blue/45 bg-signal-blue/10 text-signal-blue"
-                            : "border-white/10 bg-white/4 text-ink-300 hover:border-signal-blue/30"
-                        ].join(" ")}
-                      >
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-signal-blue"
-                          checked={checked}
-                          onChange={() => toggleShopeeShopType(option.id)}
-                        />
-                        {option.label}
-                      </label>
+                        label={option.label}
+                        tile
+                        checked={checked}
+                        onChange={() => toggleShopeeShopType(option.id)}
+                      />
                     );
                   })}
                 </div>
               </Field>
-              <Field label="Price Range (IDR)">
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                  <input
+              <Field label={translate(language, "Price Range (IDR)")}>
+                <div className="mio-price-range grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <Input
                     aria-label="Minimum Price"
                     className="input"
                     type="number"
@@ -847,10 +970,10 @@ function AnalysisSetupForm({
                     step="1000"
                     value={form.searchFilters.priceMin ?? ""}
                     onChange={(event) => updatePriceRange("priceMin", event.target.value)}
-                    placeholder="Minimum"
+                    placeholder={translate(language, "Minimum")}
                   />
-                  <span className="text-sm text-ink-500">to</span>
-                  <input
+                  <span className="text-sm text-ink-500">{translate(language, "to")}</span>
+                  <Input
                     aria-label="Maximum Price"
                     className="input"
                     type="number"
@@ -858,24 +981,24 @@ function AnalysisSetupForm({
                     step="1000"
                     value={form.searchFilters.priceMax ?? ""}
                     onChange={(event) => updatePriceRange("priceMax", event.target.value)}
-                    placeholder="Maximum"
+                    placeholder={translate(language, "Maximum")}
                   />
                 </div>
                 {!priceRangeValid && (
-                  <div className="mt-2 text-xs text-signal-rose">Maximum price must be greater than or equal to minimum price.</div>
+                  <div className="mt-2 text-xs text-signal-rose">{translate(language, "Maximum price must be greater than or equal to minimum price.")}</div>
                 )}
               </Field>
             </>
           )}
           <div className="col-span-2 grid grid-cols-[180px_minmax(0,1fr)] gap-3">
-            <button className="secondary-button" type="button" onClick={onBack}>
+            <Button variant="ghost" type="button" onClick={onBack}>
               <ChevronLeft size={16} />
-              Back
-            </button>
-            <button className="primary-button" type="submit" disabled={!canProceed}>
+              {translate(language, "Back")}
+            </Button>
+            <Button variant="primary" type="submit" disabled={!canProceed}>
               <ChevronRight size={16} />
-              Proceed to Browser
-            </button>
+              {translate(language, "Start Collection")}
+            </Button>
           </div>
           {error && (
             <div className="col-span-2 rounded-md border border-signal-rose/30 bg-signal-rose/10 p-3 text-sm text-signal-rose">
@@ -1015,7 +1138,7 @@ function AndroidTikTokCollector({
   }
 
   return (
-    <section className="grid grid-cols-[360px_minmax(0,1fr)] gap-5">
+    <section className="mio-android-workspace grid grid-cols-[360px_minmax(0,1fr)] gap-5">
       <aside className="space-y-5">
         <Panel title="TikTok Analysis Session" icon={Smartphone}>
           <div className="space-y-3 text-sm text-ink-300">
@@ -1025,7 +1148,7 @@ function AndroidTikTokCollector({
             <InfoLine label="Created" value={formatDateTime(project.createdAt)} />
           </div>
           <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-            Launch Android, install or open TikTok, log in with Gmail if needed, then enter TikTok Shop manually. Closing the emulator keeps the AVD data partition, installed apps, and login state.
+            <TranslatedText>Launch Android, install or open TikTok, log in with Gmail if needed, then enter TikTok Shop manually. Closing the emulator keeps the AVD data partition, installed apps, and login state.</TranslatedText>
           </div>
           <button className="secondary-button mt-5" type="button" onClick={onNewAnalysis}>
             <ClipboardCheck size={16} />
@@ -1047,7 +1170,7 @@ function AndroidTikTokCollector({
                 onClick={() => setActiveStepIndex(index)}
               >
                 <div className="mb-1 flex items-center justify-between gap-2 text-white">
-                  <span>Step {index + 1}</span>
+                  <span><TranslatedText>Step</TranslatedText> {index + 1}</span>
                   {collectedSteps[step.id] ? <CheckCircle2 size={14} className="text-signal-green" /> : <Circle size={12} className="text-ink-500" />}
                 </div>
                 <div className="text-ink-300">{step.label}</div>
@@ -1064,7 +1187,7 @@ function AndroidTikTokCollector({
           action={
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => void androidStatus.refetch()}>
               <RefreshCcw size={15} />
-              Refresh
+              <TranslatedText>Refresh</TranslatedText>
             </button>
           }
         >
@@ -1091,17 +1214,17 @@ function AndroidTikTokCollector({
           </div>
 
           <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-            Emulator launch is persistent by design. The app does not wipe Android, uninstall TikTok, clear app data, or reset Google login when the emulator is closed.
+            <TranslatedText>Emulator launch is persistent by design. The app does not wipe Android, uninstall TikTok, clear app data, or reset Google login when the emulator is closed.</TranslatedText>
           </div>
 
           {runtime?.activeAnr && (
             <div className="mt-5 rounded-md border border-signal-rose/35 bg-signal-rose/10 p-4">
               <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-signal-rose">
                 <AlertTriangle size={16} />
-                TikTok is not responding
+                <TranslatedText>TikTok is not responding</TranslatedText>
               </div>
               <div className="text-xs leading-5 text-ink-300">
-                Android reported an ANR in TikTok. Recovery force-stops and reopens TikTok only; it keeps the emulator profile, installed app, and account data intact.
+                <TranslatedText>Android reported an ANR in TikTok. Recovery force-stops and reopens TikTok only; it keeps the emulator profile, installed app, and account data intact.</TranslatedText>
                 {runtime.lastAnrReason ? ` Last reason: ${runtime.lastAnrReason}` : ""}
               </div>
               <button className="primary-button mt-3 w-auto px-4" type="button" onClick={() => recoverTikTok.mutate()} disabled={recoverTikTok.isPending || !status?.tiktokInstalled}>
@@ -1122,17 +1245,17 @@ function AndroidTikTokCollector({
             </select>
             <button className="primary-button w-auto px-4" type="button" onClick={() => startEmulator.mutate()} disabled={startEmulator.isPending || !status?.emulatorPath || !status?.avds.length}>
               <Smartphone size={16} />
-              Launch Emulator
+              <TranslatedText>Launch Emulator</TranslatedText>
             </button>
           </div>
 
           <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3">
             <input className="input" value={apkPath} onChange={(event) => setApkPath(event.target.value)} placeholder="TikTok APK path" />
             <button className="secondary-button w-auto px-4" type="button" onClick={() => void pickApk()}>
-              Select APK
+              <TranslatedText>Select APK</TranslatedText>
             </button>
             <button className="primary-button w-auto px-4" type="button" onClick={() => installApk.mutate()} disabled={installApk.isPending || !apkPath.trim() || !bootedDevice}>
-              Install TikTok
+              <TranslatedText>Install TikTok</TranslatedText>
             </button>
           </div>
 
@@ -1155,7 +1278,7 @@ function AndroidTikTokCollector({
           <div className="mt-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
             <button className="secondary-button" type="button" onClick={() => openTikTok.mutate()} disabled={openTikTok.isPending || !status?.tiktokInstalled}>
               <ExternalLink size={16} />
-              Open TikTok App
+              <TranslatedText>Open TikTok App</TranslatedText>
             </button>
             <button className="secondary-button" type="button" onClick={() => recoverTikTok.mutate()} disabled={recoverTikTok.isPending || !status?.tiktokInstalled}>
               <RefreshCcw size={16} />
@@ -1173,7 +1296,7 @@ function AndroidTikTokCollector({
 
           <div className="mt-5 rounded-[18px] border border-white/8 bg-white/5 p-4">
             <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-ink-500">
-              Active Step {activeStepIndex + 1}/{steps.length}
+              <TranslatedText>Active Step</TranslatedText> {activeStepIndex + 1}/{steps.length}
             </div>
             <div className="mb-2 text-lg font-semibold text-white">{activeStep.label}</div>
             <div className="text-sm leading-6 text-ink-300">{activeStep.instruction}</div>
@@ -1231,6 +1354,7 @@ function GuidedBrowserCollector({
 }) {
   const webviewRef = useRef<WebviewElement | null>(null);
   const queryClient = useQueryClient();
+  const language = useUiStore((state) => state.language);
   const platform = project.marketplace as ResearchPlatform;
   const savedCollectionState = projectCollectionState(project);
   const initialUrl = savedCollectionState.browserUrl ?? browserUrl;
@@ -1246,10 +1370,16 @@ function GuidedBrowserCollector({
   const [reviewingKeyProducts, setReviewingKeyProducts] = useState(false);
   const [reviewingEvaluation, setReviewingEvaluation] = useState(false);
   const [qualifiedProductIds, setQualifiedProductIds] = useState<string[]>(savedCollectionState.qualifiedProductIds ?? []);
+  const [qualifiedProductReferences, setQualifiedProductReferences] = useState<QualifiedProductReference[]>(
+    savedCollectionState.qualifiedProductReferences ?? []
+  );
+  const [qualifiedProductsInitialized, setQualifiedProductsInitialized] = useState(Boolean(savedCollectionState.qualifiedProductsInitialized));
   const [qualifiedProductsApproved, setQualifiedProductsApproved] = useState(Boolean(savedCollectionState.qualifiedProductsApproved));
   const [storeCollectionCandidates, setStoreCollectionCandidates] = useState<StoreCollectionCandidate[]>(
-    savedCollectionState.storeCollectionCandidates ?? []
+    dedupeStoreCollectionCandidates(savedCollectionState.storeCollectionCandidates ?? [])
   );
+  const [storeListInitialized, setStoreListInitialized] = useState(Boolean(savedCollectionState.storeListInitialized));
+  const [storeListApproved, setStoreListApproved] = useState(Boolean(savedCollectionState.storeListApproved));
   const [activeSubActionId, setActiveSubActionId] = useState<string | undefined>(undefined);
   const [analysisSessionCollapsed, setAnalysisSessionCollapsed] = useState(true);
   const [activitySidebarOpen, setActivitySidebarOpen] = useState(false);
@@ -1276,28 +1406,63 @@ function GuidedBrowserCollector({
     setExpandedPortalRoot(document.querySelector<HTMLElement>(".mio-app"));
   }, []);
 
-  const runAnalysis = useMutation({
-    mutationFn: () => apiClient.analyzeProject(project.id),
-    onSuccess: async (result) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
-      ]);
-      appendLog(setActivityLog, `AI scoring saved with ${result.provider}.`);
-    },
-    onError: (error) => {
-      appendLog(setActivityLog, error instanceof Error ? error.message : "AI scoring could not be completed.");
-    }
-  });
-
   const allSteps = useMemo(
-    () => buildCollectionSteps(project, platform, currentUrl, viewMode, projectDetail.data, storeCollectionCandidates),
-    [currentUrl, platform, project, projectDetail.data, storeCollectionCandidates, viewMode]
+    () => buildCollectionSteps(
+      {
+        ...project,
+        collectionState: {
+          ...savedCollectionState,
+          qualifiedProductIds,
+          qualifiedProductReferences,
+          qualifiedProductsInitialized,
+          qualifiedProductsApproved,
+          storeCollectionCandidates,
+          storeListInitialized,
+          storeListApproved
+        }
+      } as ProjectSummary,
+      platform,
+      currentUrl,
+      viewMode,
+      projectDetail.data,
+      storeCollectionCandidates
+    ),
+    [
+      currentUrl,
+      platform,
+      project,
+      projectDetail.data,
+      qualifiedProductIds,
+      qualifiedProductReferences,
+      qualifiedProductsApproved,
+      qualifiedProductsInitialized,
+      savedCollectionState,
+      storeCollectionCandidates,
+      storeListApproved,
+      storeListInitialized,
+      viewMode
+    ]
   );
   const steps = useMemo(() => allSteps.filter((step) => step.stage === activeStage), [activeStage, allSteps]);
-  const activeStep = steps[activeStepIndex] ?? steps[0] ?? allSteps[0];
+  const keyProductListReady = allSteps.find((step) => step.id === "key-product-table")?.ready === true;
+  const activeStep = steps[activeStepIndex] ?? steps[0];
   const activeSubAction = activeStep?.subActions?.find((action) => action.id === activeSubActionId) ?? activeStep?.subActions?.[0];
-  const activeSubActionReady = activeSubAction?.id === "shop-homepage" ? isShopeeStorePage(currentUrl) : activeStep?.ready;
+  const activeSubActionReady = activeStep?.ownerType === "STORE" && activeSubAction?.id !== "store-tiktok"
+    ? matchesStoreCollectionTarget(
+        currentUrl,
+        activeSubAction?.targetUrl,
+        typeof activeStep.metadata?.canonicalStoreUrl === "string" ? activeStep.metadata.canonicalStoreUrl : undefined,
+        typeof activeStep.metadata?.shopId === "string" ? activeStep.metadata.shopId : undefined
+      )
+    : activeSubAction?.id === "shop-homepage" || activeSubAction?.id === "store-homepage"
+    ? isShopeeStorePage(currentUrl)
+    : activeSubAction?.id === "store-details"
+      ? isShopeeStorePage(currentUrl) && Boolean(activeSubAction.targetUrl && sameStoreIntent(currentUrl, activeSubAction.targetUrl))
+      : activeSubAction?.id === "store-tiktok"
+        ? isTikTokPage(currentUrl)
+        : activeSubAction?.targetUrl
+          ? sameUrlIntent(currentUrl, activeSubAction.targetUrl)
+          : activeStep?.ready;
   const activeTargetUrl = activeSubAction?.targetUrl ?? activeStep?.targetUrl;
   const activeSubActionCounts = useMemo(
     () => activeStep ? collectionSubActionCounts(activeStep, projectDetail.data) : {},
@@ -1307,24 +1472,40 @@ function GuidedBrowserCollector({
     () => activeStep ? collectionSubActionStates(activeStep, collectedSteps, activeSubActionCounts) : {},
     [activeStep, activeSubActionCounts, collectedSteps]
   );
+  const activeEvidenceKind = activeStep ? subActionEvidenceKind(activeStep, activeSubAction) : undefined;
   const controllerStep = activeStep
     ? {
         ...activeStep,
-        ready: Boolean(activeSubActionReady),
+        ready: isCollectionPageReady(
+          Boolean(activeSubActionReady),
+          loadState,
+          activeEvidenceKind ? evidenceRequiresProductRows(activeEvidenceKind) : false
+        ),
         targetUrl: activeTargetUrl
       }
     : activeStep;
-  const qualifiedProductPool = useMemo(
-    () => selectKeyProductCandidates(projectDetail.data?.products ?? [], project.keyword, 20),
+  const availableKeyProductPool = useMemo(
+    () => allKeyProductCandidates(projectDetail.data?.products ?? [], project.keyword),
     [project.keyword, projectDetail.data?.products]
   );
+  const qualifiedProductPool = useMemo(
+    () => rankQualifiedProducts(availableKeyProductPool).slice(0, 120),
+    [availableKeyProductPool]
+  );
   const selectedKeyProducts = useMemo(() => {
-    const selectedIds = qualifiedProductIds.length > 0
-      ? qualifiedProductIds
-      : qualifiedProductPool.slice(0, 10).map((product) => product.id);
-    const byId = new Map(qualifiedProductPool.map((product) => [product.id, product]));
-    return selectedIds.map((id) => byId.get(id)).filter((product): product is ProjectProductEvidence => Boolean(product));
-  }, [qualifiedProductIds, qualifiedProductPool]);
+    const productsById = new Map<string, ProjectProductEvidence>();
+    for (const product of projectDetail.data?.products ?? []) productsById.set(product.id, product);
+    for (const product of availableKeyProductPool) productsById.set(product.id, product);
+    const pool = Array.from(productsById.values());
+    if (qualifiedProductReferences.length > 0) {
+      return resolveCanonicalQualifiedProducts(pool, qualifiedProductReferences, qualifiedProductsInitialized, 10);
+    }
+    if (qualifiedProductsInitialized) {
+      const byId = new Map(pool.map((product) => [product.id, product]));
+      return qualifiedProductIds.map((id) => byId.get(id)).filter((product): product is ProjectProductEvidence => Boolean(product));
+    }
+    return [];
+  }, [availableKeyProductPool, projectDetail.data?.products, qualifiedProductIds, qualifiedProductReferences, qualifiedProductsInitialized]);
   const collectedCount = allSteps.filter((step) => isCollectionStepComplete(step, collectedSteps)).length;
   const stageCollectedCount = steps.filter((step) => isCollectionStepComplete(step, collectedSteps)).length;
   const collectionProgressPercent = allSteps.length > 0 ? Math.round((collectedCount / allSteps.length) * 100) : 0;
@@ -1364,25 +1545,47 @@ function GuidedBrowserCollector({
   }, [allSteps, projectDetail.data]);
 
   useEffect(() => {
-    if (qualifiedProductIds.length > 0 || qualifiedProductPool.length === 0) {
+    if (activeStage !== "EVALUATION_KEY_STORE" || storeListInitialized || !projectDetail.data) {
       return;
     }
-    setQualifiedProductIds(qualifiedProductPool.slice(0, 10).map((product) => product.id));
-  }, [qualifiedProductIds.length, qualifiedProductPool]);
+    const legacyStores = projectDetail.data.stores.map((store) => ({
+      id: store.id,
+      storeName: store.name,
+      storeUrl: store.url,
+      storeType: store.storeType,
+      shopId: store.marketplaceStoreId
+    }));
+    const candidates = resolveCanonicalStoreList(selectedKeyProducts, storeCollectionCandidates, false, legacyStores);
+    setStoreCollectionCandidates(candidates);
+    setStoreListInitialized(true);
+    setStoreListApproved(false);
+    persistCollectionState({
+      storeCollectionCandidates: candidates,
+      storeListInitialized: true,
+      storeListApproved: false
+    });
+    // Older projects are migrated once when Part 3 is first opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStage, projectDetail.data, storeListInitialized]);
 
   useEffect(() => {
-    if (selectedKeyProducts.length === 0 || storeCollectionCandidates.length > 0) {
+    if (activeStage !== "EVALUATION_KEY_STORE" || !activeStep?.ownerId) {
       return;
     }
-    const candidates = buildStoreCollectionCandidates(selectedKeyProducts);
-    if (candidates.length === 0) {
+    const shopId = extractShopeeShopId(currentUrl);
+    const currentCandidate = storeCollectionCandidates.find((candidate) => candidate.id === activeStep.ownerId);
+    if (!shopId || !currentCandidate || currentCandidate.shopId === shopId) {
       return;
     }
-    setStoreCollectionCandidates(candidates);
-    persistCollectionState({ storeCollectionCandidates: candidates });
-    // Candidate bootstrapping must run only when the candidate list is initially empty.
+    const nextCandidates = dedupeStoreCollectionCandidates(storeCollectionCandidates.map((candidate) =>
+      candidate.id === activeStep.ownerId ? { ...candidate, shopId } : candidate
+    ));
+    setStoreCollectionCandidates(nextCandidates);
+    persistCollectionState({ storeCollectionCandidates: nextCandidates });
+    appendLog(setActivityLog, `Detected Shopee shop ID ${shopId} for ${currentCandidate.storeName}.`);
+    // Persist only when navigation reveals a new shop ID.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKeyProducts, storeCollectionCandidates.length]);
+  }, [activeStage, activeStep?.ownerId, currentUrl, storeCollectionCandidates]);
 
   useEffect(() => {
     if (!isManualActionState) {
@@ -1465,8 +1668,12 @@ function GuidedBrowserCollector({
       viewMode: overrides.viewMode ?? viewMode,
       searchFilters: overrides.searchFilters ?? savedCollectionState.searchFilters,
       qualifiedProductIds: overrides.qualifiedProductIds ?? qualifiedProductIds,
+      qualifiedProductReferences: overrides.qualifiedProductReferences ?? qualifiedProductReferences,
+      qualifiedProductsInitialized: overrides.qualifiedProductsInitialized ?? qualifiedProductsInitialized,
       qualifiedProductsApproved: overrides.qualifiedProductsApproved ?? qualifiedProductsApproved,
-      storeCollectionCandidates: overrides.storeCollectionCandidates ?? storeCollectionCandidates,
+      storeCollectionCandidates: dedupeStoreCollectionCandidates(overrides.storeCollectionCandidates ?? storeCollectionCandidates),
+      storeListInitialized: overrides.storeListInitialized ?? storeListInitialized,
+      storeListApproved: overrides.storeListApproved ?? storeListApproved,
       savedAt: new Date().toISOString()
     };
   }
@@ -1475,10 +1682,20 @@ function GuidedBrowserCollector({
     saveCollectionState.mutate(buildCollectionState(overrides));
   }
 
+  async function persistCollectionStateAsync(overrides: Partial<CollectionState> = {}) {
+    await saveCollectionState.mutateAsync(buildCollectionState(overrides));
+  }
+
   function updateStoreCollectionCandidates(candidates: StoreCollectionCandidate[]) {
-    const nextCandidates = candidates.slice(0, 50);
+    const nextCandidates = dedupeStoreCollectionCandidates(candidates).slice(0, 50);
     setStoreCollectionCandidates(nextCandidates);
-    persistCollectionState({ storeCollectionCandidates: nextCandidates });
+    setStoreListInitialized(true);
+    setStoreListApproved(false);
+    persistCollectionState({
+      storeCollectionCandidates: nextCandidates,
+      storeListInitialized: true,
+      storeListApproved: false
+    });
   }
 
   const saveEvidence = useMutation({
@@ -1501,6 +1718,24 @@ function GuidedBrowserCollector({
         queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
       ]);
       const refreshedDetail = queryClient.getQueryData<ProjectDetailPayload>(["project-detail", project.id]);
+      const refreshedStep = refreshedDetail
+        ? buildCollectionSteps(project, platform, currentUrl, viewMode, refreshedDetail, storeCollectionCandidates)
+            .find((item) => item.id === step.id)
+        : undefined;
+      const progressionStep = refreshedStep ?? step;
+      let nextStoreCollectionCandidates = storeCollectionCandidates;
+      const structuredStoreProfile = isRecord(payload.metadata?.structuredStoreProfile)
+        ? payload.metadata.structuredStoreProfile
+        : undefined;
+      const capturedStoreType = normalizeStoreTypeValue(
+        typeof structuredStoreProfile?.storeType === "string" ? structuredStoreProfile.storeType : undefined
+      );
+      if (step.ownerType === "STORE" && step.ownerId && capturedStoreType) {
+        nextStoreCollectionCandidates = dedupeStoreCollectionCandidates(storeCollectionCandidates.map((candidate) =>
+          candidate.id === step.ownerId ? { ...candidate, storeType: capturedStoreType } : candidate
+        ));
+        setStoreCollectionCandidates(nextStoreCollectionCandidates);
+      }
       const productDetailSubAction = typeof payload.metadata?.productDetailSubAction === "string" ? payload.metadata.productDetailSubAction : undefined;
       const progressKey = stepProgressKey(step, productDetailSubAction);
       const nextCollectedSteps = { ...collectedSteps, [progressKey]: result.assetPath };
@@ -1509,21 +1744,38 @@ function GuidedBrowserCollector({
           nextCollectedSteps[relatedKey] = result.assetPath;
         }
       }
-      setCollectedSteps(nextCollectedSteps);
+      if (
+        productDetailSubAction === "store-homepage" &&
+        step.ownerType === "STORE" &&
+        refreshedDetail &&
+        collectionSubActionCounts(progressionStep, refreshedDetail)["store-details"] > 0
+      ) {
+        nextCollectedSteps[stepProgressKey(step, "store-details")] = result.assetPath;
+        appendLog(setActivityLog, "Store Data was already present in the downloaded homepage HTML, so the duplicate collection action was completed automatically.");
+      }
       setPendingCapture(null);
       const productDetailSubActionLabel = typeof payload.metadata?.productDetailSubActionLabel === "string" ? payload.metadata.productDetailSubActionLabel : undefined;
       appendLog(
         setActivityLog,
         `Captured ${step.label}${productDetailSubActionLabel ? ` / ${productDetailSubActionLabel}` : ""}${result.extractedProductCount ? ` and extracted ${result.extractedProductCount} product rows` : ""}.`
       );
+      const isStoreRatingAction = productDetailSubAction === "store-rating-negative" || productDetailSubAction === "store-rating-positive";
       const missingActionData = productDetailSubAction
-        ? productDetailSubActionEvidenceCount(payload, productDetailSubAction) === 0
+        ? isStoreRatingAction && typeof result.storeRatingCount === "number"
+          ? result.storeRatingCount === 0
+          : productDetailSubActionEvidenceCount(payload, productDetailSubAction) === 0
         : (["STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER"].includes(payload.kind) && (result.extractedProductCount ?? 0) === 0) ||
           (payload.kind === "STORE_BANNER" && (result.storeBannerCount ?? 0) === 0);
       if (missingActionData) {
+        delete nextCollectedSteps[progressKey];
+        if (productDetailSubAction === "shop-homepage" && step.ownerType === "PRODUCT" && step.ownerId) {
+          for (const relatedKey of relatedShopHomepageProgressKeys(step.ownerId, allSteps, projectDetail.data)) {
+            delete nextCollectedSteps[relatedKey];
+          }
+        }
         const missingLabel = productDetailSubActionLabel ?? step.label;
         setCaptureStatus({ message: `${missingLabel} not found`, state: "failed", progress: 100 });
-        appendLog(setActivityLog, `${missingLabel} was saved as completed, but no matching data was found on the current page.`);
+        appendLog(setActivityLog, `${missingLabel} returned no matching data. Progress was not marked complete and the collector stayed on the current target.`);
       } else {
         setCaptureStatus({
           message: productDetailSubAction && productDetailSubActionLabel
@@ -1536,20 +1788,160 @@ function GuidedBrowserCollector({
           appendLog(setActivityLog, "Key Product ranking refreshed with the latest PDP metrics.");
         }
       }
+      if (
+        !missingActionData &&
+        step.stage === "PRODUCT_DETAILS" &&
+        (productDetailSubAction === "media-in-user" || productDetailSubAction === "shop-homepage")
+      ) {
+        const mediaProgressKey = stepProgressKey(step, "media-in-user");
+        const shopHomepageProgressKey = stepProgressKey(step, "shop-homepage");
+        const mediaCollected = Boolean(nextCollectedSteps[mediaProgressKey]);
+        const shopHomepageCollected = Boolean(nextCollectedSteps[shopHomepageProgressKey]);
+        if (productDetailSubAction === "media-in-user" && userMediaAdvanceTarget(shopHomepageCollected) === "shop-homepage") {
+          const shopHomepageAction = progressionStep.subActions?.find((action) => action.id === "shop-homepage");
+          const shopHomepageUrl = shopHomepageAction?.targetUrl ?? progressionStep.targetUrl;
+          try {
+            await persistCollectionStateAsync({
+              stepAssetPaths: nextCollectedSteps,
+              completedStepIds: Object.keys(nextCollectedSteps),
+              progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+              currentStepId: step.id,
+              browserUrl: shopHomepageUrl ? collectionTargetUrl(shopHomepageUrl, step.stage) : currentUrl,
+              viewMode,
+              storeCollectionCandidates: nextStoreCollectionCandidates
+            });
+          } catch {
+            setCaptureStatus({ message: "Media saved, but progress could not be persisted", state: "failed", progress: 100 });
+            return;
+          }
+          setCollectedSteps(nextCollectedSteps);
+          setActiveSubActionId("shop-homepage");
+          if (shopHomepageUrl) navigateTo(collectionTargetUrl(shopHomepageUrl, step.stage));
+          appendLog(setActivityLog, "User Media was saved. Opened Shop Home Page before advancing to the next product.");
+          return;
+        }
+        if (!mediaCollected || !shopHomepageCollected) {
+          persistCollectionState({
+            stepAssetPaths: nextCollectedSteps,
+            completedStepIds: Object.keys(nextCollectedSteps),
+            progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+            currentStepId: step.id,
+            browserUrl: currentUrl,
+            viewMode,
+            storeCollectionCandidates: nextStoreCollectionCandidates
+          });
+          setCollectedSteps(nextCollectedSteps);
+          return;
+        }
+        nextCollectedSteps[step.id] = result.assetPath;
+        const nextProductTarget = nextProductCollectionTarget(steps, step.ownerId);
+        if (nextProductTarget) {
+          const nextUrl = nextProductTarget.targetUrl
+            ? collectionTargetUrl(nextProductTarget.targetUrl, "PRODUCT_DETAILS")
+            : currentUrl;
+          try {
+            await persistCollectionStateAsync({
+              stepAssetPaths: nextCollectedSteps,
+              completedStepIds: Object.keys(nextCollectedSteps),
+              progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+              currentStepId: nextProductTarget.stepId,
+              browserUrl: nextUrl,
+              viewMode,
+              storeCollectionCandidates: nextStoreCollectionCandidates
+            });
+          } catch {
+            setCaptureStatus({ message: "Media saved, but progress could not be persisted", state: "failed", progress: 100 });
+            return;
+          }
+          setCollectedSteps(nextCollectedSteps);
+          setActiveStepIndex(nextProductTarget.stepIndex);
+          setActiveSubActionId(nextProductTarget.firstActionId);
+          if (nextProductTarget.targetUrl) navigateTo(nextUrl);
+          return;
+        }
+        try {
+          await completeCurrentStage(nextCollectedSteps, {
+            storeCollectionCandidates: nextStoreCollectionCandidates
+          });
+        } catch {
+          setCaptureStatus({ message: "Media saved, but Part 2 completion could not be persisted", state: "failed", progress: 100 });
+          return;
+        }
+        setCollectedSteps(nextCollectedSteps);
+        return;
+      }
+
+      setCollectedSteps(nextCollectedSteps);
       const completedStageSteps = steps.every((item) => isCollectionStepComplete(item, nextCollectedSteps));
       if (step.stage === "EVALUATION_KEY_STORE" && completedStageSteps) {
+        await completeCurrentStage(nextCollectedSteps, { storeCollectionCandidates: nextStoreCollectionCandidates });
+        return;
+      }
+      const advanceMode = collectionAdvanceMode(step.stage, productDetailSubAction, !missingActionData);
+      if (advanceMode === "stay") {
         persistCollectionState({
           stepAssetPaths: nextCollectedSteps,
           completedStepIds: Object.keys(nextCollectedSteps),
           progressPercent: collectionProgress(allSteps, nextCollectedSteps),
-          currentStepId: step.id
+          currentStepId: step.id,
+          browserUrl: currentUrl,
+          viewMode,
+          storeCollectionCandidates: nextStoreCollectionCandidates
         });
-        completeCurrentStage(nextCollectedSteps);
         return;
       }
-      const stayOnProductDetail = step.stage === "PRODUCT_DETAILS" && Boolean(productDetailSubAction);
-      const nextStepIndex = stayOnProductDetail ? activeStepIndex : Math.min(activeStepIndex + 1, steps.length - 1);
+
+      if (advanceMode === "next-action") {
+        const actionIds = (progressionStep.subActions ?? []).map((action) => action.id);
+        const completedActionIds = new Set(actionIds.filter((actionId) => Boolean(nextCollectedSteps[stepProgressKey(step, actionId)])));
+        const nextActionId = nextPendingCollectionActionId(actionIds, productDetailSubAction, completedActionIds);
+        if (nextActionId) {
+          const nextAction = progressionStep.subActions?.find((action) => action.id === nextActionId);
+          setActiveSubActionId(nextActionId);
+          const reuseRatingsPage = reusesCurrentStoreRatingsPage(productDetailSubAction, nextActionId);
+          if (reuseRatingsPage) {
+            const switched = await selectShopeeStoreRatingTab(webviewRef.current, 5);
+            appendLog(
+              setActivityLog,
+              switched
+                ? "Switched the current store ratings page from the 1-star tab to the 5-star tab."
+                : "Kept the current store ratings page open. Select the 5-star tab if Shopee did not expose a clickable filter."
+            );
+          } else if (nextAction?.targetUrl) {
+            navigateTo(collectionTargetUrl(nextAction.targetUrl, step.stage));
+          }
+          persistCollectionState({
+            stepAssetPaths: nextCollectedSteps,
+            completedStepIds: Object.keys(nextCollectedSteps),
+            progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+            currentStepId: step.id,
+            browserUrl: !reuseRatingsPage && nextAction?.targetUrl ? collectionTargetUrl(nextAction.targetUrl, step.stage) : currentUrl,
+            viewMode,
+            storeCollectionCandidates: nextStoreCollectionCandidates
+          });
+          return;
+        }
+        if (step.stage === "PRODUCT_DETAILS") {
+          persistCollectionState({
+            stepAssetPaths: nextCollectedSteps,
+            completedStepIds: Object.keys(nextCollectedSteps),
+            progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+            currentStepId: step.id,
+            browserUrl: currentUrl,
+            viewMode,
+            storeCollectionCandidates: nextStoreCollectionCandidates
+          });
+          return;
+        }
+      }
+
+      const nextStepIndex = Math.min(activeStepIndex + 1, steps.length - 1);
       setActiveStepIndex(nextStepIndex);
+      setActiveSubActionId(undefined);
+      const nextStep = steps[nextStepIndex];
+      if (nextStep && nextStep.id !== step.id && nextStep.targetUrl) {
+        navigateTo(collectionTargetUrl(nextStep.targetUrl, nextStep.stage));
+      }
       if (step.id === "keyword-relevance") {
         const topSalesStep = steps.find((item) => item.id === "keyword-top-sales");
         if (topSalesStep?.targetUrl) {
@@ -1560,7 +1952,8 @@ function GuidedBrowserCollector({
         stepAssetPaths: nextCollectedSteps,
         completedStepIds: Object.keys(nextCollectedSteps),
         progressPercent: collectionProgress(allSteps, nextCollectedSteps),
-        currentStepId: steps[nextStepIndex]?.id ?? step.id
+        currentStepId: nextStep?.id ?? step.id,
+        storeCollectionCandidates: nextStoreCollectionCandidates
       });
     },
     onError: (error) => {
@@ -1582,6 +1975,28 @@ function GuidedBrowserCollector({
     const action = subActionId ? step.subActions?.find((item) => item.id === subActionId) : undefined;
     const label = action?.label ?? step.label;
     setCaptureStatus({ message: `Resetting ${label}`, state: "working", progress: 20 });
+    const nextCollectedSteps = { ...collectedSteps };
+    delete nextCollectedSteps[stepProgressKey(step, subActionId)];
+    if (preservesStoreEvidenceDuringReset(subActionId) && step.ownerType === "STORE") {
+      try {
+        await persistCollectionStateAsync({
+          stepAssetPaths: nextCollectedSteps,
+          completedStepIds: Object.keys(nextCollectedSteps),
+          progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+          currentStepId: step.id
+        });
+      } catch {
+        setCaptureStatus({ message: `${label} reset failed`, state: "failed", progress: 100 });
+        return;
+      }
+      setCollectedSteps(nextCollectedSteps);
+      if (subActionId) {
+        selectSubAction(subActionId);
+      }
+      setCaptureStatus({ message: `${label} ready to refresh`, state: "done", progress: 100 });
+      appendLog(setActivityLog, `${label} is ready to collect again. The last valid result remains available until the refresh succeeds.`);
+      return;
+    }
     await resetEvidence.mutateAsync({
       projectId: project.id,
       stepId: step.id,
@@ -1590,14 +2005,11 @@ function GuidedBrowserCollector({
       subActionId,
       kind: step.kind
     });
-    const nextCollectedSteps = { ...collectedSteps };
-    delete nextCollectedSteps[stepProgressKey(step, subActionId)];
     if (subActionId === "shop-homepage" && step.ownerType === "PRODUCT" && step.ownerId) {
       for (const relatedKey of relatedShopHomepageProgressKeys(step.ownerId, allSteps, projectDetail.data)) {
         delete nextCollectedSteps[relatedKey];
       }
     }
-    setCollectedSteps(nextCollectedSteps);
     if (subActionId) {
       selectSubAction(subActionId);
     }
@@ -1605,12 +2017,13 @@ function GuidedBrowserCollector({
       queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
       queryClient.invalidateQueries({ queryKey: ["project-detail", project.id] })
     ]);
-    persistCollectionState({
+    await persistCollectionStateAsync({
       stepAssetPaths: nextCollectedSteps,
       completedStepIds: Object.keys(nextCollectedSteps),
       progressPercent: collectionProgress(allSteps, nextCollectedSteps),
       currentStepId: step.id
     });
+    setCollectedSteps(nextCollectedSteps);
     setCaptureStatus({ message: `${label} ready to collect again`, state: "done", progress: 100 });
     appendLog(setActivityLog, `Reset ${label}.`);
   }
@@ -1683,10 +2096,17 @@ function GuidedBrowserCollector({
     const stageSteps = allSteps.filter((step) => step.stage === stage);
     const firstIncompleteIndex = stageSteps.findIndex((step) => !isCollectionStepComplete(step, collectedSteps));
     const nextIndex = firstIncompleteIndex >= 0 ? firstIncompleteIndex : 0;
+    const nextStep = stageSteps[nextIndex];
+    const nextSubAction =
+      nextStep?.subActions?.find(
+        (action) => !collectedSteps[stepProgressKey(nextStep, action.id)],
+      ) ?? nextStep?.subActions?.[0];
     setActiveStage(stage);
+    const nextViewMode = viewModeForCollectionStage(stage, viewMode);
     setActiveStepIndex(nextIndex);
+    setActiveSubActionId(nextSubAction?.id);
     setReviewingKeyProducts(false);
-    const showEvaluation = stage === "EVALUATION_KEY_STORE" && (stageSteps[nextIndex]?.id === "evaluation-phase-scoring" || !stageSteps.some((step) => step.id === "evaluation-phase-scoring" && isCollectionStepComplete(step, collectedSteps)));
+    const showEvaluation = stage === "EVALUATION_KEY_STORE";
     setReviewingEvaluation(showEvaluation);
     if (showEvaluation) {
       setExpanded(false);
@@ -1694,36 +2114,39 @@ function GuidedBrowserCollector({
     persistCollectionState({
       stage,
       stageLabel: collectionStageLabel(stage),
-      currentStepId: stageSteps[nextIndex]?.id,
+      currentStepId: nextStep?.id,
       browserUrl: currentUrl,
-      viewMode
+      viewMode: nextViewMode
     });
   }
 
   function selectSubAction(actionId: string) {
     setActiveSubActionId(actionId);
-    const action = activeStep?.subActions?.find((item) => item.id === actionId);
-    if (action?.preferredViewMode) {
-      setViewMode(action.preferredViewMode);
-      persistCollectionState({ viewMode: action.preferredViewMode });
-    }
   }
 
-  function advanceGuidedCollection() {
+  async function advanceGuidedCollection() {
     if (!activeStep) {
       return;
     }
     const actions = activeStep.subActions ?? [];
-    if (activeStep.stage === "PRODUCT_DETAILS" && actions.length > 0) {
-      const currentActionIndex = Math.max(0, actions.findIndex((action) => action.id === activeSubAction?.id));
-      const nextPendingAction = actions
-        .slice(currentActionIndex + 1)
-        .find((action) => (activeSubActionStates[action.id] ?? "pending") === "pending");
+    if (actions.length > 0) {
+      const completedActionIds = new Set(actions
+        .filter((action) => (activeSubActionStates[action.id] ?? "pending") !== "pending")
+        .map((action) => action.id));
+      const nextActionId = nextPendingCollectionActionId(actions.map((action) => action.id), activeSubAction?.id, completedActionIds);
+      const nextPendingAction = actions.find((action) => action.id === nextActionId);
       if (nextPendingAction) {
         selectSubAction(nextPendingAction.id);
-        if (nextPendingAction.id === "shop-homepage" && (nextPendingAction.targetUrl ?? activeStep.targetUrl)) {
-          navigateTo(nextPendingAction.targetUrl ?? activeStep.targetUrl!);
+        if (activeStage === "EVALUATION_KEY_STORE" && (nextPendingAction.targetUrl ?? activeStep.targetUrl)) {
+          if (reusesCurrentStoreRatingsPage(activeSubAction?.id, nextPendingAction.id)) {
+            await selectShopeeStoreRatingTab(webviewRef.current, 5);
+          } else {
+            navigateTo(collectionTargetUrl(nextPendingAction.targetUrl ?? activeStep.targetUrl!, activeStep.stage));
+          }
         }
+        return;
+      }
+      if (activeStage === "PRODUCT_DETAILS" && activeSubAction?.id !== "shop-homepage") {
         return;
       }
       const nextStepIndex = Math.min(activeStepIndex + 1, steps.length - 1);
@@ -1731,11 +2154,35 @@ function GuidedBrowserCollector({
       setActiveStepIndex(nextStepIndex);
       setActiveSubActionId(undefined);
       if (nextStep && nextStep.id !== activeStep.id && nextStep.targetUrl) {
-        navigateTo(nextStep.targetUrl);
+        navigateTo(collectionTargetUrl(nextStep.targetUrl, nextStep.stage));
       }
       return;
     }
     setActiveStepIndex((current) => Math.min(steps.length - 1, current + 1));
+  }
+
+  function retreatGuidedCollection() {
+    if (!activeStep) {
+      return;
+    }
+    const actionIds = (activeStep.subActions ?? []).map((action) => action.id);
+    const previousActionId = previousCollectionActionId(actionIds, activeSubAction?.id);
+    if (previousActionId) {
+      selectSubAction(previousActionId);
+      const previousAction = activeStep.subActions?.find((action) => action.id === previousActionId);
+      if (previousAction?.targetUrl) {
+        navigateTo(collectionTargetUrl(previousAction.targetUrl, activeStep.stage));
+      }
+      return;
+    }
+    const previousStepIndex = Math.max(0, activeStepIndex - 1);
+    const previousStep = steps[previousStepIndex];
+    setActiveStepIndex(previousStepIndex);
+    const previousStepAction = previousStep?.subActions?.at(-1);
+    setActiveSubActionId(previousStepAction?.id);
+    if (previousStepAction?.targetUrl ?? previousStep?.targetUrl) {
+      navigateTo(collectionTargetUrl(previousStepAction?.targetUrl ?? previousStep!.targetUrl!, previousStep?.stage ?? activeStage));
+    }
   }
 
   useEffect(() => {
@@ -1768,6 +2215,57 @@ function GuidedBrowserCollector({
       `).catch(() => 0);
       interactionBaseline = Number(installedAt) || 0;
     };
+    const installMediaAutoplayGuard = async () => {
+      if (!executeInWebview) {
+        return;
+      }
+      await executeInWebview(`
+        (() => {
+          const intentMarker = "__mioLastMediaIntentAt";
+          const mediaElements = (root) => {
+            if (!root) return [];
+            const elements = [];
+            if (root instanceof HTMLMediaElement) elements.push(root);
+            if (root.querySelectorAll) elements.push(...root.querySelectorAll("video, audio"));
+            return elements;
+          };
+          const prepareMedia = (root, pauseNow = true) => {
+            for (const media of mediaElements(root)) {
+              media.autoplay = false;
+              media.removeAttribute("autoplay");
+              if (!media.hasAttribute("preload") || media.preload === "auto") media.preload = "metadata";
+              if (pauseNow && !media.paused) media.pause();
+            }
+          };
+          prepareMedia(document, true);
+          if (!window.__mioMediaAutoplayGuardInstalled) {
+            window[intentMarker] = 0;
+            const markIntent = () => { window[intentMarker] = Date.now(); };
+            document.addEventListener("pointerdown", markIntent, true);
+            document.addEventListener("keydown", markIntent, true);
+            document.addEventListener("play", (event) => {
+              const media = event.target;
+              if (!(media instanceof HTMLMediaElement)) return;
+              if (Date.now() - Number(window[intentMarker] || 0) > 1500) media.pause();
+            }, true);
+            const observer = new MutationObserver((records) => {
+              for (const record of records) {
+                if (record.type === "attributes") prepareMedia(record.target, true);
+                for (const node of record.addedNodes) prepareMedia(node, true);
+              }
+            });
+            observer.observe(document.documentElement, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: ["autoplay"]
+            });
+            window.__mioMediaAutoplayGuardInstalled = true;
+          }
+          return true;
+        })()
+      `).catch(() => false);
+    };
     const pollInteraction = async () => {
       if (interactionPollBusy || !executeInWebview) {
         return;
@@ -1789,8 +2287,12 @@ function GuidedBrowserCollector({
         setAddress(nextUrl);
         onBrowserUrlChange(nextUrl);
       }
+    };
+    const ready = (event?: WebviewNavigationEvent) => {
+      updateUrl(event);
       setLoadState("ready");
       void installInteractionProbe();
+      void installMediaAutoplayGuard();
     };
     const loading = () => {
       applyWebviewShadowFrameLayout(webview);
@@ -1805,18 +2307,20 @@ function GuidedBrowserCollector({
       appendLog(setActivityLog, "The browser could not load this page. You can reload or navigate manually.");
     };
     webview.addEventListener("did-start-loading", loading);
-    webview.addEventListener("dom-ready", updateUrl);
-    webview.addEventListener("did-finish-load", updateUrl);
+    webview.addEventListener("dom-ready", ready);
+    webview.addEventListener("did-finish-load", ready);
+    webview.addEventListener("did-stop-loading", ready);
     webview.addEventListener("did-navigate", updateUrl as EventListener);
-    webview.addEventListener("did-navigate-in-page", updateUrl as EventListener);
+    webview.addEventListener("did-navigate-in-page", ready as EventListener);
     webview.addEventListener("did-fail-load", failed);
     const interactionTimer = window.setInterval(() => void pollInteraction(), 350);
     return () => {
       webview.removeEventListener("did-start-loading", loading);
-      webview.removeEventListener("dom-ready", updateUrl);
-      webview.removeEventListener("did-finish-load", updateUrl);
+      webview.removeEventListener("dom-ready", ready);
+      webview.removeEventListener("did-finish-load", ready);
+      webview.removeEventListener("did-stop-loading", ready);
       webview.removeEventListener("did-navigate", updateUrl as EventListener);
-      webview.removeEventListener("did-navigate-in-page", updateUrl as EventListener);
+      webview.removeEventListener("did-navigate-in-page", ready as EventListener);
       webview.removeEventListener("did-fail-load", failed);
       window.clearInterval(interactionTimer);
     };
@@ -1870,6 +2374,30 @@ function GuidedBrowserCollector({
     });
   }
 
+  function collectionTargetUrl(url: string, stage: CollectionStage): string {
+    if (platform !== "SHOPEE_ID" || stage !== "EVALUATION_KEY_STORE") {
+      return url;
+    }
+    return viewMode === "mobile" ? toMobileUrl(url) : toDesktopUrl(url);
+  }
+
+  function switchBrowserViewMode(nextViewMode: PlatformViewMode) {
+    const nextUrl = nextViewMode === "mobile"
+      ? toMobileUrl(currentUrl)
+      : toDesktopUrl(currentUrl);
+    setViewMode(nextViewMode);
+    setAddress(nextUrl);
+    setCurrentUrl(nextUrl);
+    onBrowserUrlChange(nextUrl);
+    persistCollectionState({
+      viewMode: nextViewMode,
+      browserUrl: nextUrl
+    });
+    void webviewRef.current?.loadURL?.(nextUrl).catch((error: unknown) => {
+      appendLog(setActivityLog, error instanceof Error ? error.message : "Could not switch browser view.");
+    });
+  }
+
   function goToAddress() {
     if (address.trim().length === 0) {
       return;
@@ -1888,7 +2416,7 @@ function GuidedBrowserCollector({
     appendLog(setActivityLog, "Collection progress saved. You can close the browser and continue from this project later.");
   }
 
-  function completeCurrentStage(
+  async function completeCurrentStage(
     nextCollectedSteps = collectedSteps,
     stateOverrides: Partial<CollectionState> = {}
   ) {
@@ -1897,16 +2425,12 @@ function GuidedBrowserCollector({
       ...stageCompleted,
       [activeStage]: true
     };
-    setStageCompleted(nextStageCompleted);
     if (nextStage) {
-      setActiveStage(nextStage);
-      setActiveStepIndex(0);
       const enteringEvaluation = nextStage === "EVALUATION_KEY_STORE";
-      setReviewingEvaluation(enteringEvaluation);
-      if (enteringEvaluation) {
-        setExpanded(false);
-      }
-      persistCollectionState({
+      const nextStep = allSteps.find((step) => step.stage === nextStage);
+      const nextAction = nextStep?.subActions?.[0];
+      const nextTargetUrl = nextAction?.targetUrl ?? nextStep?.targetUrl;
+      await persistCollectionStateAsync({
         ...stateOverrides,
         stage: nextStage,
         stageLabel: collectionStageLabel(nextStage),
@@ -1914,15 +2438,28 @@ function GuidedBrowserCollector({
         stepAssetPaths: nextCollectedSteps,
         completedStepIds: Object.keys(nextCollectedSteps),
         progressPercent: collectionProgress(allSteps, nextCollectedSteps),
-        currentStepId: allSteps.find((step) => step.stage === nextStage)?.id
+        currentStepId: nextStep?.id,
+        browserUrl: nextStage === "PRODUCT_DETAILS" && nextTargetUrl
+          ? collectionTargetUrl(nextTargetUrl, nextStage)
+          : currentUrl,
+        viewMode
       });
+      setStageCompleted(nextStageCompleted);
+      setActiveStage(nextStage);
+      setActiveStepIndex(0);
+      setActiveSubActionId(nextAction?.id);
+      setReviewingEvaluation(enteringEvaluation);
+      if (enteringEvaluation) setExpanded(false);
       appendLog(setActivityLog, `${collectionStageLabel(activeStage)} completed. Continue with ${collectionStageLabel(nextStage)}.`);
       if (activeStage === "PRODUCT_DETAILS" && enteringEvaluation) {
-        appendLog(setActivityLog, "Opened Evaluation Phase automatically. Review Potential Stores, then continue Key Store collection.");
+        appendLog(setActivityLog, "Opened Key Store Page List automatically. Review the stores, then start collection.");
+      }
+      if (nextStage === "PRODUCT_DETAILS" && nextTargetUrl) {
+        navigateTo(collectionTargetUrl(nextTargetUrl, nextStage));
       }
       return;
     }
-    persistCollectionState({
+    await persistCollectionStateAsync({
       ...stateOverrides,
       stageCompleted: nextStageCompleted,
       stepAssetPaths: nextCollectedSteps,
@@ -1930,6 +2467,7 @@ function GuidedBrowserCollector({
       progressPercent: 100,
       currentStepId: activeStep?.id
     });
+    setStageCompleted(nextStageCompleted);
     appendLog(setActivityLog, "Shopee collection flow marked complete. Review the project inspector before generating the report.");
     window.setTimeout(() => onCollectionCompleted?.(project.id), 500);
   }
@@ -1937,41 +2475,124 @@ function GuidedBrowserCollector({
   function openKeyProductTableReview() {
     setExpanded(false);
     setReviewingKeyProducts(true);
-    setQualifiedProductsApproved(Boolean(savedCollectionState.qualifiedProductsApproved));
-    appendLog(setActivityLog, "Generated the Product Qualified draft from Top Sales first, then Relevance evidence.");
+    if (qualifiedProductsInitialized) return;
+    const generated = qualifiedProductPool.slice(0, 10);
+    const generatedIds = generated.map((product) => product.id);
+    const generatedReferences = generated.map((product) => createQualifiedProductReference(product));
+    setQualifiedProductIds(generatedIds);
+    setQualifiedProductReferences(generatedReferences);
+    setQualifiedProductsInitialized(true);
+    setQualifiedProductsApproved(false);
+    persistCollectionState({
+      qualifiedProductIds: generatedIds,
+      qualifiedProductReferences: generatedReferences,
+      qualifiedProductsInitialized: true,
+      qualifiedProductsApproved: false
+    });
+    appendLog(setActivityLog, `Generated and saved ${generatedIds.length} Product Qualified targets using the canonical sales-and-relevance ranking.`);
   }
 
   function openEvaluationReview() {
     setExpanded(false);
     setReviewingEvaluation(true);
-    appendLog(setActivityLog, "Opened Evaluation Phase in the collection workspace. Score Potential Stores before collecting Key Store evidence.");
+    appendLog(setActivityLog, "Opened Key Store Page List in the collection workspace.");
+  }
+
+  function qualifiedSelectionPool(): ProjectProductEvidence[] {
+    const byId = new Map<string, ProjectProductEvidence>();
+    for (const product of projectDetail.data?.products ?? []) byId.set(product.id, product);
+    for (const product of availableKeyProductPool) byId.set(product.id, product);
+    return Array.from(byId.values());
+  }
+
+  function applyQualifiedProductSelection(
+    products: ProjectProductEvidence[],
+    manuallyAddedProducts: ProjectProductEvidence[] = []
+  ) {
+    const pool = qualifiedSelectionPool();
+    const existingManualProducts = resolveQualifiedProductReferences(
+      pool,
+      qualifiedProductReferences.filter((reference) => reference.manuallyAdded)
+    );
+    const manualIdentities = new Set(
+      [...existingManualProducts, ...manuallyAddedProducts].map(stableProductIdentity)
+    );
+    const ranked = rankSelectedQualifiedProducts(products, manualIdentities).slice(0, 20);
+    const nextIds = ranked.map((product) => product.id);
+    const nextReferences = ranked.map((product) =>
+      createQualifiedProductReference(product, manualIdentities.has(stableProductIdentity(product)))
+    );
+    setQualifiedProductIds(nextIds);
+    setQualifiedProductReferences(nextReferences);
+    setQualifiedProductsInitialized(true);
+    setQualifiedProductsApproved(false);
+    void persistCollectionStateAsync({
+      qualifiedProductIds: nextIds,
+      qualifiedProductReferences: nextReferences,
+      qualifiedProductsInitialized: true,
+      qualifiedProductsApproved: false
+    }).catch(() => undefined);
   }
 
   function removeQualifiedProduct(productId: string) {
-    setQualifiedProductIds((current) => current.filter((id) => id !== productId));
-    setQualifiedProductsApproved(false);
+    applyQualifiedProductSelection(selectedKeyProducts.filter((product) => product.id !== productId));
   }
 
   function addQualifiedProduct(productId: string) {
-    setQualifiedProductIds((current) => {
-      if (current.includes(productId) || current.length >= 20) {
-        return current;
-      }
-      return [...current, productId];
-    });
-    setQualifiedProductsApproved(false);
+    const product = qualifiedSelectionPool().find((candidate) => candidate.id === productId);
+    if (!product || selectedKeyProducts.some((current) => sameQualifiedProduct(current, product))) return;
+    if (selectedKeyProducts.length >= 20) {
+      setCaptureStatus({ message: "Maximum 20 qualified products", state: "failed", progress: 100 });
+      return;
+    }
+    applyQualifiedProductSelection([...selectedKeyProducts, product], [product]);
   }
 
-  function approveQualifiedProducts() {
+  function excludeQualifiedProducts(productIds: string[]) {
+    const excluded = new Set(productIds);
+    applyQualifiedProductSelection(selectedKeyProducts.filter((product) => !excluded.has(product.id)));
+  }
+
+  function addQualifiedProducts(productIds: string[]) {
+    const requested = new Set(productIds);
+    const additions = qualifiedSelectionPool().filter((product) =>
+      requested.has(product.id) && !selectedKeyProducts.some((current) => sameQualifiedProduct(current, product))
+    );
+    const remainingSlots = Math.max(0, 20 - selectedKeyProducts.length);
+    if (additions.length > remainingSlots) {
+      setCaptureStatus({ message: "Maximum 20 qualified products", state: "failed", progress: 100 });
+    }
+    const accepted = additions.slice(0, remainingSlots);
+    applyQualifiedProductSelection([...selectedKeyProducts, ...accepted], accepted);
+  }
+
+  async function approveQualifiedProducts() {
     if (selectedKeyProducts.length === 0) {
       setCaptureStatus({ message: "Select at least one qualified product", state: "failed", progress: 100 });
       return;
     }
-    setQualifiedProductsApproved(true);
-    persistCollectionState({
-      qualifiedProductIds,
-      qualifiedProductsApproved: true
+    const references = selectedKeyProducts.map((product) => {
+      const savedReference = qualifiedProductReferences.find((reference) =>
+        resolveQualifiedProductReferences([product], [reference]).length > 0
+      );
+      return createQualifiedProductReference(product, Boolean(savedReference?.manuallyAdded));
     });
+    const ids = selectedKeyProducts.map((product) => product.id);
+    try {
+      await persistCollectionStateAsync({
+      qualifiedProductIds: ids,
+      qualifiedProductReferences: references,
+      qualifiedProductsInitialized: true,
+      qualifiedProductsApproved: true
+      });
+    } catch {
+      setCaptureStatus({ message: "Could not save qualified products", state: "failed", progress: 100 });
+      return;
+    }
+    setQualifiedProductIds(ids);
+    setQualifiedProductReferences(references);
+    setQualifiedProductsInitialized(true);
+    setQualifiedProductsApproved(true);
     setCaptureStatus({
       message: `${selectedKeyProducts.length} qualified products approved`,
       state: "done",
@@ -1980,7 +2601,7 @@ function GuidedBrowserCollector({
     appendLog(setActivityLog, `${selectedKeyProducts.length} qualified products approved and saved.`);
   }
 
-  function startProductDetailCollection() {
+  async function startProductDetailCollection() {
     if (!qualifiedProductsApproved || selectedKeyProducts.length === 0) {
       setCaptureStatus({ message: "Approve Product Qualified before continuing", state: "failed", progress: 100 });
       return;
@@ -1989,12 +2610,31 @@ function GuidedBrowserCollector({
     const nextCollectedSteps = processStep
       ? { ...collectedSteps, [processStep.id]: "processed:key-product-table" }
       : collectedSteps;
+    const ids = selectedKeyProducts.map((product) => product.id);
+    const references = selectedKeyProducts.map((product) => {
+      const current = qualifiedProductReferences.find((reference) => resolveQualifiedProductReferences([product], [reference]).length > 0);
+      return createQualifiedProductReference(product, Boolean(current?.manuallyAdded));
+    });
+    try {
+      await persistCollectionStateAsync({
+        stepAssetPaths: nextCollectedSteps,
+        qualifiedProductIds: ids,
+        qualifiedProductReferences: references,
+        qualifiedProductsInitialized: true,
+        qualifiedProductsApproved: true
+      });
+      await completeCurrentStage(nextCollectedSteps, {
+        qualifiedProductIds: ids,
+        qualifiedProductReferences: references,
+        qualifiedProductsInitialized: true,
+        qualifiedProductsApproved: true
+      });
+    } catch {
+      setCaptureStatus({ message: "Could not save before opening Part 2", state: "failed", progress: 100 });
+      return;
+    }
     setCollectedSteps(nextCollectedSteps);
     setReviewingKeyProducts(false);
-    completeCurrentStage(nextCollectedSteps, {
-      qualifiedProductIds,
-      qualifiedProductsApproved: true
-    });
   }
 
   async function startKeyStoreCollection() {
@@ -2003,44 +2643,52 @@ function GuidedBrowserCollector({
       setCaptureStatus({ message: "Project evidence is still loading", state: "failed", progress: 100 });
       return;
     }
-    const candidates = buildStoreCollectionCandidates(selectedKeyProducts, storeCollectionCandidates);
+    const candidates = dedupeStoreCollectionCandidates(storeCollectionCandidates).slice(0, 50);
     if (candidates.length === 0) {
       setCaptureStatus({ message: "Add at least one store before starting collection", state: "failed", progress: 100 });
       return;
     }
-    setStoreCollectionCandidates(candidates);
-    setViewMode("mobile");
-    const nextAllSteps = buildCollectionSteps(project, platform, currentUrl, "mobile", detail, candidates);
+    const nextAllSteps = allSteps;
     const stageSteps = nextAllSteps.filter((step) => step.stage === "EVALUATION_KEY_STORE");
-    const processStep = stageSteps.find((step) => step.id === "evaluation-phase-scoring");
-    const nextCollectedSteps: Record<string, string> = processStep
-      ? { ...collectedSteps, [processStep.id]: "processed:evaluation-phase-scoring" }
-      : collectedSteps;
+    const nextCollectedSteps: Record<string, string> = { ...collectedSteps };
     let reusedHomepageCount = 0;
     for (const candidate of candidates) {
-      const homepageStep = stageSteps.find((step) => step.id === `${candidate.id}-homepage`);
+      const storeStep = stageSteps.find((step) => step.ownerId === candidate.id);
       const reusableAsset = reusableKeyStoreHomepageAsset(detail, candidate.storeUrl);
-      if (homepageStep && reusableAsset) {
-        nextCollectedSteps[homepageStep.id] = reusableAsset.path;
+      if (storeStep && reusableAsset) {
+        nextCollectedSteps[stepProgressKey(storeStep, "store-homepage")] = reusableAsset.path;
         reusedHomepageCount += 1;
       }
     }
+    const nextIndex = Math.max(0, stageSteps.findIndex((step) => !isCollectionStepComplete(step, nextCollectedSteps)));
+    const nextStep = stageSteps[nextIndex];
+    const nextAction = nextStep?.subActions?.find((action) => !nextCollectedSteps[stepProgressKey(nextStep, action.id)]);
+    try {
+      await persistCollectionStateAsync({
+        stage: "EVALUATION_KEY_STORE",
+        viewMode,
+        storeCollectionCandidates: candidates,
+        storeListInitialized: true,
+        storeListApproved: true,
+        stepAssetPaths: nextCollectedSteps,
+        completedStepIds: Object.keys(nextCollectedSteps),
+        progressPercent: collectionProgress(nextAllSteps, nextCollectedSteps),
+        currentStepId: nextStep?.id
+      });
+    } catch {
+      setCaptureStatus({ message: "Could not save Store List", state: "failed", progress: 100 });
+      return;
+    }
+    setStoreCollectionCandidates(candidates);
+    setStoreListInitialized(true);
+    setStoreListApproved(true);
     setCollectedSteps(nextCollectedSteps);
     setReviewingEvaluation(false);
-    const nextIndex = Math.max(0, stageSteps.findIndex((step) => step.id !== "evaluation-phase-scoring" && !isCollectionStepComplete(step, nextCollectedSteps)));
     setActiveStepIndex(nextIndex);
-    if (stageSteps[nextIndex]?.targetUrl) {
-      navigateTo(stageSteps[nextIndex].targetUrl);
+    setActiveSubActionId(nextAction?.id);
+    if (nextAction?.targetUrl ?? nextStep?.targetUrl) {
+      navigateTo(collectionTargetUrl(nextAction?.targetUrl ?? nextStep!.targetUrl!, "EVALUATION_KEY_STORE"));
     }
-    persistCollectionState({
-      stage: "EVALUATION_KEY_STORE",
-      viewMode: "mobile",
-      storeCollectionCandidates: candidates,
-      stepAssetPaths: nextCollectedSteps,
-      completedStepIds: Object.keys(nextCollectedSteps),
-      progressPercent: collectionProgress(nextAllSteps, nextCollectedSteps),
-      currentStepId: stageSteps[nextIndex]?.id ?? processStep?.id
-    });
     const nextStepLabel = stageSteps[nextIndex]?.label ?? "Store evidence";
     setCaptureStatus({
       message: `${candidates.length} stores ready${reusedHomepageCount ? `, ${reusedHomepageCount} homepages reused` : ""}`,
@@ -2048,6 +2696,19 @@ function GuidedBrowserCollector({
       progress: 100
     });
     appendLog(setActivityLog, `Multi-store collection started for ${candidates.length} stores. Continue with ${nextStepLabel}.`);
+  }
+
+  async function saveStoreList() {
+    try {
+      await persistCollectionStateAsync({
+        storeCollectionCandidates,
+        storeListInitialized: true,
+        storeListApproved: false
+      });
+      setCaptureStatus({ message: `${storeCollectionCandidates.length} stores saved`, state: "done", progress: 100 });
+    } catch {
+      setCaptureStatus({ message: "Could not save Store List", state: "failed", progress: 100 });
+    }
   }
 
   function runStagePrimaryAction() {
@@ -2059,7 +2720,7 @@ function GuidedBrowserCollector({
       openEvaluationReview();
       return;
     }
-    completeCurrentStage();
+    void completeCurrentStage();
   }
 
   async function captureAndSaveEvidence(step: CollectionStep, subAction?: CollectionSubAction) {
@@ -2107,11 +2768,17 @@ function GuidedBrowserCollector({
     if (!webview?.capturePage) {
       throw new Error("The embedded browser cannot capture this page in the current runtime.");
     }
+    const actionLabel = subAction?.label ?? step.label;
     const captureMode = subAction?.captureMode ?? step.captureMode ?? "full-page";
     const targetSelector = subAction?.targetSelector ?? step.targetSelector;
     const extractionSelector = targetSelector;
     const captureStrategy = subAction?.captureStrategy ?? step.captureStrategy ?? "selector";
     const dataOnlyEvidence = isDataOnlyEvidenceStep(step, subAction);
+    const evidenceKind = subActionEvidenceKind(step, subAction);
+    if (evidenceRequiresProductRows(evidenceKind)) {
+      setCaptureStatus({ message: "Waiting for marketplace product rows", state: "working", progress: 10 });
+      await waitForRenderedProductRows(webview, targetSelector, actionLabel);
+    }
     setCaptureStatus({
       message: dataOnlyEvidence
         ? "Collecting page data"
@@ -2140,8 +2807,11 @@ function GuidedBrowserCollector({
     const snapshot = await withTimeout(
           extractRenderedPageSnapshot(webview, extractionSelector, {
             includeHtml: true,
-            requestedStoreRating: typeof step.metadata?.requestedRating === "number"
-              ? step.metadata.requestedRating
+            viewMode,
+            requestedStoreRating: typeof subAction?.metadata?.requestedRating === "number"
+              ? subAction.metadata.requestedRating
+              : typeof step.metadata?.requestedRating === "number"
+                ? step.metadata.requestedRating
               : undefined
           }),
           extractionTimeoutMs,
@@ -2156,8 +2826,12 @@ function GuidedBrowserCollector({
         });
         return value;
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         setCaptureStatus({ message: "HTML download failed", state: "failed", actionLabel: "Download HTML", progress: 100 });
+        if (evidenceRequiresProductRows(evidenceKind)) {
+          const reason = error instanceof Error ? error.message : "The rendered page could not be read.";
+          throw new Error(`${actionLabel} could not fetch product rows. ${reason}`);
+        }
         return {
           html: "",
           visibleText: "",
@@ -2185,12 +2859,13 @@ function GuidedBrowserCollector({
           storeDecorationImages: []
         };
       });
+    assertEvidenceHasProductRows(evidenceKind, snapshot.products.length, actionLabel);
     const structuredProductDetail = scopeProductDetailSnapshot(snapshot.productDetail, subAction?.id);
     return {
       projectId: project.id,
       stepId: step.id,
       label: step.label,
-      kind: subActionEvidenceKind(step, subAction),
+      kind: evidenceKind,
       ownerType: step.ownerType,
       ownerId: step.ownerId,
       sourceUrl: sourceUrl === "about:blank" ? undefined : sourceUrl,
@@ -2204,6 +2879,7 @@ function GuidedBrowserCollector({
       extractedProducts: snapshot.products,
       metadata: {
         ...step.metadata,
+        ...subAction?.metadata,
         section: step.section,
         keyword: project.keyword,
         productCategory,
@@ -2294,12 +2970,12 @@ function GuidedBrowserCollector({
             icon={Monitor}
             disabled={platform !== "SHOPEE_ID"}
             compact
-            onClick={() => platform === "SHOPEE_ID" && setViewMode("desktop")}
+            onClick={() => platform === "SHOPEE_ID" && switchBrowserViewMode("desktop")}
           >
-            Desktop
+            <TranslatedText>Desktop</TranslatedText>
           </SegmentButton>
-          <SegmentButton active={viewMode === "mobile"} icon={Smartphone} compact onClick={() => setViewMode("mobile")}>
-            Mobile
+          <SegmentButton active={viewMode === "mobile"} icon={Smartphone} compact onClick={() => switchBrowserViewMode("mobile")}>
+            <TranslatedText>Mobile</TranslatedText>
           </SegmentButton>
         </div>
         <input value={address} onChange={(event) => setAddress(event.target.value)} className="input mio-address-input" aria-label="Browser address" />
@@ -2321,7 +2997,22 @@ function GuidedBrowserCollector({
       </div>
 
       <div
-        className={["mio-browser-frame relative min-h-0 overflow-hidden border border-white/12 bg-black", expanded ? "flex-1 rounded-none" : "rounded-[18px]", viewMode === "mobile" && !expanded ? "mx-auto h-[720px] max-w-[430px]" : expanded ? "h-full w-full" : "h-[720px] w-full"].join(" ")}
+        className={[
+          "mio-collection-workspace min-h-0",
+          viewMode === "mobile"
+            ? "flex flex-1 items-start justify-center gap-4 overflow-auto"
+            : "relative flex-1"
+        ].join(" ")}
+      >
+      <div
+        className={[
+          "mio-browser-frame relative min-h-0 shrink-0 overflow-hidden border border-white/12 bg-black",
+          viewMode === "mobile"
+            ? "h-[720px] w-[430px] max-w-full rounded-[18px]"
+            : expanded
+              ? "h-full w-full flex-1 rounded-none"
+              : "h-[720px] w-full rounded-[18px]"
+        ].join(" ")}
         onPointerDownCapture={(event) => {
           const target = event.target as Element | null;
           if (target?.closest(".mio-floating-collector")) {
@@ -2336,7 +3027,7 @@ function GuidedBrowserCollector({
             webviewRef.current = node as WebviewElement | null;
             applyWebviewShadowFrameLayout(webviewRef.current);
           }}
-          src={initialUrl}
+          src={currentUrl}
           partition={`persist:mio-${platform.toLowerCase()}`}
           allowpopups
           useragent={userAgent}
@@ -2364,9 +3055,9 @@ function GuidedBrowserCollector({
             >
               <div className="mb-1 flex items-center gap-2 font-semibold text-white">
                 <AlertTriangle size={16} className="text-signal-amber" />
-                Manual action required
+                <TranslatedText>Manual action required</TranslatedText>
               </div>
-              Shopee is showing login, verification, captcha, or a protected page. Complete it manually, then capture evidence after the target page is visible.
+              <TranslatedText>Shopee is showing login, verification, captcha, or a protected page. Complete it manually, then capture evidence after the target page is visible.</TranslatedText>
             </motion.div>
           )}
         </AnimatePresence>
@@ -2379,8 +3070,11 @@ function GuidedBrowserCollector({
             />
           )}
         </AnimatePresence>
+      </div>
+      <div className={viewMode === "mobile" ? "relative h-[720px] w-[320px] shrink-0" : "contents"}>
         <FloatingStepController
           step={controllerStep}
+          viewMode={viewMode}
           activeSubActionId={activeSubAction?.id}
           stepNumber={activeStepIndex + 1}
           stepTotal={steps.length}
@@ -2402,7 +3096,7 @@ function GuidedBrowserCollector({
             }
             const selectedTargetUrl = selectedSubAction?.targetUrl ?? activeStep.targetUrl;
             if (selectedTargetUrl) {
-              navigateTo(selectedTargetUrl);
+              navigateTo(collectionTargetUrl(selectedTargetUrl, activeStep.stage));
             }
           }}
           onCollect={(subActionId) => {
@@ -2413,11 +3107,8 @@ function GuidedBrowserCollector({
               selectSubAction(selectedSubAction.id);
             }
             if (activeStep.mode === "PROCESS") {
-              if (activeStep.id === "evaluation-phase-scoring") {
-                openEvaluationReview();
-              } else {
-                openKeyProductTableReview();
-              }
+              if (activeStep.id === "store-list") openEvaluationReview();
+              else openKeyProductTableReview();
               return;
             }
             void captureAndSaveEvidence(activeStep, selectedSubAction);
@@ -2426,9 +3117,10 @@ function GuidedBrowserCollector({
           onSelectSubAction={selectSubAction}
           onAttachFile={activeStep.id === "tiktok-brand-search" || activeStep.metadata?.storeEvidenceType === "tiktok" ? () => attachFileEvidence.mutate(activeStep) : undefined}
           onOpenAndroid={activeStep.id === "tiktok-brand-search" || activeStep.metadata?.storeEvidenceType === "tiktok" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
-          onPrevious={() => setActiveStepIndex((current) => Math.max(0, current - 1))}
+          onPrevious={retreatGuidedCollection}
           onNext={advanceGuidedCollection}
         />
+      </div>
       </div>
     </Panel>
   );
@@ -2436,12 +3128,16 @@ function GuidedBrowserCollector({
   const keyProductTablePanel = (
     <KeyProductTableReview
       products={selectedKeyProducts}
-      availableProducts={qualifiedProductPool.filter((product) => !qualifiedProductIds.includes(product.id))}
+      availableProducts={availableKeyProductPool.filter((product) =>
+        !selectedKeyProducts.some((selected) => sameQualifiedProduct(selected, product))
+      )}
       totalProducts={projectDetail.data?.products.length ?? 0}
       approved={qualifiedProductsApproved}
       onBackToBrowser={() => setReviewingKeyProducts(false)}
       onRemoveProduct={removeQualifiedProduct}
       onAddProduct={addQualifiedProduct}
+      onExcludeProducts={excludeQualifiedProducts}
+      onAddProducts={addQualifiedProducts}
       onApprove={approveQualifiedProducts}
       onNext={startProductDetailCollection}
     />
@@ -2451,25 +3147,24 @@ function GuidedBrowserCollector({
     <EvaluationCollectionPanel
       detail={projectDetail.data}
       candidates={storeCollectionCandidates}
+      approved={storeListApproved}
       onBackToBrowser={() => setReviewingEvaluation(false)}
-      onRunAnalysis={() => runAnalysis.mutate()}
-      scoring={runAnalysis.isPending}
-      scoringProvider={runAnalysis.data?.provider}
       onCandidatesChange={updateStoreCollectionCandidates}
+      onSaveStoreList={() => void saveStoreList()}
       onStartKeyStoreCollection={startKeyStoreCollection}
     />
   );
 
   const workspaceContent = (
-    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : `grid gap-5 ${activitySidebarOpen ? "grid-cols-[360px_minmax(0,1fr)_300px]" : "grid-cols-[360px_minmax(0,1fr)]"}`}>
+    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : `mio-guided-workspace grid gap-5 ${activitySidebarOpen ? "grid-cols-[360px_minmax(0,1fr)_300px]" : "grid-cols-[360px_minmax(0,1fr)]"}`}>
       {!expanded && (
-        <aside className="space-y-5">
+        <aside className="mio-collection-sidebar space-y-5">
           <button className="secondary-button" type="button" onClick={onNewAnalysis}>
             <ClipboardCheck size={16} />
-            {exitLabel}
+            {translate(language, exitLabel)}
           </button>
           <Panel
-            title="Analysis Session"
+            title={translate(language, "Analysis Session")}
             icon={ClipboardCheck}
             className={analysisSessionCollapsed ? "mio-analysis-session-collapsed" : undefined}
             action={
@@ -2477,8 +3172,8 @@ function GuidedBrowserCollector({
                 className="secondary-button mio-round-icon-button h-8 w-8 px-0"
                 type="button"
                 onClick={() => setAnalysisSessionCollapsed((value) => !value)}
-                aria-label={analysisSessionCollapsed ? "Expand analysis session" : "Collapse analysis session"}
-                title={analysisSessionCollapsed ? "Expand analysis session" : "Collapse analysis session"}
+                aria-label={translate(language, analysisSessionCollapsed ? "Expand analysis session" : "Collapse analysis session")}
+                title={translate(language, analysisSessionCollapsed ? "Expand analysis session" : "Collapse analysis session")}
               >
                 {analysisSessionCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
               </button>
@@ -2486,15 +3181,15 @@ function GuidedBrowserCollector({
           >
             {!analysisSessionCollapsed && (
               <div className="space-y-3 text-sm text-ink-300">
-                <InfoLine label="Keyword" value={project.keyword} />
-                <InfoLine label="Category" value={project.productCategory ?? productCategory} />
-                <InfoLine label="Platform" value={project.marketplace === "SHOPEE_ID" ? "Shopee" : "TikTok Shop"} />
-                <InfoLine label="Created" value={formatDateTime(project.createdAt)} />
+                <InfoLine label={translate(language, "Keyword")} value={project.keyword} />
+                <InfoLine label={translate(language, "Category")} value={project.productCategory ?? productCategory} />
+                <InfoLine label={translate(language, "Platform")} value={project.marketplace === "SHOPEE_ID" ? "Shopee" : "TikTok Shop"} />
+                <InfoLine label={translate(language, "Created")} value={formatDateTime(project.createdAt)} />
               </div>
             )}
           </Panel>
 
-          <Panel title="Collection Progress" icon={ListChecks}>
+          <Panel title={translate(language, "Collection Progress")} icon={ListChecks}>
             <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl border border-white/8 bg-white/5 p-1">
               {COLLECTION_STAGES.map((stage) => {
                 const stageSteps = allSteps.filter((step) => step.stage === stage);
@@ -2509,9 +3204,9 @@ function GuidedBrowserCollector({
                       isActive ? "mio-stage-tab-active bg-signal-blue text-white shadow-sm" : "text-ink-400 hover:bg-white/8 hover:text-white"
                     ].join(" ")}
                     onClick={() => switchCollectionStage(stage)}
-                    title={collectionStageLabel(stage)}
+                    title={translate(language, collectionStageLabel(stage))}
                   >
-                    <div className="text-[11px] font-semibold">{collectionStageShortLabel(stage)}</div>
+                    <div className="text-[11px] font-semibold">{translate(language, collectionStageShortLabel(stage))}</div>
                     <div className={["mt-0.5 text-[10px]", isActive ? "text-white/80" : "text-ink-500"].join(" ")}>
                       {stageDoneCount}/{stageSteps.length}
                     </div>
@@ -2522,24 +3217,32 @@ function GuidedBrowserCollector({
             <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs font-semibold text-white">{collectionStageLabel(activeStage)}</div>
-                  <div className="text-[11px] text-ink-500">{stageCollectedCount}/{steps.length} steps in this part · {collectedCount}/{allSteps.length} total</div>
+                  <div className="text-xs font-semibold text-white">{translate(language, collectionStageLabel(activeStage))}</div>
+                  <div className="text-[11px] text-ink-500">{stageCollectedCount}/{steps.length} {translate(language, "steps in this part")} · {collectedCount}/{allSteps.length} {translate(language, "total")}</div>
                 </div>
                 <CircularProgress value={collectionProgressPercent} />
               </div>
               <ProgressBar value={collectionProgressPercent} />
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={reviewingKeyProducts || reviewingEvaluation ? "grid grid-cols-1 gap-2" : "grid grid-cols-2 gap-2"}>
               <button className="secondary-button h-9 px-2 text-xs" type="button" onClick={saveProgress} disabled={saveCollectionState.isPending}>
                 {saveCollectionState.isPending ? <span className="mio-spinner" /> : <Archive size={14} />}
-                Save
+                {translate(language, "Save")}
               </button>
-              <button className="primary-button h-9 px-2 text-xs" type="button" onClick={runStagePrimaryAction} disabled={saveCollectionState.isPending}>
-                {saveCollectionState.isPending ? <span className="mio-spinner" /> : <CheckCircle2 size={14} />}
-                {activeStage === "KEYWORD_GENERAL" ? "Get Product Qualified" : stageCompletionButtonLabel(activeStage)}
-              </button>
+              {!reviewingKeyProducts && !reviewingEvaluation && (
+                <button
+                  className="primary-button h-9 px-2 text-xs"
+                  type="button"
+                  onClick={runStagePrimaryAction}
+                  disabled={saveCollectionState.isPending || (activeStage === "KEYWORD_GENERAL" && !keyProductListReady)}
+                  title={activeStage === "KEYWORD_GENERAL" && !keyProductListReady ? "Collect Product Relevance and Top Sales first" : undefined}
+                >
+                  {saveCollectionState.isPending ? <span className="mio-spinner" /> : <CheckCircle2 size={14} />}
+                  {translate(language, activeStage === "KEYWORD_GENERAL" ? "Key Product List" : stageCompletionButtonLabel(activeStage))}
+                </button>
+              )}
             </div>
-            <div className="mt-4 max-h-[420px] space-y-2 overflow-auto pr-1">
+            {!reviewingEvaluation && <div className="mt-4 max-h-[420px] space-y-2 overflow-auto pr-1">
               {steps.map((step, index) => (
                 <div
                   key={step.id}
@@ -2552,7 +3255,7 @@ function GuidedBrowserCollector({
                   onClick={() => {
                     setActiveStepIndex(index);
                     if (step.targetUrl) {
-                      navigateTo(step.targetUrl);
+                      navigateTo(collectionTargetUrl(step.targetUrl, step.stage));
                     }
                   }}
                   onKeyDown={(event) => {
@@ -2560,7 +3263,7 @@ function GuidedBrowserCollector({
                       event.preventDefault();
                       setActiveStepIndex(index);
                       if (step.targetUrl) {
-                        navigateTo(step.targetUrl);
+                        navigateTo(collectionTargetUrl(step.targetUrl, step.stage));
                       }
                     }
                   }}
@@ -2576,11 +3279,14 @@ function GuidedBrowserCollector({
                       selectedProducts={selectedKeyProducts}
                       collected={isCollectionStepComplete(step, collectedSteps)}
                       collectedSteps={collectedSteps}
+                      loadingEvidenceKey={captureStatus.state === "working"
+                        ? preparingEvidenceKey ?? (saveEvidence.isPending ? stepProgressKey(activeStep, activeSubAction?.id) : null)
+                        : null}
                     />
                   )}
                 </div>
               ))}
-            </div>
+            </div>}
           </Panel>
         </aside>
       )}
@@ -2601,7 +3307,7 @@ function GuidedBrowserCollector({
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Gauge size={16} className="text-signal-blue" />
-                Activity
+                <TranslatedText>Activity</TranslatedText>
               </div>
               <button className="secondary-button mio-round-icon-button h-8 w-8 px-0" type="button" onClick={() => setActivitySidebarOpen(false)} aria-label="Collapse activity">
                 <ChevronRight size={14} />
@@ -2626,9 +3332,12 @@ function GuidedBrowserCollector({
         <ScreenshotReviewModal
           capture={pendingCapture}
           saving={saveEvidence.isPending}
+          onSavingStart={() => {
+            setPendingCapture(null);
+            setCaptureStatus({ message: "Saving screenshot evidence", state: "working", progress: 82 });
+          }}
           onCancel={() => setPendingCapture(null)}
           onSave={(payload) => {
-            setCaptureStatus({ message: "Saving screenshot evidence", state: "working", progress: 82 });
             saveEvidence.mutate(payload);
           }}
         />,
@@ -2649,14 +3358,17 @@ function CollectionStepPreview({
   detail,
   selectedProducts,
   collected,
-  collectedSteps
+  collectedSteps,
+  loadingEvidenceKey
 }: {
   step: CollectionStep;
   detail?: ProjectDetailPayload;
   selectedProducts: ProjectProductEvidence[];
   collected: boolean;
   collectedSteps: Record<string, string>;
+  loadingEvidenceKey: string | null;
 }) {
+  const language = useUiStore((state) => state.language);
   if (!detail) {
     return null;
   }
@@ -2664,30 +3376,11 @@ function CollectionStepPreview({
   if (step.id === "key-product-table") {
     return (
       <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-        <div className="mb-2 font-semibold text-white">Preview: Key Product Table</div>
-        <div>{selectedProducts.length} qualified product{selectedProducts.length === 1 ? "" : "s"} selected from {detail.products.length} extracted rows.</div>
+        <div className="mb-2 font-semibold text-white">{translate(language, "Preview: Key Product Table")}</div>
+        <div>{selectedProducts.length} {translate(language, selectedProducts.length === 1 ? "qualified product" : "qualified products")} {translate(language, "selected from")} {detail.products.length} {translate(language, "extracted rows.")}</div>
         <div className="mt-2 grid grid-cols-2 gap-2">
           <EvidenceStatusPill label="Relevance rows" done={detail.products.some((product) => product.source === "Relevance")} />
           <EvidenceStatusPill label="Top Sales rows" done={detail.products.some((product) => product.source === "Top Sales")} />
-        </div>
-      </div>
-    );
-  }
-
-  if (step.id === "evaluation-phase-scoring") {
-    const candidates = storeEvaluationCandidates(detail);
-    return (
-      <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-        <div className="mb-2 font-semibold text-white">Preview: Evaluation Phase</div>
-        <div>{candidates.length} Potential Store{candidates.length === 1 ? "" : "s"} ready for GMV, sold/month, and promotion scoring.</div>
-        <div className="mt-2 space-y-1">
-          {candidates.slice(0, 3).map((candidate, index) => (
-            <div key={candidate.key} className="flex items-center justify-between gap-3 rounded border border-white/8 bg-white/[0.04] px-2 py-1">
-              <span className="truncate">{index + 1}. {candidate.name}</span>
-              <span className="shrink-0 text-signal-blue">{candidate.score}</span>
-            </div>
-          ))}
-          {candidates.length === 0 && <div className="text-ink-500">Capture Product Detail Qualified evidence first.</div>}
         </div>
       </div>
     );
@@ -2705,7 +3398,7 @@ function CollectionStepPreview({
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             {previewImage && (
-              <img src={previewImage} alt="" loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded border border-white/8 bg-white object-cover" />
+              <MediaThumbnail src={previewImage} alt="" loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded border border-white/8 bg-white object-cover" />
             )}
             <div className="min-w-0">
               <div className="truncate font-semibold text-white">{displayProductTitle(product)}</div>
@@ -2719,26 +3412,29 @@ function CollectionStepPreview({
         <div className="mb-3 grid grid-cols-2 gap-2 rounded-md border border-white/8 bg-white/[0.04] p-2 text-[11px]">
           <InfoLine label="Source" value={productSourcePlacement(product)} />
           <InfoLine label="Store" value={product.storeName ?? "-"} />
-          <InfoLine label="Store Type" value={product.storeType ?? "-"} />
+          <div>
+            <div className="text-[10px] uppercase text-ink-500">{translate(language, "Store Type")}</div>
+            <StoreTypeMark value={product.storeType} className="mt-1" />
+          </div>
           <InfoLine label="Rating" value={product.ratingText ?? (product.rating ? String(product.rating) : "-")} />
           <InfoLine label="Reviews" value={product.reviewText ?? product.reviewCount?.toLocaleString() ?? "-"} />
           <InfoLine label="Sold" value={product.totalSoldText ?? product.monthlySoldText ?? "-"} />
           <InfoLine label="Media" value={`${product.images.length} images · ${product.videos.length} videos`} />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <EvidenceStatusPill label="First page" state={subActionStates["first-page"] ?? "pending"} />
-          <EvidenceStatusPill label="Slides / video" state={subActionStates.slides ?? "pending"} />
-          <EvidenceStatusPill label="Description" state={subActionStates.description ?? "pending"} />
-          <EvidenceStatusPill label="Positive reviews" state={subActionStates["positive-reviews"] ?? "pending"} />
-          <EvidenceStatusPill label="Negative reviews" state={subActionStates["negative-reviews"] ?? "pending"} />
-          <EvidenceStatusPill label="Media in user" state={subActionStates["media-in-user"] ?? "pending"} />
-          <EvidenceStatusPill label="Shop vouchers" state={subActionStates["shop-vouchers"] ?? "pending"} />
-          <EvidenceStatusPill label="Bundle deals" state={subActionStates["bundle-deals"] ?? "pending"} />
-          <EvidenceStatusPill label="Shop Home Page" state={subActionStates["shop-homepage"] ?? "pending"} />
+          <EvidenceStatusPill label="First page" state={subActionStates["first-page"] ?? "pending"} loading={loadingEvidenceKey === stepProgressKey(step, "first-page")} />
+          <EvidenceStatusPill label="Slides / video" state={subActionStates.slides ?? "pending"} loading={loadingEvidenceKey === stepProgressKey(step, "slides")} />
+          <EvidenceStatusPill label="Description" state={subActionStates.description ?? "pending"} loading={loadingEvidenceKey === stepProgressKey(step, "description")} />
+          <EvidenceStatusPill label="Positive reviews" state={subActionStates["positive-reviews"] ?? "pending"} loading={loadingEvidenceKey === stepProgressKey(step, "positive-reviews")} />
+          <EvidenceStatusPill label="Negative reviews" state={subActionStates["negative-reviews"] ?? "pending"} loading={loadingEvidenceKey === stepProgressKey(step, "negative-reviews")} />
+          <EvidenceStatusPill label="Media in user" state={subActionStates["media-in-user"] ?? "pending"} loading={loadingEvidenceKey === stepProgressKey(step, "media-in-user")} />
+          <EvidenceStatusPill label="Shop vouchers" state={subActionStates["shop-vouchers"] ?? "pending"} loading={loadingEvidenceKey === stepProgressKey(step, "shop-vouchers")} />
+          <EvidenceStatusPill label="Bundle deals" state={subActionStates["bundle-deals"] ?? "pending"} loading={loadingEvidenceKey === stepProgressKey(step, "bundle-deals")} />
+          <EvidenceStatusPill label="Shop Home Page" state={subActionStates["shop-homepage"] ?? "pending"} loading={loadingEvidenceKey === stepProgressKey(step, "shop-homepage")} />
         </div>
         {product.description && (
           <div className="mt-3 rounded border border-white/8 bg-white/[0.04] p-2 text-[11px] leading-4 text-ink-400">
-            <div className="mb-1 font-semibold text-white">Description preview</div>
+            <div className="mb-1 font-semibold text-white">{translate(language, "Description preview")}</div>
             {product.description.slice(0, 220)}{product.description.length > 220 ? "..." : ""}
           </div>
         )}
@@ -2747,9 +3443,9 @@ function CollectionStepPreview({
             <table className="w-full text-left text-[11px]">
               <thead>
                 <tr className="bg-white/[0.04] text-ink-500">
-                  <th className="px-2 py-1.5">Type</th>
-                  <th className="px-2 py-1.5">Star</th>
-                  <th className="px-2 py-1.5">Comment - timepost</th>
+                  <th className="px-2 py-1.5">{translate(language, "Type")}</th>
+                  <th className="px-2 py-1.5">{translate(language, "Star")}</th>
+                  <th className="px-2 py-1.5">{translate(language, "Comment - timepost")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -2768,9 +3464,58 @@ function CollectionStepPreview({
     );
   }
 
+  const storeCandidate = step.ownerType === "STORE" ? storeCandidateFromStep(step) : undefined;
+  if (storeCandidate) {
+    const store = findCollectedStore(detail, storeCandidate);
+    const homepageAsset = storeAssetsForCandidate(detail, storeCandidate, "STORE_HOME")[0];
+    const subActionStates = collectionSubActionStates(step, collectedSteps, collectionSubActionCounts(step, detail));
+    return (
+      <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate font-semibold text-white">{storeCandidate.storeName}</div>
+            <div className="truncate text-[11px] text-ink-500">{translate(language, "Live store result preview")}</div>
+          </div>
+          <span className={["rounded-full px-2 py-1 text-[10px]", collected ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-400"].join(" ")}>
+            {collected ? "saved" : "collecting"}
+          </span>
+        </div>
+        {homepageAsset && (
+          <MediaThumbnail
+            src={imageSource(homepageAsset.path)}
+            alt={`${storeCandidate.storeName} homepage evidence`}
+            loading="lazy"
+            decoding="async"
+            className="mb-3 aspect-[16/7] w-full rounded border border-white/8 bg-white object-cover object-top"
+          />
+        )}
+        {store && (
+          <div className="mb-3 grid grid-cols-2 gap-2 rounded-md border border-white/8 bg-white/[0.04] p-2 text-[11px]">
+            <InfoLine label="Products" value={formatOptionalNumber(store.productsCount)} />
+            <InfoLine label="Followers" value={formatOptionalNumber(store.followers)} />
+            <InfoLine label="Following" value={formatOptionalNumber(store.following)} />
+            <InfoLine label="Rating" value={store.rating ? `${store.rating}${store.ratingCount ? ` (${formatOptionalNumber(store.ratingCount)})` : ""}` : "-"} />
+            <InfoLine label="Chat" value={sanitizeStoreMetric(store.chatResponse)} />
+            <InfoLine label="Joined" value={sanitizeStoreMetric(store.joinedDate)} />
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          {(step.subActions ?? []).map((action) => (
+            <EvidenceStatusPill
+              key={action.id}
+              label={action.label.replace(" (Optional)", "")}
+              state={subActionStates[action.id] ?? "pending"}
+              loading={loadingEvidenceKey === stepProgressKey(step, action.id)}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return step.subActions && step.subActions.length > 0 ? (
     <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
-      <div className="mb-2 font-semibold text-white">Step Actions</div>
+      <div className="mb-2 font-semibold text-white">{translate(language, "Step Actions")}</div>
       <div className="space-y-1">
         {step.subActions.map((action) => (
           <div key={action.id} className="flex items-start justify-between gap-3 rounded border border-white/8 bg-white/[0.04] px-2 py-1.5">
@@ -2786,23 +3531,65 @@ function CollectionStepPreview({
   ) : null;
 }
 
-function EvidenceStatusPill({ label, state = "pending", done }: { label: string; state?: "pending" | "collected" | "not-found"; done?: boolean }) {
+function EvidenceStatusPill({
+  label,
+  state = "pending",
+  done,
+  loading = false
+}: {
+  label: string;
+  state?: "pending" | "collected" | "not-found";
+  done?: boolean;
+  loading?: boolean;
+}) {
+  const language = useUiStore((state) => state.language);
   const resolvedState = done === undefined ? state : done ? "collected" : "pending";
   return (
     <div className={[
-      "flex items-center gap-1.5 rounded border px-2 py-1",
+      "mio-evidence-status-pill flex items-center gap-1.5 rounded border px-2 py-1",
+      loading ? "mio-evidence-status-loading" : "",
       resolvedState === "collected" ? "border-signal-green/25 bg-signal-green/10 text-signal-green" : "",
       resolvedState === "not-found" ? "border-signal-rose/30 bg-signal-rose/10 text-signal-rose" : "",
       resolvedState === "pending" ? "border-white/8 bg-white/[0.04] text-ink-500" : ""
     ].join(" ")}>
-      {resolvedState === "collected" ? <CheckCircle2 size={12} /> : resolvedState === "not-found" ? <X size={12} /> : <Circle size={11} />}
-      <span className="truncate">{label}</span>
+      {loading ? <span className="mio-evidence-status-spinner" aria-hidden="true" /> : resolvedState === "collected" ? <CheckCircle2 size={12} /> : resolvedState === "not-found" ? <X size={12} /> : <Circle size={11} />}
+      <span className="truncate">{loading ? `${translate(language, "Updating")} ${translate(language, label)}` : translate(language, label)}</span>
     </div>
   );
 }
 
 function collectionSubActionCounts(step: CollectionStep, detail?: ProjectDetailPayload): Record<string, number> {
-  if (!detail || step.ownerType !== "PRODUCT" || !step.ownerId) {
+  if (!detail) {
+    return {};
+  }
+  if (step.ownerType === "STORE") {
+    const candidate = storeCandidateFromStep(step);
+    if (!candidate) {
+      return {};
+    }
+    const store = findCollectedStore(detail, candidate);
+    return {
+      "store-homepage": storeAssetsForCandidate(detail, candidate, "STORE_HOME").length,
+      "store-details": store ? [
+        store.productsCount,
+        store.followers,
+        store.following,
+        store.rating,
+        store.ratingCount,
+        store.chatResponse,
+        store.joinedDate,
+        store.description
+      ].filter((value) => value !== null && value !== undefined && value !== "").length : 0,
+      "store-rating-negative": store?.ratingSamples.filter((sample) => sample.rating === 1).length ?? 0,
+      "store-rating-positive": store?.ratingSamples.filter((sample) => sample.rating === 5).length ?? 0,
+      "store-categories": store?.categories.length ?? 0,
+      "store-popular": storeProductsForCandidate(detail, candidate, "Store Products").length,
+      "store-best-seller": storeProductsForCandidate(detail, candidate, "Store Best Sellers").length,
+      "store-banner": storeAssetsForCandidate(detail, candidate, "STORE_BANNER").length,
+      "store-tiktok": storeSocialAssetsForCandidate(detail, candidate).length
+    };
+  }
+  if (step.ownerType !== "PRODUCT" || !step.ownerId) {
     return {};
   }
   const product = detail.products.find((item) => item.id === step.ownerId);
@@ -2822,6 +3609,23 @@ function collectionSubActionCounts(step: CollectionStep, detail?: ProjectDetailP
     "shop-vouchers": product.shopVouchers.length,
     "bundle-deals": product.bundleDeals.length,
     "shop-homepage": productAssets.filter((asset) => asset.kind === "STORE_HOME").length
+  };
+}
+
+function storeCandidateFromStep(step: CollectionStep): StoreCollectionCandidate | undefined {
+  const id = step.ownerId ?? (typeof step.metadata?.storeCandidateId === "string" ? step.metadata.storeCandidateId : undefined);
+  const storeName = typeof step.metadata?.storeName === "string" ? step.metadata.storeName : undefined;
+  const storeUrl = typeof step.metadata?.canonicalStoreUrl === "string" ? step.metadata.canonicalStoreUrl : undefined;
+  if (!id || !storeName || !storeUrl) {
+    return undefined;
+  }
+  return {
+    id,
+    storeName,
+    storeUrl,
+    shopId: typeof step.metadata?.shopId === "string" ? step.metadata.shopId : undefined,
+    includePopularProducts: true,
+    includeShopBanner: true
   };
 }
 
@@ -2854,6 +3658,13 @@ function productDetailSubActionEvidenceCount(payload: ManualEvidencePayload, sub
     const value = structured?.[key];
     return Array.isArray(value) ? value : [];
   };
+  const structuredStore = isRecord(payload.metadata?.structuredStoreProfile)
+    ? payload.metadata.structuredStoreProfile
+    : undefined;
+  const storeValues = (key: string): unknown[] => {
+    const value = structuredStore?.[key];
+    return Array.isArray(value) ? value : [];
+  };
   switch (subActionId) {
     case "first-page":
     case "shop-homepage":
@@ -2871,6 +3682,24 @@ function productDetailSubActionEvidenceCount(payload: ManualEvidencePayload, sub
         values("descriptionImages").length +
         values("shopVouchers").length +
         values("bundleDeals").length;
+    case "store-homepage":
+    case "store-tiktok":
+      return payload.imageDataUrl ? 1 : 0;
+    case "store-details":
+      return ["productsCount", "followers", "following", "rating", "ratingCount", "chatResponse", "joinedDate", "description"]
+        .filter((key) => structuredStore?.[key] !== null && structuredStore?.[key] !== undefined && structuredStore?.[key] !== "")
+        .length;
+    case "store-rating-negative":
+      return storeValues("ratingSamples").filter((sample) => isRecord(sample) && Number(sample.rating) === 1).length;
+    case "store-rating-positive":
+      return storeValues("ratingSamples").filter((sample) => isRecord(sample) && Number(sample.rating) === 5).length;
+    case "store-categories":
+      return storeValues("categories").length;
+    case "store-popular":
+    case "store-best-seller":
+      return payload.extractedProducts?.length ?? 0;
+    case "store-banner":
+      return storeValues("bannerUrls").length + (Array.isArray(payload.metadata?.storeDecorationImages) ? payload.metadata.storeDecorationImages.length : 0);
     default:
       return 1;
   }
@@ -2879,24 +3708,24 @@ function productDetailSubActionEvidenceCount(payload: ManualEvidencePayload, sub
 function EvaluationCollectionPanel({
   detail,
   candidates,
+  approved,
   onBackToBrowser,
-  onRunAnalysis,
-  scoring,
-  scoringProvider,
   onCandidatesChange,
+  onSaveStoreList,
   onStartKeyStoreCollection
 }: {
   detail?: ProjectDetailPayload;
   candidates: StoreCollectionCandidate[];
+  approved: boolean;
   onBackToBrowser: () => void;
-  onRunAnalysis: () => void;
-  scoring: boolean;
-  scoringProvider?: string;
   onCandidatesChange: (candidates: StoreCollectionCandidate[]) => void;
+  onSaveStoreList: () => void;
   onStartKeyStoreCollection: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const [manualStoreName, setManualStoreName] = useState("");
   const [manualStoreUrl, setManualStoreUrl] = useState("");
+  const [addingStore, setAddingStore] = useState(false);
 
   function addManualStore() {
     const storeName = manualStoreName.trim();
@@ -2911,115 +3740,138 @@ function EvaluationCollectionPanel({
       return;
     }
     const id = stableStoreCandidateId(storeUrl, storeName);
-    if (candidates.some((candidate) => candidate.id === id || candidate.storeUrl === storeUrl)) {
-      return;
-    }
-    onCandidatesChange([
+    onCandidatesChange(dedupeStoreCollectionCandidates([
       ...candidates,
       {
         id,
         storeName,
         storeUrl,
+        shopId: extractShopeeShopId(storeUrl),
+        sourceProductIds: [],
         includePopularProducts: false,
         includeShopBanner: false
       }
-    ]);
+    ]));
     setManualStoreName("");
     setManualStoreUrl("");
-  }
-
-  function updateCandidate(candidateId: string, patch: Partial<StoreCollectionCandidate>) {
-    onCandidatesChange(candidates.map((candidate) => candidate.id === candidateId ? { ...candidate, ...patch } : candidate));
+    setAddingStore(false);
   }
 
   return (
     <Panel
-      title="Evaluation Phase"
-      icon={Brain}
+      title="Key Store Page List"
+      icon={Store}
       action={
         <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onBackToBrowser}>
           <ChevronLeft size={15} />
-          Browser
+          {translate(language, "Browser")}
         </button>
       }
     >
       <div className="mb-4 rounded-md border border-signal-blue/20 bg-signal-blue/10 p-4 text-sm leading-6 text-ink-300">
-        Review every distinct store declared by Product Qualified. All listed stores will be collected; AI scoring runs after store evidence is complete.
+        {translate(language, "Every distinct store from Product Qualified is listed once. Review the list, add another Shopee store when needed, then collect each store page independently.")}
       </div>
       {!detail ? (
         <EmptyState label="Loading project evidence..." />
-      ) : candidates.length === 0 ? (
-        <EmptyState label="No Potential Store is available yet. Sync PDP store names or add a store manually." />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {candidates.map((candidate) => (
-            <article className="rounded-md border border-white/10 bg-ink-900/45 p-4" key={candidate.id}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-500">Potential Store</div>
-                  <div className="mt-1 truncate font-semibold text-ink-100">{candidate.storeName}</div>
-                  <a className="mt-1 block truncate text-xs text-signal-blue" href={candidate.storeUrl} target="_blank" rel="noreferrer">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {candidates.map((candidate) => {
+            const sourceIds = new Set(candidate.sourceProductIds ?? []);
+            const relatedProducts = detail.products.filter((product) =>
+              sourceIds.size > 0 ? sourceIds.has(product.id) : productMatchesCollectionCandidate(product, candidate)
+            );
+            const previewProduct = relatedProducts.find((product) => Boolean(product.imageUrl)) ?? relatedProducts[0];
+            const candidateStoreType = strongestStoreType([
+              candidate.storeType,
+              ...relatedProducts.map((product) => product.storeType)
+            ]);
+            return (
+              <article className="mio-result-card mio-store-result-card overflow-hidden" key={candidate.id}>
+                <ResultCardMedia imageUrl={previewProduct?.imageUrl} alt={candidate.storeName} variant="store">
+                  <span className="mio-card-chip">{translate(language, "Key Store Page")}</span>
+                </ResultCardMedia>
+                <div className="mio-result-card-body min-w-0">
+                  <div className="mio-result-card-title-row">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-ink-100">{candidate.storeName}</div>
+                      <div className="mt-1 text-xs text-ink-500">
+                        {relatedProducts.length > 0
+                          ? `${relatedProducts.length} ${translate(language, relatedProducts.length === 1 ? "source product" : "source products")}`
+                          : translate(language, "Manually added")}
+                      </div>
+                    </div>
+                    <button
+                      className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 px-0"
+                      type="button"
+                      onClick={() => onCandidatesChange(candidates.filter((item) => item.id !== candidate.id))}
+                      aria-label={`Remove ${candidate.storeName}`}
+                      title={`Remove ${candidate.storeName}`}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <div className="mio-card-chip-row">
+                    <StoreTypeMark value={candidateStoreType} showLabel />
+                    {candidate.shopId && <span className="mio-card-chip">{translate(language, "Shop ID")} {candidate.shopId}</span>}
+                  </div>
+                  {relatedProducts.length > 0 && (
+                    <div className="mio-result-card-description line-clamp-2">
+                      {relatedProducts.map((product) => displayProductTitle(product)).join(", ")}
+                    </div>
+                  )}
+                  <a className="mio-result-card-link break-all" href={candidate.storeUrl} target="_blank" rel="noreferrer">
                     {candidate.storeUrl}
                   </a>
                 </div>
-                <button
-                  className="secondary-button mio-round-icon-button h-9 w-9 shrink-0 px-0"
-                  type="button"
-                  onClick={() => onCandidatesChange(candidates.filter((item) => item.id !== candidate.id))}
-                  aria-label={`Remove ${candidate.storeName}`}
-                  title={`Remove ${candidate.storeName}`}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-              <div className="mt-4 grid gap-2 text-xs text-ink-300">
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded border border-white/10 px-3 py-2">
-                  <span>Collect Popular Products</span>
-                  <input
-                    type="checkbox"
-                    checked={candidate.includePopularProducts}
-                    onChange={(event) => updateCandidate(candidate.id, { includePopularProducts: event.target.checked })}
-                  />
-                </label>
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded border border-white/10 px-3 py-2">
-                  <span>Collect Visual Shop Banner</span>
-                  <input
-                    type="checkbox"
-                    checked={candidate.includeShopBanner}
-                    onChange={(event) => updateCandidate(candidate.id, { includeShopBanner: event.target.checked })}
-                  />
-                </label>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
+          {!addingStore && (
+            <button className="mio-result-card flex min-h-[280px] items-center justify-center gap-2 border-dashed text-sm font-medium text-signal-blue" type="button" onClick={() => setAddingStore(true)}>
+              <Plus size={20} />
+              <span>{translate(language, "Add Store Page")}</span>
+            </button>
+          )}
         </div>
       )}
-      <div className="mt-4 rounded-md border border-white/10 bg-ink-950/25 p-4">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-ink-500">Add desired store</div>
-        <div className="grid gap-2 md:grid-cols-[minmax(140px,0.65fr)_minmax(220px,1.35fr)_auto]">
-          <input className="form-input" value={manualStoreName} onChange={(event) => setManualStoreName(event.target.value)} placeholder="Store name" />
-          <input className="form-input" value={manualStoreUrl} onChange={(event) => setManualStoreUrl(event.target.value)} placeholder="https://shopee.co.id/store-name" />
-          <button className="secondary-button h-10 w-auto px-4" type="button" onClick={addManualStore} disabled={!manualStoreName.trim() || !manualStoreUrl.trim()}>
-            <Plus size={15} />
-            Add Store
-          </button>
+      {addingStore && (
+        <div className="mio-add-store-form mt-4">
+          <div className="mio-add-store-form-title">{translate(language, "Add store page")}</div>
+          <div className="mio-add-store-fields">
+            <label>
+              <span>{translate(language, "Store name")}</span>
+              <Input value={manualStoreName} onChange={(event) => setManualStoreName(event.target.value)} placeholder="Official store name" />
+            </label>
+            <label>
+              <span>{translate(language, "Shopee store URL")}</span>
+              <Input value={manualStoreUrl} onChange={(event) => setManualStoreUrl(event.target.value)} placeholder="https://shopee.co.id/store-name" />
+            </label>
+            <div className="mio-add-store-actions">
+            <button className="primary-button h-10 w-auto px-4" type="button" onClick={addManualStore} disabled={!manualStoreName.trim() || !manualStoreUrl.trim()}>
+              <Plus size={15} />
+              {translate(language, "Add")}
+            </button>
+            <button className="secondary-button h-10 w-auto px-4" type="button" onClick={() => setAddingStore(false)}>
+              {translate(language, "Cancel")}
+            </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-5 text-ink-500">
           {candidates.length > 0
-            ? `${candidates.length} Potential Store${candidates.length === 1 ? "" : "s"} will be collected independently.`
-            : "Add at least one Potential Store to continue."}
+            ? `${candidates.length} ${translate(language, candidates.length === 1 ? "Key Store Page will be collected independently." : "Key Store Pages will be collected independently.")}`
+            : translate(language, "Add at least one Key Store Page to continue.")}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button className="secondary-button h-10 w-auto px-4" type="button" onClick={onRunAnalysis} disabled={scoring || !detail}>
-            <Brain size={16} />
-            {scoring ? "Scoring..." : "Run AI Scoring"}
-            {scoringProvider ? ` (${scoringProvider})` : ""}
+        <div className="flex items-center gap-2">
+          <button className="secondary-button h-10 w-auto px-4" type="button" onClick={onSaveStoreList}>
+            <Archive size={15} />
+            {translate(language, "Save Store List")}
           </button>
           <button className="primary-button h-10 w-auto px-4" type="button" onClick={onStartKeyStoreCollection} disabled={candidates.length === 0}>
-          <Store size={16} />
-            Start Store Collection
+            <Store size={16} />
+            {translate(language, approved ? "Continue Store Collection" : "Approve & Continue")}
           </button>
         </div>
       </div>
@@ -3069,6 +3921,7 @@ function BrowserCaptureStatusPill({
 
 function FloatingStepController({
   step,
+  viewMode,
   activeSubActionId,
   stepNumber,
   stepTotal,
@@ -3091,6 +3944,7 @@ function FloatingStepController({
   onNext
 }: {
   step: CollectionStep;
+  viewMode: "desktop" | "mobile";
   activeSubActionId?: string;
   stepNumber: number;
   stepTotal: number;
@@ -3112,6 +3966,7 @@ function FloatingStepController({
   onPrevious: () => void;
   onNext: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const [compact, setCompact] = useState(true);
   const [outcomeNotice, setOutcomeNotice] = useState<{ label: string; state: "collected" | "not-found" } | null>(null);
   const outcomeRef = useRef<{ signature?: string }>({});
@@ -3131,12 +3986,19 @@ function FloatingStepController({
   const compactInstruction = step.stage === "PRODUCT_DETAILS"
     ? "Choose the sub-action, confirm the target page, then collect."
     : step.instruction;
-  const usesSubActionCollectButtons = step.stage === "PRODUCT_DETAILS" && Boolean(step.subActions?.length);
+  const usesSubActionCollectButtons =
+    (step.stage === "PRODUCT_DETAILS" || step.stage === "EVALUATION_KEY_STORE") &&
+    Boolean(step.subActions?.length);
   useEffect(() => {
     if (collapseSignal > 0) {
       setCompact(true);
     }
   }, [collapseSignal]);
+  useEffect(() => {
+    if (viewMode === "mobile") {
+      setCompact(true);
+    }
+  }, [viewMode]);
   useEffect(() => {
     const signature = `${activeSubAction?.id ?? ""}:${activeSubActionState}:${outcomeMessage ?? ""}`;
     if (!activeSubAction?.id || activeSubActionState === "pending" || outcomeRef.current.signature === signature) {
@@ -3162,7 +4024,10 @@ function FloatingStepController({
     return (
       <>
         <motion.div
-          className="mio-floating-collector mio-floating-collector-compact absolute left-4 top-4 z-20 max-w-[430px] rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl"
+          className={[
+            "mio-floating-collector mio-floating-collector-compact absolute top-2 z-20 rounded-full border border-white/14 bg-ink-950/72 px-3 py-2 shadow-glow backdrop-blur-2xl",
+            viewMode === "mobile" ? "left-2 right-2" : "left-4 max-w-[430px]"
+          ].join(" ")}
           initial={{ opacity: 0, y: -10, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.5, ease: "easeInOut" }}
@@ -3173,15 +4038,26 @@ function FloatingStepController({
           </button>
           <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-[0.12em] text-ink-500">
-              Step {stepNumber}/{stepTotal}
+              {translate(language, "Step")} {stepNumber}/{stepTotal}
             </div>
             <div className="truncate text-xs font-medium text-white">{step.label}</div>
-            {activeSubAction && <div className="truncate text-[10px] text-ink-400">{activeSubAction.label}</div>}
+            {activeSubAction && viewMode !== "mobile" && <div className="truncate text-[10px] text-ink-400">{activeSubAction.label}</div>}
           </div>
           <span className={["shrink-0 rounded-full px-2 py-1 text-[10px]", step.ready ? "bg-signal-green/15 text-signal-green" : "bg-white/8 text-ink-300"].join(" ")}>
             {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "wait"}
           </span>
-          {(!usesSubActionCollectButtons || activeSubAction?.id === "shop-homepage") && (
+          {viewMode === "mobile" && (
+            <button
+              className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
+              type="button"
+              onClick={onPrevious}
+              aria-label="Previous step"
+              title="Previous step"
+            >
+              <ChevronLeft size={13} />
+            </button>
+          )}
+          {(!usesSubActionCollectButtons || activeSubAction?.id === "shop-homepage" || step.stage === "EVALUATION_KEY_STORE") && (
             <button
               className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
               type="button"
@@ -3215,10 +4091,11 @@ function FloatingStepController({
               {resetting ? <span className="mio-spinner" /> : <RefreshCcw size={13} />}
             </button>
           )}
-          {((usesSubActionCollectButtons && activeSubActionFinished) || (!usesSubActionCollectButtons && captured && step.mode !== "PROCESS")) && (
+          {(viewMode === "mobile" || (usesSubActionCollectButtons && activeSubActionFinished) || (!usesSubActionCollectButtons && captured && step.mode !== "PROCESS")) && (
             <button
               className="secondary-button mio-round-icon-button h-8 w-8 shrink-0 rounded-full px-0"
               type="button"
+              disabled={viewMode === "mobile" && !activeSubActionFinished && !captured}
               onClick={advanceCollector}
               aria-label={nextSubAction ? `Continue to ${nextSubAction.label}` : "Continue to next product"}
               title={nextSubAction ? `Continue to ${nextSubAction.label}` : "Continue to next product"}
@@ -3253,7 +4130,10 @@ function FloatingStepController({
 
   return (
     <motion.div
-      className="mio-floating-collector mio-floating-collector-expanded absolute left-4 top-4 z-20 flex w-[320px] flex-col rounded-[18px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl"
+      className={[
+        "mio-floating-collector mio-floating-collector-expanded absolute top-2 z-20 flex w-[320px] max-w-[calc(100%-1rem)] flex-col rounded-[18px] border border-white/14 bg-ink-950/72 p-3 shadow-glow backdrop-blur-2xl",
+        viewMode === "mobile" ? "left-2" : "left-4"
+      ].join(" ")}
       initial={{ opacity: 0, y: -10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.5, ease: "easeInOut" }}
@@ -3261,7 +4141,7 @@ function FloatingStepController({
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-ink-500">
-            Guided Collection {stepNumber}/{stepTotal}
+            {translate(language, "Guided Collection")} {stepNumber}/{stepTotal}
           </div>
           <div className="truncate text-sm font-semibold text-white">{step.label}</div>
         </div>
@@ -3277,7 +4157,7 @@ function FloatingStepController({
             {captured ? (step.mode === "PROCESS" ? "processed" : "saved") : step.ready ? "ready" : "waiting"}
           </span>
         </div>
-        <div className="text-[11px] leading-4 text-ink-400">{compactInstruction}</div>
+          <div className="text-[11px] leading-4 text-ink-400">{translate(language, compactInstruction)}</div>
         {step.subActions && step.subActions.length > 0 && (
           <div className="mt-2 space-y-1.5 border-t border-white/8 pt-2">
             {step.subActions.map((action) => {
@@ -3295,7 +4175,7 @@ function FloatingStepController({
                 >
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                     <button className="min-w-0 text-left" type="button" onClick={() => onSelectSubAction(action.id)}>
-                      <span className="truncate text-[11px] font-medium text-white">{action.label}</span>
+                      <span className="truncate text-[11px] font-medium text-white">{translate(language, action.label)}</span>
                     </button>
                     <span
                       className={[
@@ -3309,8 +4189,15 @@ function FloatingStepController({
                     </span>
                   </div>
                   <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2">
-                    <div className="truncate text-[10px] text-ink-500">{action.description}</div>
-                    {(!usesSubActionCollectButtons || action.id === "shop-homepage") && (
+                    <div className="min-w-0">
+                      <div className="truncate text-[10px] text-ink-500">{translate(language, action.description)}</div>
+                      {action.preferredViewMode && (
+                        <div className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-ink-400">
+                          {translate(language, "Recommended:")} {translate(language, action.preferredViewMode)}
+                        </div>
+                      )}
+                    </div>
+                    {(!usesSubActionCollectButtons || action.id === "shop-homepage" || step.stage === "EVALUATION_KEY_STORE") && (
                       <button
                         className="secondary-button mio-round-icon-button h-8 w-8 px-0 text-[10px]"
                         type="button"
@@ -3371,7 +4258,7 @@ function FloatingStepController({
         {!usesSubActionCollectButtons && targetUrl && (
           <button className="secondary-button h-9 px-3" type="button" onClick={() => onOpenTarget()}>
             <ExternalLink size={14} />
-            Open Target
+            {translate(language, "Open Target")}
           </button>
         )}
       </div>
@@ -3380,7 +4267,7 @@ function FloatingStepController({
           <button className="primary-button h-9" type="button" disabled={saving || activeSubActionMaxed} onClick={() => onCollect(activeSubAction?.id)}>
             <ClipboardCheck size={16} />
             {step.mode === "PROCESS"
-              ? captured ? "Review Process Again" : step.id === "evaluation-phase-scoring" ? "Open Evaluation Phase" : "Build Key Product Table"
+              ? captured ? "Review Process Again" : "Build Key Product Table"
               : saving ? "Saving Evidence" : captured ? `Collect Again${activeSubAction ? `: ${activeSubAction.label}` : ""}` : collectLabel ?? (dataOnlyStep ? "Collect Data" : "Collect This Step")}
           </button>
           {captured && (
@@ -3398,7 +4285,7 @@ function FloatingStepController({
       ))}
       {usesSubActionCollectButtons && !step.ready && (
         <div className="mt-2 rounded-full border border-white/8 bg-white/6 px-3 py-2 text-xs text-ink-400">
-          Open the matching product page before collecting Product Detail data.
+          {translate(language, "Open the matching product page before collecting Product Detail data.")}
         </div>
       )}
       {(onAttachFile || onOpenAndroid) && (
@@ -3406,13 +4293,13 @@ function FloatingStepController({
           {onOpenAndroid && (
             <button className="secondary-button h-9 px-2 text-xs" type="button" onClick={onOpenAndroid}>
               <Smartphone size={14} />
-              Open TikTok
+              {translate(language, "Open TikTok")}
             </button>
           )}
           {onAttachFile && (
             <button className="secondary-button h-9 px-2 text-xs" type="button" onClick={onAttachFile}>
               <ImagePlus size={14} />
-              Attach Shot
+              {translate(language, "Attach Shot")}
             </button>
           )}
         </div>
@@ -3453,6 +4340,9 @@ function subActionButtonLabel(action: CollectionSubAction, collectedCount = 0): 
 }
 
 function subActionEvidenceKind(step: CollectionStep, action?: CollectionSubAction): ManualEvidenceKind {
+  if (action?.kind) {
+    return action.kind;
+  }
   if (!action) {
     return step.kind;
   }
@@ -3478,7 +4368,8 @@ function isDataOnlyEvidenceStep(step: CollectionStep, action?: CollectionSubActi
   if (action?.mode === "screenshot") {
     return false;
   }
-  return step.metadata?.dataOnly === true ||
+  return action?.metadata?.dataOnly === true ||
+    step.metadata?.dataOnly === true ||
     ["STORE_FEATURED_PRODUCTS", "STORE_BEST_SELLER", "STORE_BANNER"].includes(step.kind);
 }
 
@@ -3565,14 +4456,17 @@ function scopeProductDetailSnapshot(
 function ScreenshotReviewModal({
   capture,
   saving,
+  onSavingStart,
   onCancel,
   onSave
 }: {
   capture: PendingEvidenceCapture;
   saving: boolean;
+  onSavingStart: () => void;
   onCancel: () => void;
   onSave: (payload: ManualEvidencePayload) => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const panStartRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
@@ -3654,6 +4548,7 @@ function ScreenshotReviewModal({
   }
 
   async function saveSelected() {
+    onSavingStart();
     if (!selection || selection.width < 8 || selection.height < 8 || !imageRef.current) {
       onSave(capture.payload);
       return;
@@ -3675,12 +4570,20 @@ function ScreenshotReviewModal({
   return (
     <div className="mio-screenshot-modal fixed inset-0 z-[200] grid place-items-center overflow-hidden bg-black/55 p-4 backdrop-blur-sm">
       <div className="mio-panel mio-screenshot-dialog flex h-[calc(100vh-32px)] w-full max-w-[calc(100vw-32px)] flex-col rounded-[18px] border p-5 shadow-glow">
-        <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="mio-screenshot-dialog-header mb-4">
           <div>
-            <div className="mio-screenshot-title text-sm font-semibold">Review Screenshot</div>
+            <div className="mio-screenshot-title text-sm font-semibold">{translate(language, "Review Screenshot")}</div>
             <div className="mio-screenshot-copy mt-1 text-xs">{capture.stepLabel}</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="mio-screenshot-action-toolbar">
+            <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => { onSavingStart(); onSave(capture.payload); }} disabled={saving}>
+              {translate(language, "Save Full")}
+            </button>
+            <button className="primary-button h-9 w-auto px-4" type="button" onClick={() => void saveSelected()} disabled={saving}>
+              {saving ? "Saving" : selection ? "Save Selected" : "Save Screenshot"}
+            </button>
+          </div>
+          <div className="mio-screenshot-view-toolbar flex items-center gap-2">
             <button className="secondary-button h-9 w-9 px-0" type="button" onClick={() => applyPreviewZoom(previewZoom - 0.2)} aria-label="Zoom screenshot out" title="Zoom out">
               <ZoomOut size={15} />
             </button>
@@ -3698,7 +4601,7 @@ function ScreenshotReviewModal({
               {selectionMode ? "Selecting" : "Select Area"}
             </button>
             <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onCancel} disabled={saving}>
-              Redo
+              {translate(language, "Redo")}
             </button>
           </div>
         </div>
@@ -3732,17 +4635,9 @@ function ScreenshotReviewModal({
             )}
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <div className="mio-screenshot-copy text-xs">
-            Scroll to move through the preview. Use zoom buttons or Ctrl/Command + wheel to zoom, then drag to pan. Use Select Area before dragging a crop box.
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="secondary-button h-9 w-auto px-3" type="button" onClick={() => onSave(capture.payload)} disabled={saving}>
-              Save Full
-            </button>
-            <button className="primary-button h-9 w-auto px-4" type="button" onClick={() => void saveSelected()} disabled={saving}>
-              {saving ? "Saving" : selection ? "Save Selected" : "Save Evidence"}
-            </button>
+            {translate(language, "Scroll to move through the preview. Use zoom buttons or Ctrl/Command + wheel to zoom, then drag to pan. Use Select Area before dragging a crop box.")}
           </div>
         </div>
       </div>
@@ -3752,6 +4647,7 @@ function ScreenshotReviewModal({
 
 function ProjectsView() {
   const queryClient = useQueryClient();
+  const language = useUiStore((state) => state.language);
   const projectInspectorRequestId = useUiStore((state) => state.projectInspectorRequestId);
   const clearProjectInspectorRequest = useUiStore((state) => state.clearProjectInspectorRequest);
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
@@ -3760,6 +4656,7 @@ function ProjectsView() {
   const [collectingProject, setCollectingProject] = useState<ProjectSummary | null>(null);
   const [collectionBrowserUrl, setCollectionBrowserUrl] = useState(SHOPEE_HOME_URL);
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [projectSearch, setProjectSearch] = useState("");
   const [projectViewMode, setProjectViewMode] = useState<"cards" | "list">("cards");
   const [projectPendingDeletion, setProjectPendingDeletion] = useState<ProjectSummary | null>(null);
   const [deleteConfirmationName, setDeleteConfirmationName] = useState("");
@@ -3768,10 +4665,16 @@ function ProjectsView() {
     () => Array.from(new Set(projects.map((project) => project.productCategory).filter((value): value is string => Boolean(value?.trim())))).sort(),
     [projects]
   );
-  const filteredProjects = useMemo(
-    () => projects.filter((project) => categoryFilter === "all" || project.productCategory === categoryFilter),
-    [categoryFilter, projects]
-  );
+  const filteredProjects = useMemo(() => {
+    const search = projectSearch.trim().toLocaleLowerCase();
+    return projects.filter((project) => {
+      const categoryMatches = categoryFilter === "all" || project.productCategory === categoryFilter;
+      if (!categoryMatches || !search) return categoryMatches;
+      return [project.name, project.keyword, project.productCategory, marketplaceLabel(project.marketplace)]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLocaleLowerCase().includes(search));
+    });
+  }, [categoryFilter, projectSearch, projects]);
 
   useEffect(() => {
     if (!projectInspectorRequestId) {
@@ -3791,6 +4694,16 @@ function ProjectsView() {
     gcTime: PROJECT_DETAIL_GC_TIME_MS,
     placeholderData: (previous) => previous
   });
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("mio:project-header-context", {
+      detail: inspectingProjectId ? detail.data?.project.name ?? "" : ""
+    }));
+  }, [detail.data?.project.name, inspectingProjectId]);
+
+  useEffect(() => () => {
+    window.dispatchEvent(new CustomEvent("mio:project-header-context", { detail: "" }));
+  }, []);
 
   function prefetchProjectDetail(projectId: string) {
     void queryClient.prefetchQuery({
@@ -3923,23 +4836,29 @@ function ProjectsView() {
 
   return (
     <>
-    <section className="space-y-5">
-      <Panel title="Vault Metrics" icon={Gauge} className="mio-vault-metrics-panel">
-        <div className="mio-vault-metrics-grid grid grid-cols-4 gap-3">
-          <Metric icon={Archive} label="Keyword Projects" value={projects.length} />
-          <Metric icon={FileDown} label="Reports" value={dashboard.data?.metrics.completedReports ?? 0} />
-          <Metric icon={ShoppingBag} label="Products" value={dashboard.data?.metrics.collectedProducts ?? 0} />
-          <Metric icon={Filter} label="Categories" value={categories.length} />
-        </div>
-      </Panel>
-
+    <section className="mio-projects-view space-y-5">
       <Panel
         title="Keyword Projects"
         icon={Table2}
+        className="mio-keyword-projects-panel"
         action={
           <div className="flex items-center gap-2">
+            <label className="mio-project-search">
+              <Search size={15} aria-hidden="true" />
+              <input
+                value={projectSearch}
+                onChange={(event) => setProjectSearch(event.target.value)}
+                placeholder={translate(language, "Search projects")}
+                aria-label={translate(language, "Search projects")}
+              />
+              {projectSearch ? (
+                <button type="button" onClick={() => setProjectSearch("")} aria-label={translate(language, "Clear search")}>
+                  <X size={14} />
+                </button>
+              ) : null}
+            </label>
             <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="input h-9 w-[180px] text-xs">
-              <option value="all">All categories</option>
+              <option value="all">{translate(language, "All categories")}</option>
               {categories.map((category) => (
                 <option key={category} value={category}>{category}</option>
               ))}
@@ -3948,7 +4867,7 @@ function ProjectsView() {
           </div>
         }
       >
-        <div className={projectViewMode === "cards" ? "grid grid-cols-1 gap-3 xl:grid-cols-2" : "space-y-2"}>
+        <div className={projectViewMode === "cards" ? "grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3" : "space-y-2"}>
           {filteredProjects.map((project) => {
             const collectionState = projectCollectionState(project);
             const completed = isProjectComplete(project);
@@ -3957,7 +4876,7 @@ function ProjectsView() {
                 key={project.id}
                 role="button"
                 tabIndex={0}
-                aria-label={`Inspect ${project.name}`}
+                aria-label={`${translate(language, "Inspect")} ${project.name}`}
                 onPointerEnter={() => prefetchProjectDetail(project.id)}
                 onFocus={() => prefetchProjectDetail(project.id)}
                 onClick={() => setInspectingProjectId(project.id)}
@@ -3968,14 +4887,15 @@ function ProjectsView() {
                   }
                 }}
                 className={[
-                  "mio-project-card w-full cursor-pointer rounded-md border border-white/8 bg-white/5 p-4 text-left transition hover:border-signal-blue/35 hover:bg-signal-blue/10",
+                  "mio-project-card mio-result-card mio-project-result-card w-full cursor-pointer text-left",
+                  completed ? "mio-project-card-completed" : "",
                   projectViewMode === "list" ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4" : ""
                 ].join(" ")}
               >
-                <div className="min-w-0">
-                  <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="mio-result-card-body min-w-0">
+                  <div className="mio-result-card-title-row">
                     <div className="min-w-0">
-                      <div className="truncate text-base font-semibold text-white">{project.name}</div>
+                      <div className="mio-project-card-title line-clamp-2 text-white">{project.name}</div>
                       <div className="mt-1 text-xs text-ink-500">{formatDateTime(project.createdAt)}</div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -3983,28 +4903,28 @@ function ProjectsView() {
                       <CircularProgress value={collectionState.progressPercent} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-xs text-ink-400 lg:grid-cols-4">
-                    <InfoLine label="Keyword" value={project.keyword} />
-                    <InfoLine label="Category" value={project.productCategory ?? "-"} />
-                    <InfoLine label="Marketplace" value={project.marketplace} />
-                    <InfoLine label="Media" value={`${project.counts.products} products · ${project.counts.stores} stores`} />
+                  <div className="mio-card-chip-row">
+                    <span className="mio-card-chip">{marketplaceLabel(project.marketplace)}</span>
+                    <span className="mio-card-chip">{project.keyword}</span>
+                    <span className="mio-card-chip">{project.productCategory ?? translate(language, "No category")}</span>
+                    <span className="mio-card-chip">{project.counts.products} {translate(language, "products")}</span>
+                    <span className="mio-card-chip">{project.counts.stores} {translate(language, "stores")}</span>
                   </div>
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between gap-3 text-[11px] text-ink-500">
-                      <span>{collectionState.stageLabel}</span>
-                      <span>{collectionState.progressPercent}% complete</span>
-                    </div>
+                  <ProjectFilterMetadata project={project} chips />
+                  <div className="mio-result-card-description flex items-center justify-between gap-3">
+                    <span>{translate(language, collectionState.stageLabel)}</span>
+                    <span>{collectionState.progressPercent}% {translate(language, "complete")}</span>
                   </div>
                 </div>
-                <div className={projectViewMode === "list" ? "flex shrink-0 flex-wrap items-center gap-2" : "mt-4 flex flex-wrap items-center gap-2"}>
+                <div className={projectViewMode === "list" ? "mio-result-card-actions flex shrink-0 flex-wrap items-center gap-2" : "mio-result-card-actions flex flex-wrap items-center gap-2"}>
                   <button className="secondary-button h-9 w-auto px-3" type="button" onClick={(event) => { event.stopPropagation(); setInspectingProjectId(project.id); }}>
                     <Search size={14} />
-                    Inspect
+                    {translate(language, "Inspect")}
                   </button>
                   {!completed && (
                     <button className="primary-button h-9 w-auto px-3" type="button" onClick={(event) => { event.stopPropagation(); startProjectCollection(project); }}>
                       <ClipboardCheck size={14} />
-                      Continue Collection
+                      {translate(language, "Continue Collection")}
                     </button>
                   )}
                   <button
@@ -4012,8 +4932,8 @@ function ProjectsView() {
                     type="button"
                     onClick={(event) => { event.stopPropagation(); confirmDeleteProject(project); }}
                     disabled={deleteProject.isPending}
-                    aria-label={`Delete ${project.name}`}
-                    title={`Delete ${project.name}`}
+                    aria-label={`${translate(language, "Delete")} ${project.name}`}
+                    title={`${translate(language, "Delete")} ${project.name}`}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -4021,7 +4941,7 @@ function ProjectsView() {
               </div>
             );
           })}
-          {filteredProjects.length === 0 && <EmptyState label="No keyword projects match this category." />}
+          {filteredProjects.length === 0 && <EmptyState label="No keyword projects match the current search and category." />}
         </div>
       </Panel>
     </section>
@@ -4055,58 +4975,47 @@ function ProjectDeleteDialog({
   onCancel: () => void;
   onDelete: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   useEffect(() => () => restoreRendererFocus(), []);
 
   if (!project) {
     return null;
   }
 
-  return createPortal(
-    <motion.div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-5 backdrop-blur-sm"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.5, ease: "easeInOut" }}
-      onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
+  return (
+    <Modal
+      open
+      title={translate(language, "Delete keyword project?")}
+      description={(
+        <span className="mio-delete-dialog-copy">
+          {translate(language, "This permanently removes the project, evidence, reports, and local files. Type")} <strong>{project.name}</strong> {translate(language, "to confirm.")}
+        </span>
+      )}
+      onClose={onCancel}
+      className="mio-delete-dialog"
+      actions={(
+        <>
+          <Button variant="ghost" onClick={onCancel} disabled={deleting}>{translate(language, "Cancel")}</Button>
+          <Button
+            variant="danger"
+            onClick={onDelete}
+            loading={deleting}
+            disabled={confirmationName !== project.name}
+          >
+            <Trash2 size={15} />
+            {translate(language, deleting ? "Deleting" : "Delete")}
+          </Button>
+        </>
+      )}
     >
-      <motion.div
-        className="mio-panel mio-delete-dialog w-full max-w-md rounded-[28px] border p-6 shadow-glow"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="delete-project-dialog-title"
-        initial={{ opacity: 0, y: 12, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 12, scale: 0.97 }}
-        transition={{ duration: 0.5, ease: "easeInOut" }}
-      >
-            <h2 id="delete-project-dialog-title" className="text-lg font-semibold">Delete keyword project?</h2>
-            <p className="mio-delete-dialog-copy mt-2 text-sm leading-6">
-              This permanently removes the project, evidence, reports, and local files. Type <strong>{project.name}</strong> to confirm.
-            </p>
-            <input
-              autoFocus
-              value={confirmationName}
-              onChange={(event) => onConfirmationNameChange(event.target.value)}
-              className="input mt-4"
-              aria-label="Project name confirmation"
-            />
-            {error && <div className="mt-3 rounded-xl bg-signal-rose/12 px-3 py-2 text-sm text-signal-rose">{error}</div>}
-            <div className="mt-5 flex justify-end gap-2">
-              <button className="secondary-button h-10 w-auto rounded-full px-5" type="button" onClick={onCancel} disabled={deleting}>Cancel</button>
-              <button
-                className="primary-button mio-danger-button h-10 w-auto rounded-full bg-signal-rose px-5 text-white"
-                type="button"
-                onClick={onDelete}
-                disabled={deleting || confirmationName !== project.name}
-              >
-                <Trash2 size={15} />
-                {deleting ? "Deleting" : "Delete"}
-              </button>
-            </div>
-      </motion.div>
-    </motion.div>,
-    appPortalRoot()
+      <Input
+        data-mio-autofocus
+        value={confirmationName}
+        onChange={(event) => onConfirmationNameChange(event.target.value)}
+        aria-label={translate(language, "Project name confirmation")}
+      />
+      {error && <div className="mio-form-error mt-3">{error}</div>}
+    </Modal>
   );
 }
 
@@ -4123,13 +5032,24 @@ function ProjectInspectionPanel({
   onDelete: () => void;
   onContinueCollection: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
+  const evidenceTranslations = useEvidenceTranslations(projectEvidenceTranslationValues(detail), language);
   const queryClient = useQueryClient();
-  const mediaCount = useMemo(() => projectMediaCount(detail), [detail]);
+  const marketSummary = useMemo(() => projectMarketSummary(detail), [detail]);
   const collectionState = useMemo(() => projectCollectionState(detail.project), [detail.project]);
+  const localizedFilters = useMemo(() => localizedProjectFilterMetadata(detail.project, language), [detail.project, language]);
   const completed = isProjectComplete(detail.project);
   const outlineItems = useMemo(() => projectOutlineItems(detail), [detail]);
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [openReportSectionIds, setOpenReportSectionIds] = useState<Set<string>>(() => new Set());
+  const settings = useQuery({ queryKey: ["settings"], queryFn: apiClient.settings, staleTime: 60_000 });
+  const aiConfigured = Boolean(settings.data?.openAiKeyConfigured || settings.data?.geminiKeyConfigured);
+  const requestIntelligenceAnalysis = useMutation({
+    mutationFn: () => apiClient.analyzeProject(detail.project.id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["project-detail", detail.project.id] });
+    }
+  });
   useEffect(() => {
     setOutlineCollapsed(false);
     setOpenReportSectionIds(new Set());
@@ -4155,66 +5075,79 @@ function ProjectInspectionPanel({
       return changed ? next : current;
     });
   }
-  const runAnalysis = useMutation({
-    mutationFn: () => apiClient.analyzeProject(detail.project.id),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["project-detail", detail.project.id] });
-    }
-  });
   return (
     <section className="mio-project-inspector-page space-y-6">
-      <header className="mio-project-sticky-header">
-        <button className="secondary-button mio-round-icon-button h-9 w-9 shrink-0 px-0" type="button" onClick={onBack} aria-label="Back to projects" title="Back to projects">
+      <div className="mio-project-inspector-back-row">
+        <button className="secondary-button h-9 w-auto shrink-0 px-3" type="button" onClick={onBack} aria-label={translate(language, "Back to projects")} title={translate(language, "Back to projects")}>
           <ChevronLeft size={16} />
+          {translate(language, "Back to projects")}
         </button>
-        <div className="min-w-0 flex-1">
-          <AnimatedProjectTitle title={detail.project.name} />
-          <div className="mio-project-subtitle">{marketplaceLabel(detail.project.marketplace)} | {formatDateTime(detail.project.createdAt)}</div>
-        </div>
-        <div className="mio-project-hero-actions">
-          <button className="primary-button h-10 w-auto rounded-full px-6" type="button" onClick={onContinueCollection}>
-            <ClipboardCheck size={15} />
-            {completed ? "Collect Again" : "Continue Collection"}
-          </button>
-          <button className="secondary-button mio-danger-round mio-round-icon-button h-10 w-10 rounded-full px-0 text-signal-rose" type="button" onClick={onDelete} disabled={deleting} aria-label="Delete project" title="Delete project">
-            <Trash2 size={16} />
-          </button>
-        </div>
-      </header>
+      </div>
 
-      <div className="mio-inspector-summary-row">
-        <div className="mio-inspector-metrics-grid grid grid-cols-2 gap-3">
-          <Metric icon={ImagePlus} label="Media" value={mediaCount} />
-          <Metric icon={ShoppingBag} label="Products" value={detail.products.length} />
-          <Metric icon={Store} label="Stores" value={detail.stores.length} />
-          <Metric icon={ListChecks} label="Reviews" value={detail.reviews.length} />
-        </div>
-
-        <div className="mio-saved-progress-compact rounded-md border border-white/8 bg-white/5 p-3">
-          <div className="grid items-center gap-4 md:grid-cols-[auto_minmax(0,1fr)_minmax(0,1.2fr)]">
-          <CircularProgress value={collectionState.progressPercent} />
-          <div className="min-w-0">
-            <div className="text-base font-semibold text-white">Saved Collection Progress</div>
-            <div className="mt-1 truncate text-sm text-ink-500">{collectionState.stageLabel}</div>
+      <div className="mio-inspector-summary-grid">
+        <section className={["mio-inspector-summary-card mio-inspector-scope-card", completed ? "mio-completion-highlight" : ""].join(" ")}>
+          <div className="mio-inspector-card-heading">
+            <span className="mio-inspector-card-icon"><Search size={20} /></span>
+            <span><strong>{translate(language, "Market Scope")}</strong><small>{translate(language, "Applied filters & market coverage")}</small></span>
           </div>
-          <div className="min-w-0 space-y-3">
-            {collectionState.browserUrl ? (
-              <button className="secondary-button h-8 w-auto max-w-full rounded-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(collectionState.browserUrl ?? "")}>
-                <span className="truncate">Saved URL</span>
-                <ExternalLink size={13} />
-              </button>
-            ) : (
-              <div className="text-xs text-ink-400">No browser URL saved</div>
-            )}
-            <div className="grid grid-cols-2 gap-3 text-xs text-ink-400">
-              <InfoLine label="Current Step" value={collectionState.currentStepId ?? "Not selected"} />
-              <InfoLine label="View Mode" value={collectionState.viewMode ?? "Default"} />
+          <div className="mio-inspector-price-block">
+            <span>{translate(language, "Price Range")}</span>
+            <strong>{marketSummary.priceRange}</strong>
+          </div>
+          <div className="mio-inspector-filter-grid">
+            <div><ShoppingBag size={15} /><span><small>{translate(language, "Shop type")}</small><strong>{localizedFilters.storeType}</strong></span></div>
+            <div><Gauge size={15} /><span><small>{translate(language, "Price range")}</small><strong>{localizedFilters.priceRange}</strong></span></div>
+          </div>
+          <div className="mio-inspector-evidence-line">
+            <ListChecks size={16} />
+            <span><small>{translate(language, "Product evidence")}</small><strong>{marketSummary.pricedProducts} / {detail.products.length} {translate(language, "products with price evidence")}</strong></span>
+          </div>
+        </section>
+
+        <section className={["mio-inspector-summary-card mio-inspector-store-card", completed ? "mio-completion-highlight" : ""].join(" ")}>
+          <div className="mio-inspector-card-heading">
+            <span className="mio-inspector-card-icon"><Store size={20} /></span>
+            <span><strong>{translate(language, "Stores")}</strong><small>{translate(language, "Collected marketplace stores")}</small></span>
+          </div>
+          <div className="mio-inspector-store-total">{detail.stores.length}</div>
+          <div className="mio-inspector-store-caption">{translate(language, "collected marketplace stores")}</div>
+        </section>
+
+        <section className={["mio-inspector-summary-card mio-saved-progress-compact", completed ? "mio-completion-highlight" : ""].join(" ")}>
+          <div className="mio-saved-progress-layout">
+            <CircularProgress value={collectionState.progressPercent} />
+            <div className="min-w-0">
+              <div className="text-base font-semibold text-white">{translate(language, "Saved Collection Progress")}</div>
+              <div className="mt-2 truncate text-sm text-ink-500">{translate(language, collectionState.stageLabel)}</div>
+              <div className="mt-2"><ProjectFilterMetadata project={detail.project} /></div>
+              <div className="mt-3 text-xs text-ink-500">{marketplaceLabel(detail.project.marketplace)} · {formatDateTime(detail.project.createdAt)}</div>
+            </div>
+            <div className="mio-saved-progress-context">
+              {collectionState.browserUrl ? (
+                <button className="secondary-button h-8 w-auto max-w-full rounded-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(collectionState.browserUrl ?? "")}>
+                  <span className="truncate">{translate(language, "Saved URL")}</span>
+                  <ExternalLink size={13} />
+                </button>
+              ) : <div className="text-xs text-ink-400">{translate(language, "No browser URL saved")}</div>}
+              <div className="grid grid-cols-2 gap-5 text-xs text-ink-400">
+                <InfoLine label={translate(language, "Current Step")} value={collectionState.currentStepId ?? translate(language, "Not selected")} />
+                <InfoLine label={translate(language, "View Mode")} value={translate(language, collectionState.viewMode === "mobile" ? "Mobile" : collectionState.viewMode === "desktop" ? "Desktop" : "Default")} />
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+          <div className="mio-saved-progress-actions flex flex-wrap items-center justify-end gap-2">
+            <button className="primary-button h-10 w-auto px-5" type="button" onClick={onContinueCollection}>
+              <ClipboardCheck size={15} />
+              {translate(language, completed ? "Collect Again" : "Continue Collection")}
+            </button>
+            <button className="secondary-button mio-danger-round mio-round-icon-button h-10 w-10 px-0" type="button" onClick={onDelete} disabled={deleting} aria-label={translate(language, "Delete project")} title={translate(language, "Delete project")}>
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </section>
       </div>
 
+      <EvidenceTranslationContext.Provider value={evidenceTranslations.text}>
       <ReportSectionExpansionContext.Provider
         value={{
           openSectionIds: openReportSectionIds,
@@ -4222,39 +5155,65 @@ function ProjectInspectionPanel({
           openSectionPath: openReportSectionPath
         }}
       >
-        <div className={["mio-project-workspace grid gap-5", outlineCollapsed ? "grid-cols-[48px_minmax(0,1fr)]" : "grid-cols-[260px_minmax(0,1fr)]"].join(" ")}>
+        <div className={[
+          "mio-project-workspace grid gap-5",
+          outlineCollapsed ? "mio-project-workspace-collapsed grid-cols-[48px_minmax(0,1fr)]" : "grid-cols-[260px_minmax(0,1fr)]"
+        ].join(" ")}>
           <ProjectOutlineNav
-            title={detail.project.name}
             items={outlineItems}
             collapsed={outlineCollapsed}
             onToggle={() => setOutlineCollapsed((collapsed) => !collapsed)}
           />
           <ProjectReportOutline
             detail={detail}
+            intelligenceAnalyzing={requestIntelligenceAnalysis.isPending}
+            intelligenceError={requestIntelligenceAnalysis.error instanceof Error ? requestIntelligenceAnalysis.error.message : undefined}
+            aiConfigured={aiConfigured}
+            onGenerateIntelligence={() => requestIntelligenceAnalysis.mutate()}
             onContinueCollection={onContinueCollection}
-            onRunAnalysis={() => runAnalysis.mutate()}
-            scoring={runAnalysis.isPending}
-            scoringProvider={runAnalysis.data?.provider}
           />
         </div>
       </ReportSectionExpansionContext.Provider>
+      </EvidenceTranslationContext.Provider>
     </section>
   );
 }
 
+function projectEvidenceTranslationValues(detail: ProjectDetailPayload): Array<string | null | undefined> {
+  return [
+    ...detail.stores.flatMap((store) => [
+      store.description,
+      ...store.categories.map((category) => parseStoreCategory(category).name),
+      ...store.ratingSamples.flatMap((sample) => [
+        sample.productTitle,
+        sample.productVariation,
+        sample.comment,
+        sample.sellerResponse
+      ])
+    ]),
+    ...detail.reviews.map((review) => reviewCommentCell(review)),
+    ...detail.products.flatMap((product) => [product.description, product.selectionReason]),
+    ...detail.analyses.flatMap(analysisTranslationValues)
+  ];
+}
+
 function ProjectReportOutline({
   detail,
-  onContinueCollection,
-  onRunAnalysis,
-  scoring,
-  scoringProvider
+  intelligenceAnalyzing,
+  intelligenceError,
+  aiConfigured,
+  onGenerateIntelligence,
+  onContinueCollection
 }: {
   detail: ProjectDetailPayload;
+  intelligenceAnalyzing: boolean;
+  intelligenceError?: string;
+  aiConfigured: boolean;
+  onGenerateIntelligence: () => void;
   onContinueCollection: () => void;
-  onRunAnalysis: () => void;
-  scoring: boolean;
-  scoringProvider?: string;
 }) {
+  const language = useUiStore((state) => state.language);
+  const searchFilters = projectCollectionState(detail.project).searchFilters;
   const relevanceProducts = useMemo(
     () => detail.products.filter((product) => product.source === "Relevance"),
     [detail.products]
@@ -4264,9 +5223,11 @@ function ProjectReportOutline({
     [detail.products]
   );
   const keyProducts = useMemo(
-    () => selectKeyProductCandidates(detail.products, detail.project.keyword),
-    [detail.products, detail.project.keyword]
+    () => projectSavedKeyProductCandidates(detail),
+    [detail]
   );
+  const intelligence = useMemo(() => latestProjectCompetitionAnalysis(detail), [detail]);
+  const manualKeyProductIds = useMemo(() => manualQualifiedProductIdentities(detail), [detail]);
   const reviewsByProduct = useMemo(() => {
     const grouped = new Map<string, ProjectDetailPayload["reviews"]>();
     for (const review of detail.reviews) {
@@ -4279,6 +5240,26 @@ function ProjectReportOutline({
   return (
     <div className="space-y-3">
       <ReportOutlineSection id="keyword-general" title="Keyword General">
+        <div className="mb-3 grid gap-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs sm:grid-cols-2">
+          <InfoLine
+            label={translate(language, "Shop Type Filters")}
+            value={
+              searchFilters?.shopTypes.length
+                ? searchFilters.shopTypes
+                    .map((id) => translate(language, SHOPEE_SHOP_TYPE_OPTIONS.find((option) => option.id === id)?.label ?? id))
+                    .join(", ")
+                : translate(language, "All shop types")
+            }
+          />
+          <InfoLine
+            label={translate(language, "Price Range")}
+            value={
+              searchFilters?.priceMin !== undefined || searchFilters?.priceMax !== undefined
+                ? `${searchFilters.priceMin !== undefined ? formatCurrency(searchFilters.priceMin) : translate(language, "No minimum")} - ${searchFilters.priceMax !== undefined ? formatCurrency(searchFilters.priceMax) : translate(language, "No maximum")}`
+                : translate(language, "All prices")
+            }
+          />
+        </div>
         <NestedReportSection id="keyword-relevance" title="Relevance">
           <AssetList assets={detail.assets.filter((asset) => asset.kind === "SEARCH_RESULT")} />
           <ProductCardGrid products={relevanceProducts} />
@@ -4291,11 +5272,11 @@ function ProjectReportOutline({
 
       <ReportOutlineSection id="key-product" title="Key Product">
         <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-400">
-          Monthly sold only applies to Top Sales result snapshots. Total sold is collected from PDP evidence when visible.
-          Rating is the star value; Reviews is the rating/review count. Price ranges are stored as estimated average price.
+          {translate(language, "Monthly sold only applies to Top Sales result snapshots. Total sold is collected from PDP evidence when visible.")}
+          {" "}{translate(language, "Rating is the star value; Reviews is the rating/review count. Price ranges are stored as estimated average price.")}
         </div>
         <div id="key-product-info" className="scroll-mt-20">
-          <ProductInfoTable products={keyProducts} />
+          <ProductInfoTable products={keyProducts} manuallyAddedIdentities={manualKeyProductIds} />
         </div>
       </ReportOutlineSection>
 
@@ -4315,28 +5296,26 @@ function ProjectReportOutline({
         </div>
       </ReportOutlineSection>
 
-      <ReportOutlineSection id="evaluation-phase" title="Evaluation Phase">
-        <EvaluationCards
-          detail={detail}
-          onRunAnalysis={onRunAnalysis}
-          scoring={scoring}
-          scoringProvider={scoringProvider}
-        />
-      </ReportOutlineSection>
-
-      <ReportOutlineSection id="key-store" title="Key Store">
+      <ReportOutlineSection id="key-store-pages" title="Key Store Page List">
         <KeyStorePanel detail={detail} onContinueCollection={onContinueCollection} />
       </ReportOutlineSection>
 
-      <ReportOutlineSection id="tiktok-evidence" title="TikTok Evidence">
-        <AssetList assets={detail.assets.filter((asset) => asset.kind === "SOCIAL_ACCOUNT")} />
+      <ReportOutlineSection id="competition-matrix" title="Keyword Search Analysis & Top 10 Competition Matrix">
+        <ProjectCompetitionMatrix
+          analysis={intelligence}
+          loading={intelligenceAnalyzing}
+          error={intelligenceError}
+          aiConfigured={aiConfigured}
+          onGenerate={onGenerateIntelligence}
+        />
       </ReportOutlineSection>
     </div>
   );
 }
 
 function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; label: string; depth: number }> {
-  const keyProducts = selectKeyProductCandidates(detail.products, detail.project.keyword);
+  const keyProducts = projectSavedKeyProductCandidates(detail);
+  const storeCandidates = projectSavedStoreCandidates(detail);
   return [
     { id: "keyword-general", label: "Keyword General", depth: 0 },
     { id: "keyword-relevance", label: "Relevance", depth: 1 },
@@ -4353,100 +5332,190 @@ function projectOutlineItems(detail: ProjectDetailPayload): Array<{ id: string; 
       { id: `product-${product.id}-media`, label: "Media in user", depth: 2 },
       { id: `product-${product.id}-shop-home`, label: "Shop homepage", depth: 2 }
     ]),
-    { id: "evaluation-phase", label: "Evaluation Phase", depth: 0 },
-    { id: "key-store", label: "Key Store", depth: 0 },
-    { id: "key-store-overall", label: "Overall", depth: 1 },
-    { id: "key-store-data", label: "Store Data", depth: 1 },
-    { id: "key-store-ratings", label: "Store Ratings", depth: 1 },
-    { id: "key-store-categories", label: "Store Categories", depth: 1 },
-    { id: "key-store-home", label: "Store Home Page", depth: 1 },
-    { id: "key-store-popular", label: "Popular Products", depth: 1 },
-    { id: "key-store-best-sellers", label: "Best Sellers", depth: 1 },
-    { id: "key-store-visual", label: "Visual Shop Banner", depth: 1 },
-    { id: "tiktok-evidence", label: "TikTok Evidence", depth: 0 }
+    { id: "key-store-pages", label: "Key Store Page List", depth: 0 },
+    ...storeCandidates.flatMap((candidate, index) => [
+      { id: `store-${candidate.id}`, label: candidate.storeName || `Store ${index + 1}`, depth: 1 },
+      { id: `store-${candidate.id}-overall`, label: "Overall", depth: 2 },
+      { id: `store-${candidate.id}-home`, label: "Store Home Page", depth: 2 },
+      { id: `store-${candidate.id}-data`, label: "Store Data", depth: 2 },
+      { id: `store-${candidate.id}-rating-negative`, label: "1 Star Store Ratings", depth: 2 },
+      { id: `store-${candidate.id}-rating-positive`, label: "5 Star Store Ratings", depth: 2 },
+      { id: `store-${candidate.id}-categories`, label: "Store Product Categories", depth: 2 },
+      { id: `store-${candidate.id}-popular`, label: "Popular Products", depth: 2 },
+      { id: `store-${candidate.id}-best-sellers`, label: "Store Best Sellers", depth: 2 },
+      { id: `store-${candidate.id}-visual`, label: "Visual Shop Banner", depth: 2 },
+      { id: `store-${candidate.id}-tiktok`, label: "TikTok Evidence", depth: 2 }
+    ]),
+    { id: "competition-matrix", label: "Keyword Search Analysis & Top 10 Competition Matrix", depth: 0 }
   ];
 }
 
-function EvaluationCards({
-  detail,
-  onRunAnalysis,
-  scoring,
-  scoringProvider
-}: {
-  detail: ProjectDetailPayload;
-  onRunAnalysis: () => void;
-  scoring: boolean;
-  scoringProvider?: string;
-}) {
-  const candidates = storeEvaluationCandidates(detail);
-  const hasScoring = detail.analyses.length > 0;
-  if (candidates.length === 0) {
-    return (
-      <div className="space-y-3">
-        <EvaluationActionBar onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
-        <EmptyState label="No store candidates yet. Capture Key Product data and Product Detail Qualified evidence first." />
-      </div>
-    );
+type ProjectCompetitionAnalysis = {
+  provider: string;
+  createdAt: string;
+  matrix: AiAnalysisJson["keywordCompetitionMatrix"];
+  insights: AiAnalysisJson["synthesizedCategoryInsights"];
+};
+
+function latestProjectCompetitionAnalysis(detail: ProjectDetailPayload): ProjectCompetitionAnalysis | null {
+  const analyses = [...detail.analyses].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  for (const analysis of analyses) {
+    try {
+      const parsed = JSON.parse(analysis.resultJson) as Partial<AiAnalysisJson>;
+      const matrix = Array.isArray(parsed.keywordCompetitionMatrix)
+        ? parsed.keywordCompetitionMatrix.filter((row) =>
+            Boolean(row) && typeof row.productName === "string" && typeof row.priceRange === "string" &&
+            typeof row.uspKeyClaim === "string" && typeof row.rating === "string" && typeof row.shortDescription === "string"
+          ).slice(0, 10)
+        : [];
+      const insights = Array.isArray(parsed.synthesizedCategoryInsights)
+        ? parsed.synthesizedCategoryInsights.filter((item) =>
+            Boolean(item) && typeof item.title === "string" && typeof item.insight === "string"
+          ).slice(0, 5)
+        : [];
+      if (matrix.length > 0 || insights.length > 0) {
+        return { provider: analysis.provider, createdAt: analysis.createdAt, matrix, insights };
+      }
+    } catch {
+      // Ignore older or incomplete analysis records and continue to the next one.
+    }
   }
-  return (
-    <div className="space-y-3">
-      <EvaluationActionBar onRunAnalysis={onRunAnalysis} scoring={scoring} scoringProvider={scoringProvider} />
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {candidates.map((candidate, index) => (
-          <button key={candidate.key} type="button" className="rounded-md border border-white/8 bg-white/5 p-3 text-left hover:bg-white/8" onClick={() => candidate.url && void apiClient.openUrl(candidate.url)}>
-            <div className="aspect-video overflow-hidden rounded bg-white/10">
-              {candidate.thumbnail ? <img src={imageSource(candidate.thumbnail)} alt={candidate.name} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Potential Store {index + 1}</div>
-                <div className="mt-1 line-clamp-1 text-sm font-semibold text-white">{candidate.name}</div>
-              </div>
-              <div className="rounded-full border border-signal-blue/25 bg-signal-blue/10 px-2 py-1 text-xs font-semibold text-signal-blue">
-                {hasScoring ? candidate.score : "Not scored"}
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-400">
-              <InfoLine label="Store Type" value={candidate.type} />
-              <InfoLine label="Products" value={candidate.productCount.toString()} />
-              <InfoLine label="GMV ETA" value={formatCurrency(candidate.gmvEstimate)} />
-              <InfoLine label="Sold / Month" value={formatOptionalNumber(candidate.monthlySoldEstimate)} />
-              <InfoLine label="Promotion" value={`${candidate.promotionCount} signals`} />
-              <InfoLine label="Evidence" value={candidate.hasStoreEvidence ? "Store evidence" : "Product evidence"} />
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+  return null;
 }
 
-function EvaluationActionBar({
-  onRunAnalysis,
-  scoring,
-  scoringProvider
+function analysisTranslationValues(analysis: ProjectDetailPayload["analyses"][number]): string[] {
+  try {
+    const parsed = JSON.parse(analysis.resultJson) as Partial<AiAnalysisJson>;
+    return [
+      ...(parsed.keywordCompetitionMatrix ?? []).flatMap((row) => [row.productName, row.uspKeyClaim, row.shortDescription]),
+      ...(parsed.synthesizedCategoryInsights ?? []).flatMap((item) => [item.title, item.insight])
+    ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function manualQualifiedProductIdentities(detail: ProjectDetailPayload): ReadonlySet<string> {
+  const references = projectCollectionState(detail.project).qualifiedProductReferences?.filter((reference) => reference.manuallyAdded) ?? [];
+  const identities = new Set<string>();
+  for (const product of projectSavedKeyProductCandidates(detail, 120)) {
+    const productReference = createQualifiedProductReference(product);
+    if (references.some((reference) =>
+      (reference.productId && reference.productId === productReference.productId) ||
+      (reference.productUrl && reference.productUrl === productReference.productUrl) ||
+      (reference.fallbackIdentity && reference.fallbackIdentity === productReference.fallbackIdentity)
+    )) {
+      identities.add(product.id);
+      identities.add(stableProductIdentity(product));
+    }
+  }
+  return identities;
+}
+
+function projectMarketSummary(detail: ProjectDetailPayload): { priceRange: string; pricedProducts: number } {
+  const pricedProducts = detail.products.filter((product) =>
+    typeof product.priceAverage === "number" && Number.isFinite(product.priceAverage) && product.priceAverage > 0
+  );
+  const minimums = pricedProducts
+    .map((product) => product.priceAverage)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  const maximums = pricedProducts
+    .map((product) => product.priceAverage)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  if (minimums.length === 0 || maximums.length === 0) {
+    return { priceRange: "-", pricedProducts: 0 };
+  }
+  return {
+    priceRange: `${formatCurrency(Math.min(...minimums))} – ${formatCurrency(Math.max(...maximums))}`,
+    pricedProducts: pricedProducts.length
+  };
+}
+
+function ProjectCompetitionMatrix({
+  analysis,
+  loading,
+  error,
+  aiConfigured,
+  onGenerate
 }: {
-  onRunAnalysis: () => void;
-  scoring: boolean;
-  scoringProvider?: string;
+  analysis: ProjectCompetitionAnalysis | null;
+  loading: boolean;
+  error?: string;
+  aiConfigured: boolean;
+  onGenerate: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
+  const evidenceText = useContext(EvidenceTranslationContext);
   return (
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 p-3">
-      <div>
-        <div className="text-sm font-semibold text-white">AI Scoring</div>
-        <div className="mt-1 text-xs text-ink-500">Score Potential Stores from GMV/month, sold/month, and active promotions.</div>
-      </div>
-      <div className="flex items-center gap-2">
-        {scoringProvider && (
-          <span className="rounded-full border border-signal-green/25 bg-signal-green/10 px-3 py-1 text-xs text-signal-green">
-            Saved with {scoringProvider}
-          </span>
-        )}
-        <button className="primary-button h-9 w-auto px-3" type="button" onClick={onRunAnalysis} disabled={scoring}>
-          <Brain size={15} />
-          {scoring ? "Scoring" : "Run AI Scoring"}
+    <div className="mio-competition-analysis">
+      <div className="mio-competition-analysis-toolbar">
+        <div>
+          <div className="text-sm font-semibold text-white">{translate(language, "Synthesized marketplace competition evidence")}</div>
+          <div className="mt-1 text-xs text-ink-500">
+            {analysis
+              ? `${translate(language, "Generated with")} ${analysis.provider} · ${formatDateTime(analysis.createdAt)}`
+              : translate(language, "Generate this section from the saved project evidence and configured AI provider.")}
+          </div>
+        </div>
+        <button className="primary-button h-9 w-auto px-4" type="button" disabled={!aiConfigured || loading} onClick={onGenerate}>
+          <Sparkles size={15} />
+          {translate(language, analysis ? "Regenerate" : "Generate")}
         </button>
       </div>
+      {!aiConfigured && (
+        <div className="mio-inline-error mt-3">
+          {translate(language, "Configure an OpenAI or Gemini API key in Settings before generating this AI-only section.")}
+        </div>
+      )}
+      {error && <div className="mio-inline-error mt-3">{error}</div>}
+      {loading ? (
+        <LoadingSkeleton lines={7} className="mt-4" />
+      ) : analysis ? (
+        <div className="mio-competition-analysis-grid mt-4">
+          <div className="mio-competition-matrix-table-wrap">
+            <table className="mio-competition-matrix-table">
+              <thead>
+                <tr>
+                  <th>{translate(language, "Product Name")}</th>
+                  <th>{translate(language, "Price Range")}</th>
+                  <th>{translate(language, "USP / Key Claim")}</th>
+                  <th>{translate(language, "Rating")}</th>
+                  <th>{translate(language, "Short Description")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analysis.matrix.map((row, index) => (
+                  <tr key={`${row.productName}-${index}`}>
+                    <td><strong>{index + 1}. {evidenceText(row.productName)}</strong></td>
+                    <td>{row.priceRange}</td>
+                    <td>{evidenceText(row.uspKeyClaim)}</td>
+                    <td>{row.rating}</td>
+                    <td>{evidenceText(row.shortDescription)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <aside className="mio-competition-insights">
+            <h3>{translate(language, "Synthesized Category Insights")}</h3>
+            <ol>
+              {analysis.insights.map((item, index) => (
+                <li key={`${item.title}-${index}`}>
+                  <strong>{index + 1}. {evidenceText(item.title)}</strong>
+                  <p>{evidenceText(item.insight)}</p>
+                </li>
+              ))}
+            </ol>
+          </aside>
+        </div>
+      ) : (
+        <EmptyState
+          compact
+          title={translate(language, "AI competition analysis is ready to generate")}
+          label={translate(language, "The generated matrix and five specialist insights will also be used by report exports.")}
+          illustration="search"
+        />
+      )}
     </div>
   );
 }
@@ -4458,200 +5527,193 @@ function KeyStorePanel({
   detail: ProjectDetailPayload;
   onContinueCollection: () => void;
 }) {
-  const candidates = buildStoreCollectionCandidates(
-    selectKeyProductCandidates(detail.products, detail.project.keyword, 20),
-    projectCollectionState(detail.project).storeCollectionCandidates ?? []
-  );
+  const language = useUiStore((state) => state.language);
+  const evidenceText = useContext(EvidenceTranslationContext);
+  const candidates = projectSavedStoreCandidates(detail);
   if (candidates.length === 0) {
-    return <EmptyState label="No store candidates yet. Approve qualified products or add a store in Evaluation Phase first." />;
+    return <EmptyState label={translate(language, "No store pages yet. Approve qualified products or add a store page first.")} />;
   }
-  const evaluations = storeEvaluationCandidates(detail);
-  const latestAnalysis = [...detail.analyses].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/8 bg-white/5 p-3">
         <div>
-          <div className="text-xs uppercase tracking-[0.12em] text-ink-500">Store Collection</div>
-          <div className="mt-1 text-base font-semibold text-white">{candidates.length} candidate stores</div>
-          <div className="mt-1 text-xs text-ink-400">Each qualified store keeps its own profile, ratings, category, product, banner, and TikTok evidence.</div>
+          <div className="text-xs uppercase tracking-[0.12em] text-ink-500">{translate(language, "Key Store Page List")}</div>
+          <div className="mt-1 text-base font-semibold text-white">{candidates.length} {translate(language, "store pages")}</div>
+          <div className="mt-1 text-xs text-ink-400">{translate(language, "Each store keeps its own homepage, profile, ratings, categories, products, banner, and TikTok evidence.")}</div>
         </div>
         <button className="primary-button h-9 w-auto px-3" type="button" onClick={onContinueCollection}>
           <ClipboardCheck size={15} />
-          Continue Store Collection
+          {translate(language, "Continue Store Collection")}
         </button>
       </div>
 
-      <NestedReportSection id="key-store-overall" title="Overall">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const evaluation = evaluations.find((item) => collectionCandidateMatchesEvaluation(candidate, item));
-            const store = findCollectedStore(detail, candidate);
-            const sentences = evaluation
-              ? keyStoreOverallConclusions(evaluation, latestAnalysis?.resultJson)
-              : collectedStoreConclusions(candidate, store);
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+      {candidates.map((candidate) => {
+        const store = findCollectedStore(detail, candidate);
+        const ratings = store?.ratingSamples ?? [];
+        const popularProducts = storeProductsForCandidate(detail, candidate, "Store Products");
+        const fallbackProducts = projectSavedKeyProductCandidates(detail, 20)
+          .filter((product) => productMatchesCollectionCandidate(product, candidate));
+        return (
+          <NestedReportSection key={candidate.id} id={`store-${candidate.id}`} title={candidate.storeName}>
+            <div className="space-y-3">
+              <NestedReportSection id={`store-${candidate.id}-overall`} title="Overall">
                 <div className="space-y-2 text-sm leading-6 text-ink-300">
-                  {sentences.map((sentence) => <p key={sentence}>{sentence}</p>)}
+                  {collectedStoreConclusions(candidate, store).map((sentence) => <p key={sentence}>{evidenceText(sentence)}</p>)}
                 </div>
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-data" title="Store Data">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const store = findCollectedStore(detail, candidate);
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-home`} title="Store Home Page">
+                <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_HOME")} limit={12} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-data`} title="Store Data">
                 {store ? (
                   <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                    <InfoLine label="Followers" value={formatOptionalNumber(store.followers)} />
-                    <InfoLine label="Following" value={formatOptionalNumber(store.following)} />
-                    <InfoLine label="Products" value={formatOptionalNumber(store.productsCount)} />
-                    <InfoLine label="Rating" value={store.rating ? `${store.rating}${store.ratingCount ? ` (${formatOptionalNumber(store.ratingCount)})` : ""}` : "-"} />
-                    <InfoLine label="Chat response" value={store.chatResponse ?? "-"} />
-                    <InfoLine label="Joined" value={store.joinedDate ?? "-"} />
-                    <div className="sm:col-span-2">
-                      <InfoLine label="Description" value={store.description ?? "-"} />
-                    </div>
+                    <InfoLine label={translate(language, "Products")} value={formatOptionalNumber(store.productsCount)} />
+                    <InfoLine label={translate(language, "Followers")} value={formatOptionalNumber(store.followers)} />
+                    <InfoLine label={translate(language, "Following")} value={formatOptionalNumber(store.following)} />
+                    <InfoLine label={translate(language, "Rating")} value={store.rating ? `${store.rating}${store.ratingCount ? ` (${formatOptionalNumber(store.ratingCount)} ${translate(language, "Rating")})` : ""}` : "-"} />
+                    <InfoLine label={translate(language, "Chat Performance")} value={sanitizeStoreMetric(store.chatResponse)} />
+                    <InfoLine label={translate(language, "Joined")} value={sanitizeStoreMetric(store.joinedDate)} />
+                    <div className="sm:col-span-2 lg:col-span-4"><InfoLine label={translate(language, "Description Store")} value={evidenceText(sanitizeStoreDescription(store.description))} /></div>
                   </div>
                 ) : <EmptyState label="Store details have not been collected." />}
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-ratings" title="Store Ratings">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const samples = findCollectedStore(detail, candidate)?.ratingSamples ?? [];
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-                {samples.length > 0 ? (
-                  <div className="space-y-2">
-                    {samples.map((sample, index) => (
-                      <div key={`${candidate.id}-${sample.rating}-${index}`} className="rounded-md border border-white/8 bg-white/5 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <span className="font-semibold text-white">{sample.reviewer || "Shopee buyer"}</span>
-                          <span className="text-ink-400">{sample.rating} star{sample.capturedAt ? ` · ${sample.capturedAt}` : ""}</span>
-                        </div>
-                        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-ink-300">{sample.comment}</p>
-                        {sample.mediaUrls.length > 0 && (
-                          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-                            {sample.mediaUrls.map((url) => (
-                              <img key={url} src={imageSource(url)} alt={`${sample.reviewer} rating evidence`} loading="lazy" decoding="async" className="aspect-square w-full rounded object-cover" />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : <EmptyState label="No proof-backed store ratings collected." />}
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-categories" title="Store Categories">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const categories = findCollectedStore(detail, candidate)?.categories ?? [];
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-                {categories.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {categories.map((category) => <span key={category} className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-ink-300">{category}</span>)}
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-rating-negative`} title="1 Star Store Ratings">
+                <StoreRatingSamples candidate={candidate} samples={ratings.filter((sample) => sample.rating === 1)} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-rating-positive`} title="5 Star Store Ratings">
+                <StoreRatingSamples candidate={candidate} samples={ratings.filter((sample) => sample.rating === 5)} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-categories`} title="Store Product Categories">
+                {store?.categories?.length ? (
+                  <div className="overflow-x-auto rounded-md border border-white/8">
+                    <table className="w-full min-w-[420px] text-left text-sm">
+                      <thead className="bg-white/[0.04] text-xs text-ink-400">
+                              <tr><th className="px-3 py-2">{translate(language, "Category Name")}</th><th className="px-3 py-2 text-right">{translate(language, "Total Product")}</th></tr>
+                      </thead>
+                      <tbody>
+                        {store.categories.map((category) => {
+                          const parsed = parseStoreCategory(category);
+                          return (
+                            <tr key={category} className="border-t border-white/8">
+                              <td className="px-3 py-2 text-ink-200">{evidenceText(parsed.name)}</td>
+                              <td className="px-3 py-2 text-right tabular-nums text-ink-400">{parsed.total ?? "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 ) : <EmptyState label="No store categories collected." />}
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-home" title="Store Home Page">
-        <div className="space-y-3">
-          {candidates.map((candidate) => (
-            <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-              <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_HOME")} limit={12} />
-            </StoreEvidenceGroup>
-          ))}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-popular" title="Popular Products">
-        <div className="space-y-3">
-          {candidates.map((candidate) => {
-            const collected = storeProductsForCandidate(detail, candidate, "Store Products");
-            const fallback = selectKeyProductCandidates(detail.products, detail.project.keyword, 20)
-              .filter((product) => productMatchesCollectionCandidate(product, candidate));
-            return (
-              <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-                <ProductCardGrid products={collected.length > 0 ? collected : fallback} limit={80} />
-              </StoreEvidenceGroup>
-            );
-          })}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-best-sellers" title="Best Sellers">
-        <div className="space-y-3">
-          {candidates.map((candidate) => (
-            <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-              <ProductCardGrid products={storeProductsForCandidate(detail, candidate, "Store Best Sellers")} limit={80} />
-            </StoreEvidenceGroup>
-          ))}
-        </div>
-      </NestedReportSection>
-
-      <NestedReportSection id="key-store-visual" title="Visual Shop Banner">
-        <div className="space-y-3">
-          {candidates.map((candidate) => (
-            <StoreEvidenceGroup key={candidate.id} candidate={candidate}>
-              <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_BANNER")} limit={80} />
-            </StoreEvidenceGroup>
-          ))}
-        </div>
-      </NestedReportSection>
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-popular`} title="Popular Products">
+                <ProductCardGrid products={popularProducts.length > 0 ? popularProducts : fallbackProducts} limit={80} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-best-sellers`} title="Store Best Sellers">
+                <ProductCardGrid products={storeProductsForCandidate(detail, candidate, "Store Best Sellers")} limit={80} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-visual`} title="Visual Shop Banner">
+                <AssetList assets={storeAssetsForCandidate(detail, candidate, "STORE_BANNER")} limit={80} />
+              </NestedReportSection>
+              <NestedReportSection id={`store-${candidate.id}-tiktok`} title="TikTok Evidence">
+                <AssetList assets={storeSocialAssetsForCandidate(detail, candidate)} limit={12} />
+              </NestedReportSection>
+            </div>
+          </NestedReportSection>
+        );
+      })}
     </div>
   );
 }
 
-function StoreEvidenceGroup({
+function StoreRatingSamples({
   candidate,
-  children
+  samples
 }: {
   candidate: StoreCollectionCandidate;
-  children: ReactNode;
+  samples: NonNullable<ProjectDetailPayload["stores"][number]["ratingSamples"]>;
 }) {
+  const [previewUrl, setPreviewUrl] = useState("");
+  const language = useUiStore((state) => state.language);
+  const evidenceText = useContext(EvidenceTranslationContext);
+  if (samples.length === 0) {
+    return <EmptyState label={translate(language, "No store rating samples collected. Desktop view is recommended for this collector.")} />;
+  }
   return (
-    <div className="rounded-md border border-white/8 bg-white/5 p-3">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="font-semibold text-white">{candidate.storeName}</div>
-          {candidate.shopId && <div className="mt-0.5 text-xs text-ink-500">Shop ID {candidate.shopId}</div>}
+    <>
+      <div className="space-y-3">
+        <div className="rounded-md border border-white/8 bg-white/[0.03] px-3 py-2 text-xs text-ink-500">
+          {translate(language, "Desktop view is recommended for collecting store ratings.")}
         </div>
-        <button className="secondary-button h-8 max-w-full px-3 text-xs" type="button" onClick={() => void apiClient.openUrl(candidate.storeUrl)}>
-          <ExternalLink size={13} />
-          <span className="truncate">Open Store</span>
-        </button>
+        {samples.slice(0, 5).map((sample, index) => (
+          <article key={`${candidate.id}-${sample.rating}-${index}`} className="mio-store-rating-evidence overflow-hidden rounded-md border border-white/8">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-left text-sm">
+              <thead className="bg-white/[0.04] text-xs text-ink-400">
+                <tr>
+                  <th className="w-14 px-3 py-2">{translate(language, "No")}</th>
+                  <th className="w-[24%] px-3 py-2">{translate(language, "Product")}</th>
+                  <th className="w-[40%] px-3 py-2">{translate(language, "Comment")}</th>
+                  <th className="px-3 py-2">{translate(language, "Seller response")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-t border-white/8 align-top">
+                  <td className="px-3 py-3 tabular-nums text-ink-500">{index + 1}</td>
+                  <td className="px-3 py-3">
+                    {sample.productUrl ? (
+                      <button type="button" className="text-left font-medium text-signal-blue hover:underline" onClick={() => void apiClient.openUrl(sample.productUrl!)}>
+                         {evidenceText(sample.productTitle) || translate(language, "Open rated product")}
+                      </button>
+                    ) : <span className="text-ink-500">{evidenceText(sample.productTitle) || translate(language, "Product link unavailable")}</span>}
+                    {sample.productVariation && <div className="mt-1 text-xs text-ink-500">{evidenceText(sample.productVariation)}</div>}
+                  </td>
+                  <td className="px-3 py-3 leading-5 text-ink-300">
+                    {sample.reviewerUrl ? (
+                      <button type="button" className="font-medium text-signal-blue hover:underline" onClick={() => void apiClient.openUrl(sample.reviewerUrl!)}>
+                        {sample.reviewer || "—"}
+                      </button>
+                    ) : <div className="font-medium text-ink-100">{sample.reviewer || "—"}</div>}
+                    <div className="mb-2 mt-0.5 text-xs text-ink-500">{sample.capturedAt ?? "—"}</div>
+                    <div className="whitespace-pre-line">{evidenceText(sample.comment) || "—"}</div>
+                  </td>
+                  <td className="px-3 py-3">
+                    {sample.sellerResponse ? (
+                      <div className="rounded-md border border-white/8 bg-white/[0.04] px-3 py-2 text-xs leading-5 text-ink-300">
+                        {evidenceText(sample.sellerResponse)}
+                      </div>
+                    ) : <span className="text-ink-500">—</span>}
+                  </td>
+                </tr>
+              </tbody>
+              </table>
+            </div>
+            {sample.mediaUrls.length > 0 && (
+              <div className="mio-store-rating-media border-t border-white/8 px-3 py-3">
+                <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-500">{translate(language, "Attached media")}</div>
+                <div className="flex flex-wrap gap-2">
+                  {sample.mediaUrls.slice(0, 6).map((url) => isVideoMediaUrl(url) ? (
+                    <video key={url} src={imageSource(url)} controls preload="metadata" className="h-24 w-24 rounded-md bg-black object-cover" />
+                  ) : (
+                    <button key={url} type="button" className="overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal-blue/60" onClick={() => setPreviewUrl(url)}>
+                      <MediaThumbnail src={imageSource(url)} alt={`${sample.reviewer || "Store"} rating evidence`} loading="lazy" decoding="async" className="h-24 w-24 object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </article>
+        ))}
       </div>
-      {children}
-    </div>
+      <Modal open={Boolean(previewUrl)} title={translate(language, "Rating evidence")} onClose={() => setPreviewUrl("")} className="mio-file-preview-modal">
+        {previewUrl ? <ZoomableImagePreview src={imageSource(previewUrl)} alt={translate(language, "Store rating evidence preview")} /> : null}
+      </Modal>
+    </>
   );
 }
 
-function collectionCandidateMatchesEvaluation(candidate: StoreCollectionCandidate, evaluation: StoreEvaluationCandidate): boolean {
-  return Boolean(
-    (candidate.storeUrl && evaluation.url && sameStoreIntent(candidate.storeUrl, evaluation.url)) ||
-    normalizeComparableStoreName(candidate.storeName) === normalizeComparableStoreName(evaluation.name)
-  );
+function isVideoMediaUrl(value: string): boolean {
+  return /(?:\.mp4|\.webm|\.mov|\.m3u8)(?:$|[?#])|\bvideo\b/iu.test(value);
 }
 
 function findCollectedStore(detail: ProjectDetailPayload, candidate: StoreCollectionCandidate) {
@@ -4667,20 +5729,44 @@ function collectedStoreConclusions(
   store: ProjectDetailPayload["stores"][number] | undefined
 ): string[] {
   if (!store) {
-    return [`${candidate.storeName} is queued for structured store collection. Complete its store data, ratings, categories, product matrix, and visual evidence before AI scoring.`];
+    return [`${candidate.storeName} is queued for structured store collection. Complete its store data, ratings, categories, product matrix, and visual evidence.`];
   }
-  const performance = [
-    store.rating ? `rating ${store.rating}${store.ratingCount ? ` from ${formatOptionalNumber(store.ratingCount)} ratings` : ""}` : undefined,
-    store.followers ? `${formatOptionalNumber(store.followers)} followers` : undefined,
-    store.productsCount ? `${formatOptionalNumber(store.productsCount)} products` : undefined,
-    store.chatResponse ? `chat response ${store.chatResponse}` : undefined
-  ].filter(Boolean).join(", ");
-  return [
-    `${store.name} is included as a qualified-store candidate${performance ? ` with ${performance}` : ""}.`,
-    store.description
-      ? store.description
-      : "Its final overall assessment will be generated from the collected profile, ratings, categories, products, promotions, and visual evidence."
-  ];
+  const summary = `${store.name} has ${formatOptionalNumber(store.productsCount)} total products and currently stands at ${store.rating ?? "-"}${store.ratingCount ? ` from ${formatOptionalNumber(store.ratingCount)} ratings` : " rating"}, ${formatOptionalNumber(store.followers)} followers, and chat performance ${sanitizeStoreMetric(store.chatResponse)}${sanitizeStoreMetric(store.joinedDate) !== "-" ? `. The store joined ${sanitizeStoreMetric(store.joinedDate)}` : ""}.`;
+  const description = sanitizeStoreDescription(store.description);
+  return limitWords([
+    summary,
+    description !== "-" ? description : "This summary is based on the collected profile, ratings, categories, products, promotions, and visual evidence."
+  ].join("\n\n"), 1500).split("\n\n");
+}
+
+function sanitizeStoreMetric(value?: string | null): string {
+  const normalized = value?.replace(/\s+/gu, " ").trim() ?? "";
+  return normalized && normalized.length <= 120 ? normalized : "-";
+}
+
+function sanitizeStoreDescription(value?: string | null): string {
+  const source = value?.trim() ?? "";
+  if (!source) {
+    return "-";
+  }
+  const explicit = source.match(/(?:Description Store|Store Description|Deskripsi Toko)\s*:?\s*([\s\S]{20,2400})/iu)?.[1];
+  const officialAccount = source.match(/([^\n]{0,160}(?:adalah akun resmi|is the official (?:store|account))[^\n]{20,1200})/iu)?.[1];
+  const candidate = explicit || officialAccount || source;
+  const normalized = candidate.replace(/\s+/gu, " ").trim();
+  if (normalized.length > 2400 || /(shopping cart|seller centre|customer service help centre).*(all rights reserved)/iu.test(normalized)) {
+    return "-";
+  }
+  return normalized;
+}
+
+function parseStoreCategory(value: string): { name: string; total?: number } {
+  const match = value.trim().match(/^(.*?)\s*\(\s*(\d+)\s*\)\s*$/u);
+  return match ? { name: match[1].trim(), total: Number(match[2]) } : { name: value.trim() };
+}
+
+function limitWords(value: string, maximumWords: number): string {
+  const words = value.trim().split(/\s+/u);
+  return words.length <= maximumWords ? value.trim() : `${words.slice(0, maximumWords).join(" ")}…`;
 }
 
 function storeProductsForCandidate(
@@ -4708,6 +5794,20 @@ function storeAssetsForCandidate(
   );
 }
 
+function storeSocialAssetsForCandidate(
+  detail: ProjectDetailPayload,
+  candidate: StoreCollectionCandidate
+) {
+  const candidateName = normalizeComparableStoreName(candidate.storeName);
+  return detail.assets.filter((asset) =>
+    asset.kind === "SOCIAL_ACCOUNT" &&
+    (
+      asset.ownerId === candidate.id ||
+      Boolean(candidateName && normalizeComparableStoreName(asset.label).includes(candidateName))
+    )
+  );
+}
+
 function productMatchesCollectionCandidate(
   product: ProjectProductEvidence,
   candidate: StoreCollectionCandidate
@@ -4722,18 +5822,30 @@ function normalizeComparableStoreName(value?: string | null): string {
 }
 
 function ProjectOutlineNav({
-  title,
   items,
   collapsed,
   onToggle
 }: {
-  title: string;
   items: Array<{ id: string; label: string; depth: number }>;
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const groups = useMemo(() => groupProjectOutlineItems(items), [items]);
+  const [activeTargetId, setActiveTargetId] = useState(items[0]?.id ?? "");
   const sectionExpansion = useContext(ReportSectionExpansionContext);
+  function OutlineIcon({ id, size = 16 }: { id: string; size?: number }) {
+    const Icon = id === "keyword-general"
+      ? Search
+      : id === "key-product"
+        ? ShoppingBag
+        : id === "product-detail-qualified"
+          ? CheckCircle2
+          : id === "key-store-pages"
+            ? Store
+            : Gauge;
+    return <Icon size={size} strokeWidth={1.7} aria-hidden="true" />;
+  }
   function outlinePath(id: string): string[] {
     for (const group of groups) {
       if (group.id === id) return [group.id];
@@ -4760,6 +5872,7 @@ function ProjectOutlineNav({
     return [id];
   }
   function openOutlineTarget(id: string) {
+    setActiveTargetId(id);
     const path = outlinePath(id);
     sectionExpansion.openSectionPath(path);
     const openPathItem = (index: number, attempts = 0) => {
@@ -4781,6 +5894,7 @@ function ProjectOutlineNav({
   function handleOutlineSummaryClick(event: ReactMouseEvent<HTMLElement>, targetId: string) {
     event.preventDefault();
     event.stopPropagation();
+    setActiveTargetId(targetId);
     const willOpen = !sectionExpansion.openSectionIds.has(targetId);
     if (!willOpen) {
       for (const sectionId of outlineSubtreeIds(targetId)) {
@@ -4795,6 +5909,7 @@ function ProjectOutlineNav({
   }
   function handleOutlineLinkClick(event: ReactMouseEvent<HTMLAnchorElement>, targetId: string) {
     event.preventDefault();
+    setActiveTargetId(targetId);
     const willOpen = !sectionExpansion.openSectionIds.has(targetId);
     if (willOpen) openOutlineTarget(targetId);
     else sectionExpansion.setSectionOpen(targetId, false);
@@ -4802,7 +5917,7 @@ function ProjectOutlineNav({
   if (collapsed) {
     return (
       <nav className="mio-inspector-nav sticky top-20 self-start rounded-md border border-white/8 bg-white/5 p-2 text-sm">
-        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label="Show project outline" title="Show project outline">
+        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label={translate(language, "Show project outline")} title={translate(language, "Show project outline")}>
           <PanelLeftOpen size={15} />
         </button>
       </nav>
@@ -4811,32 +5926,34 @@ function ProjectOutlineNav({
   return (
     <nav className="mio-inspector-nav sticky top-20 max-h-[calc(100vh-96px)] self-start overflow-auto rounded-md border border-white/8 bg-white/5 p-3 text-sm">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="line-clamp-2 font-semibold text-white">{title}</div>
-        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label="Hide project outline" title="Hide project outline">
+        <div className="font-semibold text-white">{translate(language, "Project sections")}</div>
+        <button className="secondary-button mio-round-icon-button h-8 w-8 rounded-full px-0" type="button" onClick={onToggle} aria-label={translate(language, "Hide project outline")} title={translate(language, "Hide project outline")}>
           <PanelLeftClose size={15} />
         </button>
       </div>
       <div className="space-y-1">
         {groups.map((group) => group.children.length > 0 ? (
           <details key={`${group.id}-${group.label}`} open={sectionExpansion.openSectionIds.has(group.id)} className="mio-outline-group rounded-md">
-            <summary onClick={(event) => handleOutlineSummaryClick(event, group.id)} className="cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
-              {group.label}
+            <summary aria-current={activeTargetId === group.id ? "location" : undefined} onClick={(event) => handleOutlineSummaryClick(event, group.id)} className="mio-outline-link mio-outline-link-primary cursor-pointer select-none rounded px-2 py-1.5 text-sm font-semibold text-ink-200">
+              <OutlineIcon id={group.id} />
+              <span>{translate(language, group.label)}</span>
             </summary>
             <div className="mt-1 space-y-1">
               {group.children.map((item) => item.children.length > 0 ? (
                 <details key={`${item.id}-${item.label}`} open={sectionExpansion.openSectionIds.has(item.id)} className="mio-outline-subgroup ml-3 rounded-md">
-                  <summary onClick={(event) => handleOutlineSummaryClick(event, item.id)} className="cursor-pointer select-none rounded px-2 py-1.5 text-xs font-medium text-ink-300 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white">
-                    {item.label}
+                  <summary aria-current={activeTargetId === item.id ? "location" : undefined} onClick={(event) => handleOutlineSummaryClick(event, item.id)} className="mio-outline-link cursor-pointer select-none rounded px-2 py-1.5 text-xs font-medium text-ink-300">
+                    {translate(language, item.label)}
                   </summary>
                   <div className="mt-1 space-y-1">
                     {item.children.map((child) => (
                       <a
                         key={`${child.id}-${child.label}`}
                         href={`#${child.id}`}
+                        aria-current={activeTargetId === child.id ? "location" : undefined}
                         onClick={(event) => handleOutlineLinkClick(event, child.id)}
-                        className="block rounded px-2 py-1.5 pl-5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
+                        className="mio-outline-link block rounded px-2 py-1.5 pl-5 text-xs text-ink-400"
                       >
-                        {child.label}
+                        {translate(language, child.label)}
                       </a>
                     ))}
                   </div>
@@ -4845,10 +5962,11 @@ function ProjectOutlineNav({
                 <a
                   key={`${item.id}-${item.label}`}
                   href={`#${item.id}`}
+                  aria-current={activeTargetId === item.id ? "location" : undefined}
                   onClick={(event) => handleOutlineLinkClick(event, item.id)}
-                  className="ml-3 block rounded px-2 py-1.5 text-xs text-ink-400 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
+                  className="mio-outline-link ml-3 block rounded px-2 py-1.5 text-xs text-ink-400"
                 >
-                  {item.label}
+                  {translate(language, item.label)}
                 </a>
               ))}
             </div>
@@ -4857,10 +5975,12 @@ function ProjectOutlineNav({
           <a
             key={`${group.id}-${group.label}`}
             href={`#${group.id}`}
+            aria-current={activeTargetId === group.id ? "location" : undefined}
             onClick={(event) => handleOutlineLinkClick(event, group.id)}
-            className="block rounded px-2 py-1.5 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-ink-950 dark:hover:text-white"
+            className="mio-outline-link mio-outline-link-primary rounded px-2 py-1.5 text-sm font-semibold text-ink-200"
           >
-            {group.label}
+            <OutlineIcon id={group.id} />
+            <span>{translate(language, group.label)}</span>
           </a>
         ))}
       </div>
@@ -4894,8 +6014,18 @@ function groupProjectOutlineItems(items: Array<{ id: string; label: string; dept
 }
 
 function ReportOutlineSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  const language = useUiStore((state) => state.language);
   const sectionExpansion = useContext(ReportSectionExpansionContext);
   const open = sectionExpansion.openSectionIds.has(id);
+  const SectionIcon = id === "keyword-general"
+    ? Search
+    : id === "key-product"
+      ? ShoppingBag
+      : id === "product-detail-qualified"
+        ? CheckCircle2
+        : id === "key-store-pages"
+          ? Store
+          : Gauge;
   return (
     <details
       id={id}
@@ -4910,7 +6040,8 @@ function ReportOutlineSection({ id, title, children }: { id: string; title: stri
           sectionExpansion.setSectionOpen(id, !open);
         }}
       >
-        {title}
+        <span className="mio-report-summary-label"><SectionIcon size={17} strokeWidth={1.7} />{translate(language, title)}</span>
+        <ChevronDown size={17} className="mio-report-summary-chevron" aria-hidden="true" />
       </summary>
       {open ? <div className="mio-lazy-section-body mt-4">{children}</div> : null}
     </details>
@@ -4918,6 +6049,7 @@ function ReportOutlineSection({ id, title, children }: { id: string; title: stri
 }
 
 function NestedReportSection({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
+  const language = useUiStore((state) => state.language);
   const sectionExpansion = useContext(ReportSectionExpansionContext);
   const open = id ? sectionExpansion.openSectionIds.has(id) : false;
   return (
@@ -4935,114 +6067,285 @@ function NestedReportSection({ id, title, children }: { id?: string; title: stri
           sectionExpansion.setSectionOpen(id, !open);
         }}
       >
-        {title}
+        {translate(language, title)}
       </summary>
       {open ? <div className="mio-lazy-section-body mt-3">{children}</div> : null}
     </details>
   );
 }
 
-function AnimatedProjectTitle({ title }: { title: string }) {
-  const words = title.trim().split(/\s+/u);
+function ZoomableImagePreview({ src, alt }: { src: string; alt: string }) {
+  const language = useUiStore((state) => state.language);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const dragState = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => setZoom(1), [src]);
+  const applyImageZoom = (value: number) => setZoom(Math.max(0.5, Math.min(4, Math.round(value * 10) / 10)));
+  function handleWheel(event: WheelEvent<HTMLDivElement>) {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    applyImageZoom(zoom + (event.deltaY < 0 ? 0.2 : -0.2));
+  }
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !viewportRef.current) return;
+    dragState.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      scrollLeft: viewportRef.current.scrollLeft,
+      scrollTop: viewportRef.current.scrollTop
+    };
+    viewportRef.current.setPointerCapture(event.pointerId);
+  }
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragState.current;
+    if (!drag || drag.pointerId !== event.pointerId || !viewportRef.current) return;
+    viewportRef.current.scrollLeft = drag.scrollLeft - (event.clientX - drag.x);
+    viewportRef.current.scrollTop = drag.scrollTop - (event.clientY - drag.y);
+  }
+  function finishPointerDrag(event: PointerEvent<HTMLDivElement>) {
+    if (dragState.current?.pointerId !== event.pointerId) return;
+    dragState.current = null;
+    if (viewportRef.current?.hasPointerCapture(event.pointerId)) {
+      viewportRef.current.releasePointerCapture(event.pointerId);
+    }
+  }
   return (
-    <h1 className="mio-project-title" aria-label={title}>
-      {words.map((word, index) => (
-        <motion.span
-          key={`${word}-${index}`}
-          aria-hidden="true"
-          className="mio-title-word"
-          initial={{
-            opacity: 0,
-            x: index % 3 === 0 ? -18 : 0,
-            y: index % 3 === 1 ? 14 : 0,
-            filter: index % 3 === 0 ? "blur(8px)" : "blur(0px)"
-          }}
-          animate={{ opacity: 1, x: 0, y: 0, filter: "blur(0px)" }}
-          transition={{ delay: index * 0.08, duration: 0.5, ease: "easeOut" }}
-        >
-          {word}{index < words.length - 1 ? "\u00a0" : ""}
-        </motion.span>
-      ))}
-    </h1>
+    <div className="mio-zoomable-image-preview">
+      <div className="mio-image-preview-toolbar">
+        <span>{translate(language, "Use Ctrl/Command + wheel to zoom, then drag to pan.")}</span>
+        <div className="flex items-center gap-2">
+          <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={() => applyImageZoom(zoom - 0.2)} aria-label={translate(language, "Zoom out")} title={translate(language, "Zoom out")}><ZoomOut size={15} /></button>
+          <button className="secondary-button h-9 min-w-[70px] px-3 text-xs" type="button" onClick={() => applyImageZoom(1)}>{Math.round(zoom * 100)}%</button>
+          <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={() => applyImageZoom(zoom + 0.2)} aria-label={translate(language, "Zoom in")} title={translate(language, "Zoom in")}><ZoomIn size={15} /></button>
+        </div>
+      </div>
+      <div
+        ref={viewportRef}
+        className="mio-image-preview-viewport"
+        onWheel={handleWheel}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={finishPointerDrag}
+        onPointerCancel={finishPointerDrag}
+        onDoubleClick={() => applyImageZoom(zoom === 1 ? 2 : 1)}
+      >
+        <div className="mio-image-preview-canvas" style={{ width: `${zoom * 100}%` }}>
+          <MediaThumbnail src={src} alt={alt} draggable={false} />
+        </div>
+      </div>
+    </div>
   );
 }
 
 function AssetList({ assets, limit = 24 }: { assets: ProjectDetailPayload["assets"]; limit?: number }) {
+  const language = useUiStore((state) => state.language);
+  const [preview, setPreview] = useState<{
+    asset: ProjectDetailPayload["assets"][number];
+    loading: boolean;
+    error?: string;
+    mimeType?: string;
+    dataUrl?: string;
+    documentBlocks?: Array<{ kind: "heading" | "paragraph"; text: string; level?: number }>;
+  } | null>(null);
+
+  async function openAssetPreview(asset: ProjectDetailPayload["assets"][number]) {
+    const extension = asset.path.match(/\.[^.\\/]+$/u)?.[0]?.toLocaleLowerCase() ?? "";
+    if (extension === ".html" || extension === ".htm") {
+      await apiClient.openPath(asset.path);
+      return;
+    }
+    const readPreviewFile = window.marketplaceOS?.platform?.readPreviewFile;
+    if (!readPreviewFile) {
+      await apiClient.openPath(asset.path);
+      return;
+    }
+    setPreview({ asset, loading: true });
+    try {
+      const result = await readPreviewFile(asset.path);
+      if (result.extension === ".docx") {
+        const documentBlocks = await readDocxPreviewBlocks(result.dataBase64);
+        setPreview({ asset, loading: false, mimeType: result.mimeType, documentBlocks });
+        return;
+      }
+      setPreview({
+        asset,
+        loading: false,
+        mimeType: result.mimeType,
+        dataUrl: `data:${result.mimeType};base64,${result.dataBase64}`
+      });
+    } catch (error) {
+      setPreview({ asset, loading: false, error: error instanceof Error ? error.message : "Could not preview this file." });
+    }
+  }
+
   if (assets.length === 0) {
     return <EmptyState label="No collected data yet for this section." />;
   }
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <>
+    <div className="mio-asset-grid grid grid-cols-3 gap-3">
       {assets.slice(0, limit).map((asset) => (
-        <button key={asset.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openPath(asset.path)}>
-          <div className="aspect-video overflow-hidden rounded bg-white/10">
-            {asset.mimeType.startsWith("image/") ? <img src={toFileImageSrc(asset.path)} alt={asset.label} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
+        <button key={asset.id} type="button" className="mio-asset-card rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void openAssetPreview(asset)}>
+          <div className="mio-asset-thumbnail aspect-video overflow-hidden rounded bg-white/10">
+            {asset.mimeType.startsWith("image/") ? <MediaThumbnail src={asset.path} alt={asset.label} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
           </div>
           <div className="mt-2 truncate text-xs font-medium text-white">{asset.label}</div>
           <div className="mt-1 truncate text-[11px] text-ink-500">{asset.kind}</div>
         </button>
       ))}
     </div>
+    <Modal
+      open={Boolean(preview)}
+      title={preview?.asset.label ?? translate(language, "File preview")}
+      description={preview?.asset.kind}
+      className="mio-file-preview-modal"
+      onClose={() => setPreview(null)}
+      actions={preview ? (
+        <Button variant="secondary" onClick={() => void window.marketplaceOS?.platform?.showItemInFolder(preview.asset.path)}>
+          <FolderOpen size={15} />
+          {translate(language, "Show in folder")}
+        </Button>
+      ) : undefined}
+    >
+      {preview?.loading ? <EmptyState label="Preparing preview..." /> : null}
+      {preview?.error ? <div className="mio-inline-error">{preview.error}</div> : null}
+      {preview?.dataUrl && preview.mimeType?.startsWith("image/") ? (
+        <ZoomableImagePreview src={preview.dataUrl} alt={preview.asset.label} />
+      ) : null}
+      {preview?.dataUrl && preview.mimeType === "application/pdf" ? (
+        <object className="mio-file-preview-pdf" data={preview.dataUrl} type="application/pdf">
+          <EmptyState label="The PDF preview could not be displayed." />
+        </object>
+      ) : null}
+      {preview?.documentBlocks ? (
+        <article className="mio-docx-preview" aria-label={translate(language, "DOCX document preview")}>
+          {preview.documentBlocks.map((block, index) => block.kind === "heading"
+            ? <h3 key={`${index}-${block.text}`} data-level={block.level}>{block.text}</h3>
+            : <p key={`${index}-${block.text}`}>{block.text}</p>)}
+        </article>
+      ) : null}
+    </Modal>
+    </>
   );
 }
 
+async function readDocxPreviewBlocks(dataBase64: string): Promise<Array<{ kind: "heading" | "paragraph"; text: string; level?: number }>> {
+  const archive = await JSZip.loadAsync(dataBase64, { base64: true });
+  const documentXml = await archive.file("word/document.xml")?.async("string");
+  if (!documentXml) throw new Error("The DOCX document body is missing.");
+  const xml = new DOMParser().parseFromString(documentXml, "application/xml");
+  const paragraphs = Array.from(xml.getElementsByTagNameNS("*", "p"));
+  return paragraphs.flatMap((paragraph) => {
+    const text = Array.from(paragraph.getElementsByTagNameNS("*", "t"))
+      .map((node) => node.textContent ?? "")
+      .join("")
+      .trim();
+    if (!text) return [];
+    const style = paragraph.getElementsByTagNameNS("*", "pStyle")[0]
+      ?.getAttributeNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "val")
+      ?? paragraph.getElementsByTagNameNS("*", "pStyle")[0]?.getAttribute("w:val")
+      ?? "";
+    const headingMatch = /heading\s*([1-6])?/iu.exec(style);
+    return [{
+      kind: headingMatch ? "heading" as const : "paragraph" as const,
+      text,
+      level: headingMatch ? Number(headingMatch[1] || 2) : undefined
+    }];
+  });
+}
+
 function ProductCardGrid({ products, limit = 80 }: { products: ProjectProductEvidence[]; limit?: number }) {
+  const language = useUiStore((state) => state.language);
   const [view, setView] = useState<"cards" | "list">("cards");
+  const [previewImage, setPreviewImage] = useState<{ src: string; title: string } | null>(null);
+  const evidenceText = useContext(EvidenceTranslationContext);
   if (products.length === 0) {
     return <EmptyState label="No rendered product rows extracted yet." />;
   }
   if (view === "list") {
     return (
+      <>
       <div>
         <ProductViewToggle value={view} onChange={setView} />
-        <div className="mt-3 overflow-hidden rounded-md border border-white/8">
+        <div className="mio-result-list mt-3 overflow-hidden">
           {products.slice(0, limit).map((product) => (
-            <button key={product.id} type="button" className="grid w-full grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-white/8 bg-white/5 p-2 text-left last:border-b-0 hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
-              <div className="h-16 w-16 overflow-hidden rounded bg-white/10">
-              {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
-              </div>
-              <div className="min-w-0">
+            <div key={product.id} className="mio-result-list-row grid w-full grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 text-left">
+              <button type="button" className="mio-inspect-image-button" onClick={() => product.imageUrl && setPreviewImage({ src: product.imageUrl, title: displayProductTitle(product) })} aria-label={translate(language, "Preview product image")}>
+                <ResultCardMedia imageUrl={product.imageUrl} alt={displayProductTitle(product)} variant="product" />
+              </button>
+              <button type="button" className="min-w-0 text-left" onClick={() => void apiClient.openUrl(product.productUrl)}>
                 <div className="line-clamp-1 text-sm font-medium text-white">{displayProductTitle(product)}</div>
-                <div className="mt-1 text-xs text-ink-500">
-                  {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · {productSoldMetricLabel(product)} {productSoldMetricText(product)}
+                <div className="mio-card-chip-row">
+                  <span className="mio-card-chip">{formatCurrency(product.priceAverage)}</span>
+                  <span className="mio-card-chip">{translate(language, "Rating")} {productRatingText(product)}</span>
+                  <span className="mio-card-chip">{productSoldMetricLabel(product)} {productSoldMetricText(product)}</span>
+                  <StoreTypeMark value={product.storeType} showLabel />
                 </div>
+              </button>
+              <div className="text-right text-xs text-ink-500">
+                <div>{productSourcePlacement(product)}</div>
+                <div className="mt-1 max-w-44 truncate">{product.storeName ?? translate(language, "Store pending")}</div>
               </div>
-              <div className="text-xs text-ink-500">{productSourcePlacement(product)}</div>
-            </button>
+            </div>
           ))}
         </div>
       </div>
+      <Modal open={Boolean(previewImage)} title={previewImage?.title ?? translate(language, "Product image preview")} onClose={() => setPreviewImage(null)} className="mio-file-preview-modal">
+        {previewImage ? <ZoomableImagePreview src={previewImage.src} alt={previewImage.title} /> : null}
+      </Modal>
+      </>
     );
   }
   return (
+    <>
     <div>
       <ProductViewToggle value={view} onChange={setView} />
-      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mio-product-card-grid mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {products.slice(0, limit).map((product) => (
-          <button key={product.id} type="button" className="rounded-md border border-white/8 bg-white/5 p-2 text-left hover:bg-white/8" onClick={() => void apiClient.openUrl(product.productUrl)}>
-            <div className="aspect-square overflow-hidden rounded bg-white/10">
-              {product.imageUrl ? <img src={product.imageUrl} alt={displayProductTitle(product)} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
-            </div>
-            <div className="mt-2 min-w-0">
-              <div className="line-clamp-2 text-xs font-medium text-white">{displayProductTitle(product)}</div>
-              <div className="mt-1 text-[11px] text-ink-500">
-                {formatCurrency(product.priceAverage)} · Rating {productRatingText(product)} · {productSoldMetricLabel(product)} {productSoldMetricText(product)}
+          <article key={product.id} className="mio-result-card mio-product-result-card text-left">
+            <button type="button" className="mio-result-card-media-button" onClick={() => product.imageUrl && setPreviewImage({ src: product.imageUrl, title: displayProductTitle(product) })} aria-label={translate(language, "Preview product image")}>
+              <ResultCardMedia imageUrl={product.imageUrl} alt={displayProductTitle(product)} variant="product">
+                <span className="mio-card-chip">{productSourcePlacement(product)}</span>
+              </ResultCardMedia>
+            </button>
+            <div className="mio-result-card-body min-w-0">
+              <div className="mio-result-card-title-row">
+                <div className="line-clamp-2 text-sm font-medium text-white">{displayProductTitle(product)}</div>
+                <button type="button" className="mio-card-action-pill" onClick={() => void apiClient.openUrl(product.productUrl)}>{translate(language, "Open")}</button>
+              </div>
+              <div className="mio-card-chip-row">
+                <span className="mio-card-chip">{formatCurrency(product.priceAverage)}</span>
+                <span className="mio-card-chip">{translate(language, "Rating")} {productRatingText(product)}</span>
+                <span className="mio-card-chip">{productSoldMetricLabel(product)} {productSoldMetricText(product)}</span>
+              </div>
+              <div className="mio-result-card-description">
+                {evidenceText(product.selectionReason) || product.storeName || translate(language, "Marketplace product evidence")}
+              </div>
+              <div className="mio-result-card-footer">
+                <span className="truncate">{product.storeName ?? translate(language, "Store pending")}</span>
+                <StoreTypeMark value={product.storeType} />
               </div>
             </div>
-          </button>
+          </article>
         ))}
       </div>
     </div>
+    <Modal open={Boolean(previewImage)} title={previewImage?.title ?? translate(language, "Product image preview")} onClose={() => setPreviewImage(null)} className="mio-file-preview-modal">
+      {previewImage ? <ZoomableImagePreview src={previewImage.src} alt={previewImage.title} /> : null}
+    </Modal>
+    </>
   );
 }
 
 function ProductViewToggle({ value, onChange }: { value: "cards" | "list"; onChange: (value: "cards" | "list") => void }) {
+  const language = useUiStore((state) => state.language);
   return (
     <div className="flex justify-end gap-1">
-      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "cards" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("cards")} aria-label="Card view" title="Card view">
+      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "cards" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("cards")} aria-label={translate(language, "Card view")} title={translate(language, "Card view")}>
         <LayoutGrid size={14} />
       </button>
-      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "list" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("list")} aria-label="List view" title="List view">
+      <button className={["secondary-button mio-round-icon-button h-8 w-8 px-0", value === "list" ? "border-signal-blue/45 bg-signal-blue/12 text-signal-blue" : ""].join(" ")} type="button" onClick={() => onChange("list")} aria-label={translate(language, "List view")} title={translate(language, "List view")}>
         <Rows3 size={14} />
       </button>
     </div>
@@ -5051,11 +6354,19 @@ function ProductViewToggle({ value, onChange }: { value: "cards" | "list"; onCha
 
 function ProductInfoTable({
   products,
-  onRemoveProduct
+  manuallyAddedIdentities = new Set<string>(),
+  onRemoveProduct,
+  checkedProductIds,
+  onToggleProduct
 }: {
   products: ProjectProductEvidence[];
+  manuallyAddedIdentities?: ReadonlySet<string>;
   onRemoveProduct?: (productId: string) => void;
+  checkedProductIds?: string[];
+  onToggleProduct?: (productId: string) => void;
 }) {
+  const language = useUiStore((state) => state.language);
+  const evidenceText = useContext(EvidenceTranslationContext);
   if (products.length === 0) {
     return <EmptyState label="Product info table is empty. Capture Relevance and Top Sales pages first." />;
   }
@@ -5064,42 +6375,44 @@ function ProductInfoTable({
       <table className="min-w-[1160px] text-left text-xs">
         <thead className="bg-white/8 text-ink-500">
           <tr>
-            <th className="px-3 py-2">No</th>
-            <th className="px-3 py-2">Source</th>
-            <th className="px-3 py-2">Reason</th>
-            <th className="px-3 py-2">Product Title</th>
-            <th className="px-3 py-2">Product Type</th>
-            <th className="px-3 py-2">Monthly Sold</th>
-            <th className="px-3 py-2">Store Name</th>
-            <th className="px-3 py-2">Store Type</th>
-            <th className="px-3 py-2">Price</th>
-            <th className="px-3 py-2">Rating</th>
-            <th className="px-3 py-2">Reviews</th>
-            <th className="px-3 py-2">Total Sold</th>
-            {onRemoveProduct && <th className="w-12 px-3 py-2" aria-label="Actions" />}
+            {onToggleProduct && <th className="w-10 px-3 py-2">{translate(language, "Select")}</th>}
+            <th className="px-3 py-2">{translate(language, "No")}</th>
+            <th className="px-3 py-2">{translate(language, "Source")}</th>
+            <th className="px-3 py-2">{translate(language, "Reason")}</th>
+            <th className="px-3 py-2">{translate(language, "Product Title")}</th>
+            <th className="px-3 py-2">{translate(language, "Product Type")}</th>
+            <th className="px-3 py-2">{translate(language, "Monthly Sold")}</th>
+            <th className="px-3 py-2">{translate(language, "Store Name")}</th>
+            <th className="px-3 py-2">{translate(language, "Store Type")}</th>
+            <th className="px-3 py-2">{translate(language, "Price")}</th>
+            <th className="px-3 py-2">{translate(language, "Rating")}</th>
+            <th className="px-3 py-2">{translate(language, "Reviews")}</th>
+            <th className="px-3 py-2">{translate(language, "Total Sold")}</th>
+            {onRemoveProduct && <th className="w-12 px-3 py-2" aria-label={translate(language, "Actions")} />}
           </tr>
         </thead>
         <tbody>
           {products.map((product, index) => (
             <tr key={product.id} className="border-t border-white/8">
+              {onToggleProduct && (
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={checkedProductIds?.includes(product.id) ?? false}
+                    onChange={() => onToggleProduct(product.id)}
+                    aria-label={`Select ${displayProductTitle(product)}`}
+                  />
+                </td>
+              )}
               <td className="px-3 py-2">{index + 1}</td>
               <td className="px-3 py-2">{productSourcePlacement(product)}</td>
-              <td className="px-3 py-2">{selectionReasonForDisplay(product, products)}</td>
+              <td className="px-3 py-2">{evidenceText(qualifiedProductRankingReason(product, manuallyAddedIdentities.has(product.id) || manuallyAddedIdentities.has(stableProductIdentity(product))))}</td>
               <td className="px-3 py-2">{displayProductTitle(product)}</td>
               <td className="px-3 py-2">{product.productType ?? inferredProductTypeLabel(displayProductTitle(product))}</td>
               <td className="px-3 py-2">{product.monthlySoldText ?? formatOptionalNumber(product.monthlySold)}</td>
               <td className="px-3 py-2">{product.storeName ?? "-"}</td>
               <td className="px-3 py-2">
-                {product.storeBadgeImageUrl ? (
-                  <img
-                    className="h-5 w-auto max-w-[72px] object-contain"
-                    src={product.storeBadgeImageUrl}
-                    alt={storeTypeLabel(product)}
-                    loading="lazy"
-                  />
-                ) : (
-                  storeTypeLabel(product)
-                )}
+                <StoreTypeMark value={product.storeType} />
               </td>
               <td className="px-3 py-2">{formatCurrency(product.priceAverage)}</td>
               <td className="px-3 py-2">{productRatingText(product)}</td>
@@ -5112,7 +6425,7 @@ function ProductInfoTable({
                     type="button"
                     onClick={() => onRemoveProduct(product.id)}
                     aria-label={`Remove ${displayProductTitle(product)}`}
-                    title="Remove product"
+                    title={translate(language, "Remove product")}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -5134,6 +6447,8 @@ function KeyProductTableReview({
   onBackToBrowser,
   onRemoveProduct,
   onAddProduct,
+  onExcludeProducts,
+  onAddProducts,
   onApprove,
   onNext
 }: {
@@ -5144,10 +6459,16 @@ function KeyProductTableReview({
   onBackToBrowser: () => void;
   onRemoveProduct: (productId: string) => void;
   onAddProduct: (productId: string) => void;
+  onExcludeProducts: (productIds: string[]) => void;
+  onAddProducts: (productIds: string[]) => void;
   onApprove: () => void;
   onNext: () => void;
 }) {
+  const language = useUiStore((state) => state.language);
   const [productToAdd, setProductToAdd] = useState("");
+  const [selectedQualifiedIds, setSelectedQualifiedIds] = useState<string[]>([]);
+  const [selectedAvailableIds, setSelectedAvailableIds] = useState<string[]>([]);
+  const toggleId = (ids: string[], id: string) => ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id];
   return (
     <Panel
       title="Key Product Table"
@@ -5155,25 +6476,39 @@ function KeyProductTableReview({
       action={
         <button className="secondary-button h-9 w-auto px-3" type="button" onClick={onBackToBrowser}>
           <ChevronLeft size={15} />
-          Browser
+          {translate(language, "Browser")}
         </button>
       }
     >
       <div className="mb-4 rounded-md border border-signal-blue/20 bg-signal-blue/10 p-4 text-sm leading-6 text-ink-300">
-        Product Qualified starts with Top Sales evidence, then uses Relevance evidence to enrich and rank commercially valid products.
-        GIMMICK, NOT FOR SALE, FREE GIFT, irrelevant, and duplicate rows are excluded. Review up to 20 products before approval.
-        Showing {products.length} selected product{products.length === 1 ? "" : "s"} from {totalProducts} extracted row{totalProducts === 1 ? "" : "s"}.
+        {translate(language, "Product Qualified starts with Top Sales evidence, then uses Relevance evidence to enrich and rank commercially valid products.")}{" "}
+        {translate(language, "GIMMICK, NOT FOR SALE, FREE GIFT, irrelevant, and duplicate rows are excluded. Review up to 20 products before approval.")}{" "}
+        {translate(language, "Showing")} {products.length} {translate(language, products.length === 1 ? "selected product" : "selected products")} {translate(language, "from")} {totalProducts} {translate(language, totalProducts === 1 ? "extracted row" : "extracted rows")}.
+      </div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <strong className="text-sm text-ink-200">{products.length} / 20 {translate(language, "selected")}</strong>
+        <button
+          className="secondary-button h-9 w-auto px-3"
+          type="button"
+          disabled={selectedQualifiedIds.length === 0}
+          onClick={() => {
+            onExcludeProducts(selectedQualifiedIds);
+            setSelectedQualifiedIds([]);
+          }}
+        >
+          {translate(language, "Exclude selected")}
+        </button>
       </div>
       <div className="mb-4 flex flex-wrap items-end gap-2">
         <label className="min-w-[280px] flex-1 text-xs font-medium text-ink-400">
-          Add another qualified product
+          {translate(language, "Add another qualified product")}
           <select
             className="input mt-1"
             value={productToAdd}
             onChange={(event) => setProductToAdd(event.target.value)}
             disabled={products.length >= 20 || availableProducts.length === 0}
           >
-            <option value="">Select product</option>
+            <option value="">{translate(language, "Select product")}</option>
             {availableProducts.map((product) => (
               <option key={product.id} value={product.id}>
                 {productSourcePlacement(product)} - {displayProductTitle(product)}
@@ -5191,14 +6526,68 @@ function KeyProductTableReview({
           }}
         >
           <Plus size={16} />
-          Add Product
+          {translate(language, "Add Product")}
+        </button>
+        <button
+          className="secondary-button h-10 w-auto px-4"
+          type="button"
+          disabled={products.length >= 20 || availableProducts.length === 0}
+          onClick={() => {
+            const remainingSlots = Math.max(0, 20 - products.length);
+            onAddProducts(availableProducts.slice(0, Math.min(5, remainingSlots)).map((product) => product.id));
+          }}
+        >
+          <Plus size={16} />
+          {translate(language, "Add 5 more product")}
         </button>
         <span className="pb-3 text-xs text-ink-500">{products.length}/20</span>
       </div>
-      <ProductInfoTable products={products} onRemoveProduct={onRemoveProduct} />
+      <ProductInfoTable
+        products={products}
+        onRemoveProduct={onRemoveProduct}
+        checkedProductIds={selectedQualifiedIds}
+        onToggleProduct={(id) => setSelectedQualifiedIds((current) => toggleId(current, id))}
+      />
+      {availableProducts.length > 0 && (
+        <div className="mt-4 rounded-md border border-white/8 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <strong className="text-sm text-ink-200">{translate(language, "Available products")}</strong>
+            <button
+              className="secondary-button h-9 w-auto px-3"
+              type="button"
+              disabled={selectedAvailableIds.length === 0 || products.length >= 20}
+              onClick={() => {
+                onAddProducts(selectedAvailableIds);
+                setSelectedAvailableIds([]);
+              }}
+            >
+              {translate(language, "Add selected")}
+            </button>
+          </div>
+          <div className="grid max-h-64 gap-2 overflow-auto md:grid-cols-2">
+            {availableProducts.map((product) => (
+              <label key={product.id} className="flex cursor-pointer items-center gap-2 rounded-md border border-white/8 p-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={selectedAvailableIds.includes(product.id)}
+                  onChange={() => setSelectedAvailableIds((current) => toggleId(current, product.id))}
+                />
+                <div className="mio-available-product-thumb shrink-0">
+                  <ResultCardMedia imageUrl={product.imageUrl ?? product.images[0]} alt={displayProductTitle(product)} variant="product" />
+                </div>
+                <span className="min-w-0">
+                  <span className="block font-medium text-ink-200">{displayProductTitle(product)}</span>
+                  <span className="text-ink-500">{productSourcePlacement(product)} · {storeTypeLabel(product)}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {products.length >= 20 && <p className="mt-2 text-xs text-signal-red">{translate(language, "Maximum 20 qualified products reached.")}</p>}
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs leading-5 text-ink-500">
-          Store Name, Total Sold, review detail, slides, description, and shop homepage are enriched during Product Detail Qualified collection.
+          {translate(language, "Store Name, Total Sold, review detail, slides, description, and shop homepage are enriched during Product Detail Qualified collection.")}
         </div>
         <div className="flex flex-wrap gap-2">
           <button className="secondary-button h-10 w-auto px-4" type="button" onClick={onApprove} disabled={products.length === 0 || approved}>
@@ -5206,7 +6595,7 @@ function KeyProductTableReview({
             {approved ? "Product Qualified Approved" : "Approve Product Qualified"}
           </button>
           <button className="primary-button h-10 w-auto px-4" type="button" onClick={onNext} disabled={!approved || products.length === 0}>
-            Next
+            {translate(language, "Next")}
             <ChevronRight size={16} />
           </button>
         </div>
@@ -5226,6 +6615,7 @@ function ProductQualifiedSection({
   assets: ProjectDetailPayload["assets"];
   sectionIdPrefix: string;
 }) {
+  const evidenceText = useContext(EvidenceTranslationContext);
   const firstPageAssets = assets.filter((asset) => asset.kind === "PRODUCT_PAGE");
   const shopHomeAssets = assets.filter((asset) => asset.kind === "STORE_HOME");
   return (
@@ -5233,7 +6623,10 @@ function ProductQualifiedSection({
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <InfoLine label="Price" value={formatCurrency(product.priceAverage)} />
         <InfoLine label="Store Name" value={product.storeName ?? "-"} />
-        <InfoLine label="Store Type" value={storeTypeLabel(product)} />
+        <div>
+          <div className="text-[10px] uppercase text-ink-500"><TranslatedText>Store Type</TranslatedText></div>
+          <StoreTypeMark value={product.storeType} showLabel className="mt-1" />
+        </div>
         <InfoLine label="GMV ETA" value={formatCurrency((product.priceAverage ?? 0) * (product.monthlySold ?? product.totalSold ?? 0))} />
       </div>
 
@@ -5253,7 +6646,7 @@ function ProductQualifiedSection({
       <NestedReportSection id={`${sectionIdPrefix}-description`} title="Description">
         <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
           <p className="whitespace-pre-wrap text-sm leading-6 text-ink-300">
-            {product.description ?? "No browser-readable product description captured yet."}
+            {evidenceText(product.description) || "No browser-readable product description captured yet."}
           </p>
         </div>
         {product.descriptionImages.length > 0 && (
@@ -5356,6 +6749,7 @@ function isDisplayableProductMediaUrl(value: string): boolean {
 }
 
 function ProductPromotionSignals({ product }: { product: ProjectProductEvidence }) {
+  const language = useUiStore((state) => state.language);
   const rows = [
     { label: "Shop Vouchers", values: product.shopVouchers },
     { label: "Bundle Deals", values: product.bundleDeals }
@@ -5364,9 +6758,9 @@ function ProductPromotionSignals({ product }: { product: ProjectProductEvidence 
     <div className="mt-3 grid gap-3 lg:grid-cols-2">
       {rows.map((row) => (
         <div key={row.label} className="rounded-md border border-white/8 bg-white/[0.04] p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">{row.label}</div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">{translate(language, row.label)}</div>
           <div className="space-y-1 text-sm text-ink-300">
-            {row.values.length > 0 ? row.values.slice(0, 8).map((value) => <div key={value}>{value}</div>) : <span className="text-ink-500">No promotion signal captured yet.</span>}
+            {row.values.length > 0 ? row.values.slice(0, 8).map((value) => <div key={value}>{value}</div>) : <span className="text-ink-500">{translate(language, "No promotion signal captured yet.")}</span>}
           </div>
         </div>
       ))}
@@ -5395,17 +6789,17 @@ function _ProductDossierSummary({
       </div>
 
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Slides and Images</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Slides and Images</TranslatedText></div>
         <ProductImageGrid images={product.images.length > 0 ? product.images : product.imageUrl ? [product.imageUrl] : []} />
       </div>
 
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Videos</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Videos</TranslatedText></div>
         <ProductVideoGrid videos={product.videos} />
       </div>
 
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Media in User</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Media in User</TranslatedText></div>
         <ProductImageGrid images={product.reviewMediaImages} />
         {product.reviewMediaVideos.length > 0 && (
           <div className="mt-3">
@@ -5415,7 +6809,7 @@ function _ProductDossierSummary({
       </div>
 
       <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Description</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Description</TranslatedText></div>
         <p className="line-clamp-6 text-sm leading-6 text-ink-300">
           {product.description ?? "No browser-readable product description captured yet. Save Product Description evidence from the guided collector."}
         </p>
@@ -5428,18 +6822,18 @@ function _ProductDossierSummary({
 
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Variants</div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Variants</TranslatedText></div>
           <div className="flex flex-wrap gap-2">
             {product.variants.slice(0, 16).map((variant) => (
               <span key={variant} className="rounded-full border border-white/8 bg-white/5 px-2 py-1 text-xs text-ink-300">
                 {variant}
               </span>
             ))}
-            {product.variants.length === 0 && <span className="text-sm text-ink-500">No variants detected.</span>}
+            {product.variants.length === 0 && <span className="text-sm text-ink-500"><TranslatedText>No variants detected.</TranslatedText></span>}
           </div>
         </div>
         <div className="rounded-md border border-white/8 bg-white/[0.04] p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">Specifications</div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500"><TranslatedText>Specifications</TranslatedText></div>
           <div className="space-y-1 text-xs text-ink-300">
             {Object.entries(product.specifications).slice(0, 10).map(([key, value]) => (
               <div key={key} className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
@@ -5447,7 +6841,7 @@ function _ProductDossierSummary({
                 <span>{value}</span>
               </div>
             ))}
-            {Object.keys(product.specifications).length === 0 && <span className="text-sm text-ink-500">No specifications detected.</span>}
+            {Object.keys(product.specifications).length === 0 && <span className="text-sm text-ink-500"><TranslatedText>No specifications detected.</TranslatedText></span>}
           </div>
         </div>
       </div>
@@ -5458,17 +6852,20 @@ function _ProductDossierSummary({
 }
 
 function ProductImageGrid({ images }: { images: string[] }) {
+  const language = useUiStore((state) => state.language);
   const [brokenImages, setBrokenImages] = useState<Set<string>>(() => new Set());
+  const [previewImage, setPreviewImage] = useState("");
   const visibleImages = uniqueMediaValues(images).filter((image) => isDisplayableProductMediaUrl(image) && !brokenImages.has(image));
   if (visibleImages.length === 0) {
     return <EmptyState label="No product image URLs captured yet." />;
   }
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <>
+    <div className="mio-product-image-grid grid grid-cols-3 gap-3">
       {visibleImages.slice(0, 9).map((image, index) => (
-        <button key={`${image}-${index}`} type="button" className="overflow-hidden rounded-md border border-white/8 bg-white/5" onClick={() => void apiClient.openUrl(image)}>
+        <button key={`${image}-${index}`} type="button" className="mio-inspect-image-button overflow-hidden rounded-md border border-white/8 bg-white/5" onClick={() => setPreviewImage(image)}>
           <div className="aspect-square bg-white/10">
-            <img
+            <MediaThumbnail
               src={image}
               alt={`Product slide ${index + 1}`}
               loading="lazy"
@@ -5477,14 +6874,19 @@ function ProductImageGrid({ images }: { images: string[] }) {
               onError={() => setBrokenImages((current) => new Set(current).add(image))}
             />
           </div>
-          <div className="px-2 py-1 text-left text-[11px] text-ink-500">Slide {index + 1}</div>
+          <div className="px-2 py-1 text-left text-[11px] text-ink-500">{translate(language, "Slide")} {index + 1}</div>
         </button>
       ))}
     </div>
+    <Modal open={Boolean(previewImage)} title={translate(language, "Product image preview")} onClose={() => setPreviewImage("")} className="mio-file-preview-modal">
+      {previewImage ? <ZoomableImagePreview src={previewImage} alt={translate(language, "Product image preview")} /> : null}
+    </Modal>
+    </>
   );
 }
 
 function ProductVideoGrid({ videos, limit = 9 }: { videos: string[]; limit?: number }) {
+  const language = useUiStore((state) => state.language);
   const visibleVideos = uniqueMediaValues(videos);
   if (visibleVideos.length === 0) {
     return <EmptyState label="No product video URLs captured yet." />;
@@ -5496,7 +6898,7 @@ function ProductVideoGrid({ videos, limit = 9 }: { videos: string[]; limit?: num
           <div className="mio-product-video-frame bg-black">
             <video src={video} className="h-full w-full object-contain" muted controls playsInline />
           </div>
-          <div className="px-2 py-1 text-left text-[11px] text-ink-500">Video {index + 1}</div>
+          <div className="px-2 py-1 text-left text-[11px] text-ink-500">{translate(language, "Video")} {index + 1}</div>
         </button>
       ))}
     </div>
@@ -5521,7 +6923,7 @@ function sanitizeShopeeReviewComment(comment: string): string {
     if (!line) continue;
     const cutoffIndex = line.search(/(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual|Report Abuse|Laporkan Penyalahgunaan)\b/iu);
     const content = (cutoffIndex >= 0 ? line.slice(0, cutoffIndex) : line).trim();
-    if (content && !/^(?:Helpful|Membantu|Like|Share)\s*[\d.,kkrb]*$/iu.test(content)) {
+    if (content && !/^(?:Helpful\??|Membantu\??|Like|Share)(?:\s*[\d.,kkrb]*)?$/iu.test(content)) {
       output.push(content);
     }
     if (cutoffIndex >= 0) break;
@@ -5556,7 +6958,9 @@ function reviewCommentCell(review: ProjectDetailPayload["reviews"][number]): str
 }
 
 function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["reviews"] }) {
+  const language = useUiStore((state) => state.language);
   const curatedReviews = curatedShopeeReviews(reviews);
+  const evidenceText = useContext(EvidenceTranslationContext);
   if (curatedReviews.length === 0) {
     return <EmptyState label="No review text collected yet. Capture the review section with 3 positive and 2 negative examples visible." />;
   }
@@ -5565,9 +6969,9 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
       <table className="min-w-[680px] text-left text-xs">
         <thead className="bg-white/8 text-ink-500">
           <tr>
-            <th className="px-3 py-2">Type</th>
-            <th className="px-3 py-2">Star Rated</th>
-            <th className="px-3 py-2">Comment - Include timestamp</th>
+            <th className="px-3 py-2">{translate(language, "Type")}</th>
+            <th className="px-3 py-2">{translate(language, "Star Rated")}</th>
+            <th className="px-3 py-2">{translate(language, "Comment - Include timestamp")}</th>
           </tr>
         </thead>
         <tbody>
@@ -5576,7 +6980,7 @@ function ReviewEvidenceTable({ reviews }: { reviews: ProjectDetailPayload["revie
               <td className="px-3 py-2">{review.sentiment === "NEGATIVE" ? "Negative Reviews" : review.sentiment === "POSITIVE" ? "Positive Reviews" : "Neutral Reviews"}</td>
               <td className="px-3 py-2">{review.rating ? `${review.rating} Star` : "-"}</td>
               <td className="whitespace-pre-line px-3 py-2 leading-5">
-                {reviewCommentCell(review)}
+                {evidenceText(reviewCommentCell(review))}
               </td>
             </tr>
           ))}
@@ -5597,7 +7001,8 @@ type BulkReportHistoryEntry = {
 
 const BULK_REPORT_HISTORY_KEY = "mio.bulk-report-history.v1";
 
-function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[]; themeMode: ThemeMode }) {
+export function LegacyBulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[]; themeMode: ThemeMode }) {
+  const language = useUiStore((state) => state.language);
   const queryClient = useQueryClient();
   const [step, setStep] = useState(1);
   const [category, setCategory] = useState("");
@@ -5700,7 +7105,7 @@ function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[];
             className={`mio-bulk-step rounded-full px-3 py-2 text-xs font-medium transition ${step === index + 1 ? "bg-signal-blue text-white" : "bg-white/7 text-ink-500"}`}
             onClick={() => index + 1 <= step && setStep(index + 1)}
           >
-            {index + 1}. {label}
+            {index + 1}. {translate(language, label)}
           </button>
         ))}
       </div>
@@ -5708,7 +7113,7 @@ function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[];
       {step === 1 && (
         <Field label="Select by category">
           <select value={category} onChange={(event) => selectCategory(event.target.value)} className="input">
-            <option value="">Choose a category</option>
+            <option value="">{translate(language, "Choose a category")}</option>
             {categories.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
         </Field>
@@ -5717,8 +7122,8 @@ function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[];
       {step === 2 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3 text-xs text-ink-500">
-            <span>Select multiple projects from {category}</span>
-            <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => setProjectIds(eligibleProjects.map((project) => project.id))}>Select all</button>
+            <span>{translate(language, "Select multiple projects from")} {category}</span>
+            <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => setProjectIds(eligibleProjects.map((project) => project.id))}>{translate(language, "Select all")}</button>
           </div>
           <div className="grid gap-2 md:grid-cols-2">
             {eligibleProjects.map((project) => {
@@ -5779,19 +7184,19 @@ function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[];
       )}
       {generateBulk.data && (
         <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
-          <span>{generateBulk.data.fileCount} files packaged in {generateBulk.data.zipPath}</span>
-          <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(generateBulk.data.zipPath)}>Open ZIP</button>
+          <span>{generateBulk.data.fileCount} {translate(language, "files packaged in")} {generateBulk.data.zipPath}</span>
+          <button className="secondary-button h-8 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(generateBulk.data.zipPath)}>{translate(language, "Open ZIP")}</button>
         </div>
       )}
       {generateBulk.error && <div className="mt-4 rounded-2xl bg-signal-rose/12 p-3 text-sm text-signal-rose">{generateBulk.error.message}</div>}
 
       <div className="mt-5 flex justify-between gap-3">
         <button className="secondary-button h-10 w-auto rounded-full px-5" type="button" disabled={step === 1 || generateBulk.isPending} onClick={() => setStep((current) => Math.max(1, current - 1))}>
-          <ChevronLeft size={16} /> Back
+          <ChevronLeft size={16} /> {translate(language, "Back")}
         </button>
         {step < 4 ? (
           <button className="primary-button h-10 w-auto rounded-full px-5" type="button" disabled={!canContinue()} onClick={() => setStep((current) => Math.min(4, current + 1))}>
-            Next <ChevronRight size={16} />
+            {translate(language, "Next")} <ChevronRight size={16} />
           </button>
         ) : (
           <button className="primary-button h-10 w-auto rounded-full px-5" type="button" disabled={!canContinue() || generateBulk.isPending} onClick={generate}>
@@ -5800,16 +7205,16 @@ function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[];
         )}
       </div>
       <div className="mt-6 border-t border-white/8 pt-5">
-        <div className="mb-3 text-sm font-semibold text-white">Bulk Report History</div>
+        <div className="mb-3 text-sm font-semibold text-white">{translate(language, "Bulk Report History")}</div>
         <div className="space-y-2">
           {history.map((entry) => (
             <div key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/5 p-3">
               <div>
                 <div className="text-sm font-semibold text-white">{entry.category}</div>
-                <div className="mt-1 text-xs text-ink-500">{entry.projectCount} projects · {entry.fileCount} files · {formatDateTime(entry.generatedAt)}</div>
+                <div className="mt-1 text-xs text-ink-500">{entry.projectCount} {translate(language, "projects")} · {entry.fileCount} {translate(language, "files")} · {formatDateTime(entry.generatedAt)}</div>
               </div>
               <button className="secondary-button h-9 w-auto rounded-full px-4 text-xs" type="button" onClick={() => void apiClient.openPath(entry.zipPath)}>
-                <Archive size={14} /> Open ZIP
+                <Archive size={14} /> {translate(language, "Open ZIP")}
               </button>
             </div>
           ))}
@@ -5822,22 +7227,41 @@ function BulkReportWizard({ projects, themeMode }: { projects: ProjectSummary[];
 
 function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   const queryClient = useQueryClient();
+  const language = useUiStore((state) => state.language);
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: apiClient.dashboard });
   const reports = useQuery({ queryKey: ["reports"], queryFn: apiClient.reports });
+  const settings = useQuery({ queryKey: ["settings"], queryFn: apiClient.settings });
   const [projectId, setProjectId] = useState("");
   const [sections, setSections] = useState<ReportSectionConfig[]>(DEFAULT_REPORT_SECTIONS);
+  const [reportPage, setReportPage] = useState<"generator" | "content">("generator");
+  const [formats, setFormats] = useState<BulkReportFormat[]>(["PDF"]);
+  const [reportDestination, setReportDestination] = useState("");
+  const [groupOrder, setGroupOrder] = useState<ReportSectionGroupId[]>(
+    REPORT_SECTION_GROUPS.map((group) => group.id)
+  );
+  const [draggedGroupId, setDraggedGroupId] = useState<ReportSectionGroupId | null>(null);
+  const [reportFileName, setReportFileName] = useState("");
+  const [filenameTemplate, setFilenameTemplate] = useState("{projectName}_{storeType}_{priceRange}_{date}_{time}");
   const [previewReport, setPreviewReport] = useState<ReportHtmlPayload | null>(null);
   const [reportProgress, setReportProgress] = useState(0);
   const [reportMode, setReportMode] = useState<"single" | "bulk">("single");
+  const [reportLanguage, setReportLanguage] = useState<AppLanguage>(() => {
+    const saved = window.localStorage.getItem("mio.report-language.v1");
+    return saved === "id-ID" || saved === "zh-CN" || saved === "en-US" ? saved : language;
+  });
+  const selectedProject = dashboard.data?.projects.find((project) => project.id === projectId);
+  const aiConfigured = Boolean(settings.data?.openAiKeyConfigured || settings.data?.geminiKeyConfigured);
   const generateReport = useMutation({
     mutationFn: apiClient.generateReport,
     onMutate: () => {
       setReportProgress(8);
     },
-    onSuccess: () => {
+    onSuccess: async (result) => {
       setReportProgress(100);
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["reports"] });
+      const preview = await apiClient.reportHtml(result.reportId).catch(() => null);
+      if (preview) setPreviewReport(preview);
     },
     onError: () => {
       setReportProgress(0);
@@ -5854,9 +7278,11 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
     mutationFn: apiClient.reportHtml,
     onSuccess: (result) => setPreviewReport(result)
   });
-  const exportReportDocx = useMutation({
-    mutationFn: apiClient.exportReportDocx,
-    onSuccess: (result) => void apiClient.openPath(result.docxPath)
+  const saveReportPreferences = useMutation({
+    mutationFn: apiClient.saveSettings,
+    onSuccess: (result) => {
+      queryClient.setQueryData(["settings"], result);
+    }
   });
 
   useEffect(() => {
@@ -5869,17 +7295,117 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
     return () => window.clearInterval(timer);
   }, [generateReport.isPending]);
 
+  useEffect(() => {
+    if (!settings.data) {
+      return;
+    }
+    setFilenameTemplate(settings.data.reportFilenameTemplate);
+    const savedOrder = settings.data.reportSectionOrder;
+    let savedSections: ReportSectionConfig[] | null = null;
+    try {
+      const stored = window.localStorage.getItem("mio.report-content-settings.v2");
+      const parsed = stored ? JSON.parse(stored) as unknown : null;
+      if (Array.isArray(parsed)) {
+        savedSections = parsed.filter((section): section is ReportSectionConfig =>
+          Boolean(section) && typeof section === "object" && "id" in section && "enabled" in section
+        );
+      }
+    } catch {
+      savedSections = null;
+    }
+    const currentSections = normalizeReportSections(savedSections, savedOrder);
+    setSections(currentSections);
+    setGroupOrder(orderReportSectionGroups(currentSections.map((section) => section.id)));
+    setReportDestination((current) => current || settings.data.exportFolder);
+  }, [settings.data]);
+
+  useEffect(() => {
+    if (!selectedProject) {
+      setReportFileName("");
+      return;
+    }
+    setReportFileName(buildReportFileName(selectedProject, filenameTemplate));
+  }, [filenameTemplate, selectedProject]);
+
+  function persistReportPreferences(nextSections: ReportSectionConfig[], nextTemplate = filenameTemplate) {
+    if (!settings.data) {
+      return;
+    }
+    const {
+      openAiKeyConfigured: _openAiKeyConfigured,
+      geminiKeyConfigured: _geminiKeyConfigured,
+      ...persistedSettings
+    } = settings.data;
+    saveReportPreferences.mutate({
+      ...persistedSettings,
+      reportFilenameTemplate: nextTemplate,
+      reportSectionOrder: nextSections.map((section) => section.id)
+    });
+  }
+
+  function moveReportGroup(targetGroupId: ReportSectionGroupId) {
+    if (!draggedGroupId || draggedGroupId === targetGroupId) {
+      return;
+    }
+    const nextGroupOrder = [...groupOrder];
+    const sourceIndex = nextGroupOrder.indexOf(draggedGroupId);
+    const targetIndex = nextGroupOrder.indexOf(targetGroupId);
+    nextGroupOrder.splice(sourceIndex, 1);
+    nextGroupOrder.splice(targetIndex, 0, draggedGroupId);
+    const nextSections = flattenReportSectionsByGroup(sections, nextGroupOrder);
+    setGroupOrder(nextGroupOrder);
+    setSections(nextSections);
+    setDraggedGroupId(null);
+    persistReportPreferences(nextSections);
+  }
+
+  function toggleReportSection(sectionId: ReportSectionId) {
+    setSections((current) =>
+      current.map((item) => (item.id === sectionId ? { ...item, enabled: !item.enabled } : item))
+    );
+  }
+
+  function saveReportContentSettings(nextSections: ReportSectionConfig[]) {
+    setSections(nextSections);
+    setGroupOrder(orderReportSectionGroups(nextSections.map((section) => section.id)));
+    window.localStorage.setItem("mio.report-content-settings.v2", JSON.stringify(nextSections));
+    persistReportPreferences(nextSections);
+  }
+
+  function changeReportLanguage(nextLanguage: AppLanguage) {
+    setReportLanguage(nextLanguage);
+    window.localStorage.setItem("mio.report-language.v1", nextLanguage);
+  }
+
+  function toggleReportFormat(format: BulkReportFormat) {
+    setFormats((current) =>
+      current.includes(format)
+        ? current.filter((item) => item !== format)
+        : [...current, format]
+    );
+  }
+
+  async function chooseReportDestination() {
+    const selected = await window.marketplaceOS?.platform?.pickFolder();
+    if (selected) {
+      setReportDestination(selected);
+    }
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    const selectedProjectId = projectId || dashboard.data?.projects[0]?.id;
-    if (!selectedProjectId) {
+    if (!projectId || !selectedProject) {
       return;
     }
     generateReport.mutate({
-      projectId: selectedProjectId,
+      projectId,
       templateId: "marketplace-research-os-v1",
       theme: themeMode,
-      sections
+      sections,
+      formats,
+      language: reportLanguage,
+      fileName: reportFileName,
+      exportFolder: reportDestination || selectedProject?.exportFolder || settings.data?.exportFolder
     });
   }
 
@@ -5889,22 +7415,66 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
     }
   }
 
+  if (reportPage === "content") {
+    return (
+      <ReportContentSettingsPage
+        language={language}
+        previewLanguage={reportLanguage}
+        sections={sections}
+        projectName={selectedProject?.name}
+        aiConfigured={aiConfigured}
+        saving={saveReportPreferences.isPending}
+        onBack={() => setReportPage("generator")}
+        onSave={saveReportContentSettings}
+      />
+    );
+  }
+
   return (
-    <section className="space-y-5">
-      <div className="inline-flex rounded-full border border-white/8 bg-white/5 p-1">
-        <button className={reportMode === "single" ? "primary-button h-10 w-auto rounded-full px-5" : "secondary-button h-10 w-auto rounded-full border-0 px-5"} type="button" onClick={() => setReportMode("single")}>Single Report</button>
-        <button className={reportMode === "bulk" ? "primary-button h-10 w-auto rounded-full px-5" : "secondary-button h-10 w-auto rounded-full border-0 px-5"} type="button" onClick={() => setReportMode("bulk")}>Bulk Report</button>
+    <section className="mio-reports-view space-y-5">
+      <LoadingProgressModal
+        open={generateReport.isPending}
+        title={translate(language, "Generating Report")}
+        label={translate(language, "Rendering report and export files")}
+        progress={reportProgress}
+        detail={selectedProject ? `${selectedProject.name} · ${formats.join(", ")}` : undefined}
+      />
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="text-xl font-semibold tracking-[-0.02em] text-white">{translate(language, "Report Generator")}</div>
+          <div className="mt-1 text-sm text-ink-400">{translate(language, "Generate reports from saved marketplace evidence.")}</div>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <SegmentedControl
+            value={reportMode}
+            options={[
+              { value: "single", label: translate(language, "Single Report") },
+              { value: "bulk", label: translate(language, "Bulk Report") }
+            ]}
+            onChange={setReportMode}
+            label="Report mode"
+          />
+        </div>
       </div>
       {reportMode === "bulk" ? (
-        <BulkReportWizard projects={dashboard.data?.projects ?? []} themeMode={themeMode} />
+        <BulkReportWorkspace
+          projects={dashboard.data?.projects ?? []}
+          themeMode={themeMode}
+          language={language}
+          outputLanguage={reportLanguage}
+          onOutputLanguageChange={changeReportLanguage}
+          sections={sections}
+          defaultExportFolder={reportDestination || settings.data?.exportFolder || ""}
+          onEditContent={() => setReportPage("content")}
+        />
       ) : (
-      <div className="grid grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)] gap-5">
-      <div className="space-y-5">
-        <Panel title="Report Generator" icon={FileDown}>
+      <div className="mio-reports-grid grid items-start gap-5">
+      <div className="mio-report-primary-layout space-y-5">
+        <Panel title={"1. " + translate(language, "Project")} icon={Settings}>
           <form className="space-y-4" onSubmit={submit}>
-            <Field label="Project">
+            <Field label={translate(language, "Project")}>
               <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="input">
-                <option value="">{dashboard.data?.projects[0] ? "Use latest project" : "No project"}</option>
+                <option value="">{translate(language, dashboard.data?.projects[0] ? "Select a project" : "No project")}</option>
                 {(dashboard.data?.projects ?? []).map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.name}
@@ -5912,14 +7482,66 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
                 ))}
               </select>
             </Field>
-            <button className="primary-button" type="submit" disabled={!dashboard.data?.projects.length || generateReport.isPending}>
+            {selectedProject && (
+              <div className="rounded-md border border-white/8 bg-white/5 p-3 text-xs text-ink-400">
+                <ProjectFilterMetadata project={selectedProject} />
+              </div>
+            )}
+            <Field label={translate(language, "Report language")}>
+              <select className="input" value={reportLanguage} onChange={(event) => changeReportLanguage(event.target.value as AppLanguage)}>
+                {APP_LANGUAGES.map((option) => <option key={option.id} value={option.id}>{option.nativeLabel}</option>)}
+              </select>
+            </Field>
+            <Field label={translate(language, "File types")}>
+              <div className="mio-report-format-grid">
+                {(["DOCX", "PDF", "HTML"] as BulkReportFormat[]).map((format) => {
+                  const selected = formats.includes(format);
+                  return (
+                    <button
+                      key={format}
+                      type="button"
+                      className="mio-report-format-option"
+                      aria-pressed={selected}
+                      onClick={() => toggleReportFormat(format)}
+                    >
+                      <span>{format}</span>
+                      {selected ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+            <Field label={translate(language, "Where to save")}>
+              <div className="flex min-w-0 gap-2">
+                <input
+                  className="input min-w-0 flex-1"
+                  value={reportDestination || selectedProject?.exportFolder || settings.data?.exportFolder || ""}
+                  readOnly
+                  title={reportDestination || selectedProject?.exportFolder || settings.data?.exportFolder}
+                />
+                <button className="secondary-button mio-round-icon-button h-10 w-10 shrink-0 px-0" type="button" onClick={() => void chooseReportDestination()} aria-label={translate(language, "Choose folder")} title={translate(language, "Choose folder")}>
+                  <FolderOpen size={16} />
+                </button>
+              </div>
+            </Field>
+            <div className="mio-report-content-summary">
+              <div>
+                <div className="text-sm font-medium text-white">{translate(language, "Report content settings")}</div>
+                <div className="mt-1 text-xs text-ink-500">{sections.filter((section) => section.enabled).length} / {sections.length} {translate(language, "sections enabled")}</div>
+              </div>
+              <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => setReportPage("content")}>
+                <ListChecks size={14} />
+                {translate(language, "Edit")}
+              </button>
+            </div>
+            <button className="primary-button" type="submit" disabled={!selectedProject || formats.length === 0 || generateReport.isPending}>
               <FileDown size={16} />
-              {generateReport.isPending ? "Generating Report" : "Generate Report"}
+              {generateReport.isPending ? translate(language, "Generating Report") : translate(language, "Generate Report")}
             </button>
-            {(generateReport.isPending || reportProgress > 0) && (
+            {!generateReport.isPending && reportProgress > 0 && (
               <div className="rounded-md border border-white/8 bg-white/5 p-3">
                 <div className="mb-2 flex items-center justify-between text-xs">
-                  <span className="text-ink-400">{generateReport.isPending ? "Rendering HTML, PDF, and export assets" : "Report generation complete"}</span>
+                  <span className="text-ink-400">{translate(language, generateReport.isPending ? "Rendering report and export files" : "Report generation complete")}</span>
                   <span className="font-semibold text-signal-blue">{reportProgress}%</span>
                 </div>
                 <ProgressBar value={reportProgress} />
@@ -5927,73 +7549,108 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
             )}
             {generateReport.data && (
               <div className="rounded-md border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
-                Report generated at {generateReport.data.pdfPath}
+                {translate(language, "Report generated at")} {generateReport.data.pdfPath}
               </div>
             )}
           </form>
         </Panel>
-        <Panel title="Report History" icon={Archive}>
+        <Panel title={translate(language, "Generated Reports")} icon={Archive}>
           <div className="mio-report-history-list max-h-[520px] space-y-3 overflow-auto pr-1">
-            {(reports.data ?? []).map((report) => (
-              <div key={report.id} className="mio-report-history-card rounded-md border border-white/8 bg-white/5 p-4">
+            {(reports.data ?? []).map((report) => {
+              const reportFormats = report.formats?.length ? report.formats : ["PDF", "HTML"] as BulkReportFormat[];
+              const primaryPath =
+                (reportFormats.includes("PDF") ? report.pdfPath : null) ||
+                (reportFormats.includes("DOCX") ? report.docxPath : null) ||
+                report.htmlPath ||
+                report.pdfPath;
+              return (
+              <div key={report.id} className="mio-generated-report-row">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-white">{report.projectName}</div>
-                    <div className="text-xs text-ink-500">{formatDateTime(report.generatedAt ?? report.updatedAt)}</div>
+                    <div className="text-xs text-ink-500">
+                      {formatDateTime(report.generatedAt ?? report.updatedAt)} · {reportFormats.join(", ")}
+                    </div>
                   </div>
-                  <StatusPill status={report.status} />
                 </div>
-                <div className="mio-report-history-actions grid grid-cols-2 gap-2">
-                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.htmlPath || loadReportPreview.isPending} onClick={() => loadReportPreview.mutate(report.id)}>
+                {report.status === "DRAFT" && (
+                  <div className="mb-3 rounded-md border border-white/8 bg-white/5 p-2 text-xs text-ink-500">
+                    {translate(language, "This report is still being prepared. Final export actions will become available when generation completes.")}
+                  </div>
+                )}
+                <div className="mio-report-history-actions flex items-center gap-2">
+                  <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" disabled={report.status === "DRAFT" || !report.htmlPath || loadReportPreview.isPending} onClick={() => loadReportPreview.mutate(report.id)} aria-label={translate(language, "Preview")} title={translate(language, "Preview")}>
                     <Eye size={14} />
-                    Preview
                   </button>
-                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.pdfPath} onClick={() => report.pdfPath && void apiClient.openPath(report.pdfPath)}>
-                    <FileDown size={14} />
-                    PDF
+                  <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" disabled={report.status === "DRAFT" || !primaryPath} onClick={() => primaryPath && void apiClient.revealPath(primaryPath)} aria-label={translate(language, "Locate")} title={translate(language, "Locate")}>
+                    <FolderOpen size={14} />
                   </button>
-                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.htmlPath} onClick={() => report.htmlPath && void apiClient.openPath(report.htmlPath)}>
-                    <FileText size={14} />
-                    HTML
+                  <button className="secondary-button h-9 w-auto px-4 text-xs" type="button" disabled={report.status === "DRAFT" || !primaryPath} onClick={() => primaryPath && void apiClient.openPath(primaryPath)}>
+                    {translate(language, "Open")}
                   </button>
-                  <button className="secondary-button h-9 px-3 text-xs" type="button" disabled={!report.htmlPath || exportReportDocx.isPending} onClick={() => exportReportDocx.mutate(report.id)}>
-                    <FileDown size={14} />
-                    DOCX
-                  </button>
-                  <button className="secondary-button mio-danger-round h-9 px-3 text-xs" type="button" disabled={deleteReport.isPending} onClick={() => confirmDeleteReport(report)}>
+                  <button className="secondary-button mio-danger-round mio-round-icon-button ml-auto h-9 w-9 px-0" type="button" disabled={deleteReport.isPending} onClick={() => confirmDeleteReport(report)} aria-label={translate(language, "Delete")} title={translate(language, "Delete")}>
                     <Trash2 size={14} />
-                    Delete
                   </button>
                 </div>
               </div>
-            ))}
-            {(reports.data ?? []).length === 0 && <EmptyState label="No generated reports yet." />}
+            );})}
+            {(reports.data ?? []).length === 0 && <EmptyState label={translate(language, "No generated reports yet.")} />}
           </div>
         </Panel>
       </div>
-      <Panel title="Report Workflow Sections" icon={ListChecks}>
-        <div className="grid grid-cols-2 gap-3">
-          {sections.map((section) => (
-            <button
-              type="button"
-              key={section.id}
-              className={[
-                "rounded-md border p-4 text-left transition",
-                section.enabled ? "border-signal-blue/35 bg-signal-blue/10" : "border-white/8 bg-white/5 text-ink-500"
-              ].join(" ")}
-              onClick={() =>
-                setSections((current) =>
-                  current.map((item) => (item.id === section.id ? { ...item, enabled: !item.enabled } : item))
-                )
-              }
-            >
-              <div className="mb-2 flex items-center justify-between text-sm font-medium">
-                {section.label}
-                {section.enabled && <CheckCircle2 size={16} className="text-signal-blue" />}
-              </div>
-              <div className="text-xs leading-5 text-ink-500">{section.requiredEvidence.slice(0, 3).join(", ")}</div>
-            </button>
-          ))}
+      <Panel title="2. Choose Report Content" icon={ListChecks} className="mio-report-inline-content-hidden">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/8 bg-white/[0.04] px-3 py-2 text-xs">
+          <span className="text-ink-400">{translate(language, "Enable the sections needed in the final report. Drag section groups to reorder them.")}</span>
+          <span className="rounded-full bg-white/8 px-2.5 py-1 font-medium text-ink-200">
+            {sections.filter((section) => section.enabled).length} {translate(language, "of")} {sections.length} {translate(language, "enabled")}
+          </span>
+        </div>
+        <div className="space-y-3">
+          {groupOrder.map((groupId) => {
+            const group = REPORT_SECTION_GROUPS.find((item) => item.id === groupId);
+            if (!group) return null;
+            const children = group.sectionIds
+              .map((sectionId) => sections.find((section) => section.id === sectionId))
+              .filter((section): section is ReportSectionConfig => Boolean(section));
+            return (
+              <section
+                id={`report-group-${group.id}`}
+                key={group.id}
+                draggable
+                onDragStart={() => setDraggedGroupId(group.id)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => moveReportGroup(group.id)}
+                className="scroll-mt-24 rounded-md border border-white/8 bg-white/5 p-3"
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-white">{translate(language, group.title)}</div>
+                    <div className="mt-1 text-xs text-ink-500">{translate(language, "Drag this parent section to change report order.")}</div>
+                  </div>
+                  <Rows3 size={16} className="cursor-grab text-ink-500" aria-label={`Reorder ${group.title}`} />
+                </div>
+                <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                  {children.map((section) => (
+                    <button
+                      type="button"
+                      key={section.id}
+                      className={[
+                        "rounded-md border p-3 text-left transition",
+                        section.enabled ? "border-signal-blue/35 bg-signal-blue/10" : "border-white/8 bg-white/5 text-ink-500"
+                      ].join(" ")}
+                      onClick={() => toggleReportSection(section.id)}
+                    >
+                      <div className="mb-1 flex items-center justify-between text-sm font-medium">
+                        {section.label}
+                        {section.enabled && <CheckCircle2 size={16} className="text-signal-blue" />}
+                      </div>
+                      <div className="text-xs leading-5 text-ink-500">{section.requiredEvidence.slice(0, 3).join(", ")}</div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       </Panel>
       </div>
@@ -6003,8 +7660,75 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   );
 }
 
+type ReportPreviewHeading = {
+  id: string;
+  label: string;
+  level: number;
+};
+
+function prepareContinuousReportPreview(html: string): { html: string; headings: ReportPreviewHeading[] } {
+  const documentNode = new DOMParser().parseFromString(html, "text/html");
+  const headings = Array.from(documentNode.querySelectorAll("h1, h2, h3, summary"))
+    .map((heading, index) => {
+      const label = heading.textContent?.replace(/\s+/gu, " ").trim().slice(0, 100) ?? "";
+      if (!label) {
+        return undefined;
+      }
+      const id = heading.id || `mio-report-heading-${index + 1}`;
+      heading.id = id;
+      return {
+        id,
+        label,
+        level: heading.tagName === "H1" ? 1 : heading.tagName === "H2" || heading.tagName === "SUMMARY" ? 2 : 3
+      } satisfies ReportPreviewHeading;
+    })
+    .filter((heading): heading is ReportPreviewHeading => Boolean(heading))
+    .filter((heading, index, entries) => index === 0 || heading.label.toLocaleLowerCase() !== entries[index - 1]?.label.toLocaleLowerCase());
+  const previewStyle = documentNode.createElement("style");
+  previewStyle.textContent = `
+    html { scroll-behavior: smooth; }
+    body { max-width: 980px !important; min-height: 100vh; margin: 0 auto !important; padding: 24px !important; box-shadow: none !important; }
+    .report-shell { overflow: hidden; border: 1px solid rgba(127, 127, 127, 0.18); border-radius: 12px; background: var(--report-panel, #fff); }
+    .inspector-header { margin: 0 !important; border: 0 !important; border-radius: 0 !important; padding: 28px 30px !important; box-shadow: none !important; }
+    .page, .report-section, details.page, section.page {
+      min-height: 0 !important;
+      margin: 0 !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      break-before: auto !important;
+      break-after: auto !important;
+      page-break-before: auto !important;
+      page-break-after: auto !important;
+    }
+    details.report-section {
+      margin: 0 !important;
+      border: 0 !important;
+      border-top: 1px solid rgba(127, 127, 127, 0.18) !important;
+      border-radius: 0 !important;
+      padding: 22px 30px !important;
+      background: transparent !important;
+      box-shadow: none !important;
+    }
+    details.store-report { box-shadow: none !important; }
+    [id^="mio-report-heading-"] { scroll-margin-top: 28px; }
+    @media print { body { max-width: none !important; } }
+  `;
+  documentNode.head.append(previewStyle);
+  return { html: `<!doctype html>${documentNode.documentElement.outerHTML}`, headings };
+}
+
 function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; onClose: () => void }) {
+  const language = useUiStore((state) => state.language);
   const [copied, setCopied] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const preview = useMemo(() => prepareContinuousReportPreview(report.html), [report.html]);
+  const reportOpenTargets = useMemo(() => {
+    const formats = report.formats?.length ? report.formats : ["HTML"] as BulkReportFormat[];
+    return formats.flatMap((format) => {
+      const path = format === "PDF" ? report.pdfPath : format === "DOCX" ? report.docxPath : report.htmlPath;
+      return path ? [{ format, path }] : [];
+    });
+  }, [report.docxPath, report.formats, report.htmlPath, report.pdfPath]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -6033,36 +7757,60 @@ function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; on
     window.setTimeout(() => setCopied(false), 1800);
   }
 
+  function goToHeading(id: string) {
+    iframeRef.current?.contentDocument?.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   const modal = (
     <div
       className="mio-report-preview-overlay fixed inset-0 z-[150] overflow-y-auto bg-black/55 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Report preview"
+      aria-label={translate(language, "Report preview")}
     >
       <div className="flex min-h-full items-start justify-center">
         <div className="mio-panel mio-report-preview-modal flex h-[calc(100dvh-32px)] w-[min(1180px,calc(100vw-32px))] min-w-0 flex-col overflow-hidden rounded-[18px] border border-white/12 bg-ink-900/95 shadow-glow">
           <div className="mio-report-preview-header sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-white/12 bg-ink-900/95 p-4 backdrop-blur-xl">
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">Report Preview</div>
+              <div className="text-sm font-semibold text-white">{translate(language, "Report Preview")}</div>
               <div className="mt-1 truncate text-xs text-ink-500">{report.htmlPath}</div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void copyReport()}>
                 <Copy size={14} />
-                {copied ? "Copied" : "Copy Report"}
+                {translate(language, copied ? "Copied" : "Copy Report")}
               </button>
-              <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(report.htmlPath)}>
-                <FileText size={14} />
-                Open HTML
-              </button>
-              <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onClose} aria-label="Close report preview">
+              {reportOpenTargets.map((target) => (
+                <button key={target.format} className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(target.path)}>
+                  <FileText size={14} />
+                  {translate(language, "Open")} {target.format}
+                </button>
+              ))}
+              <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onClose} aria-label={translate(language, "Close report preview")}>
                 <X size={16} />
               </button>
             </div>
           </div>
-          <div className="min-h-0 flex-1 p-4 pt-3">
-            <iframe title="Report preview" srcDoc={report.html} className="mio-report-preview-frame h-full min-h-0 w-full rounded-xl border border-white/12 bg-white" />
+          <div className="mio-report-preview-workspace min-h-0 flex-1">
+            <aside className="mio-report-preview-outline" aria-label={translate(language, "Report headings")}>
+              <div className="mio-report-preview-outline-title">{translate(language, "Contents")}</div>
+              <nav>
+                {preview.headings.map((heading) => (
+                  <button
+                    key={heading.id}
+                    type="button"
+                    className="mio-report-preview-outline-item"
+                    style={{ paddingInlineStart: `${10 + (heading.level - 1) * 12}px` }}
+                    onClick={() => goToHeading(heading.id)}
+                  >
+                    {heading.label}
+                  </button>
+                ))}
+              </nav>
+            </aside>
+            <div className="mio-report-preview-document-shell">
+              <iframe ref={iframeRef} title={translate(language, "Report preview")} srcDoc={preview.html} className="mio-report-preview-frame h-full min-h-0 w-full border-0 bg-white" />
+            </div>
           </div>
         </div>
       </div>
@@ -6070,222 +7818,6 @@ function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; on
   );
 
   return createPortal(modal, appPortalRoot());
-}
-
-function SettingsView() {
-  const queryClient = useQueryClient();
-  const settings = useQuery({ queryKey: ["settings"], queryFn: apiClient.settings });
-  const platform = useQuery({ queryKey: ["platform"], queryFn: apiClient.platform });
-  const health = useQuery({ queryKey: ["health"], queryFn: apiClient.health });
-  const browsers = useQuery({ queryKey: ["browsers"], queryFn: apiClient.browsers });
-  type SettingsFormState = SaveSettingsPayload &
-    Pick<SettingsPayload, "openAiKeyConfigured" | "geminiKeyConfigured">;
-  const [form, setForm] = useState<SettingsFormState | null>(null);
-  const value: SettingsFormState | null = form ?? settings.data ?? null;
-  const save = useMutation({
-    mutationFn: apiClient.saveSettings,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["settings"] })
-  });
-
-  if (!value) {
-    return <EmptyState label="Loading settings." />;
-  }
-
-  function update(patch: Partial<SettingsFormState>) {
-    if (!value) {
-      return;
-    }
-    setForm({ ...value, ...patch });
-  }
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!value) {
-      return;
-    }
-    save.mutate({
-      marketplace: value.marketplace,
-      theme: value.theme,
-      browser: value.browser,
-      exportFolder: value.exportFolder,
-      screenshotFolder: value.screenshotFolder,
-      language: value.language,
-      concurrency: value.concurrency,
-      openAiApiKey: value.openAiApiKey,
-      geminiApiKey: value.geminiApiKey
-    });
-  }
-
-  return (
-    <section className="space-y-5">
-      <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-5">
-        <Panel title="Settings" icon={Settings}>
-        <form className="grid grid-cols-2 gap-4" onSubmit={submit}>
-          <Field label="Theme">
-            <select value={value.theme} onChange={(event) => update({ theme: event.target.value as SaveSettingsPayload["theme"] })} className="input">
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">System</option>
-            </select>
-          </Field>
-          <Field label="Preferred Browser">
-            <select value={value.browser} onChange={(event) => update({ browser: event.target.value as SaveSettingsPayload["browser"] })} className="input">
-              {(browsers.data ?? [{ id: "chromium" as const, name: "Bundled Chromium", available: true, profilePath: "" }]).map((browser) => (
-                <option key={browser.id} value={browser.id} disabled={!browser.available}>
-                  {browser.name}
-                  {browser.available ? "" : " (not detected)"}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Export folder">
-            <input value={value.exportFolder} onChange={(event) => update({ exportFolder: event.target.value })} className="input" />
-          </Field>
-          <Field label="Screenshot folder">
-            <input value={value.screenshotFolder} onChange={(event) => update({ screenshotFolder: event.target.value })} className="input" />
-          </Field>
-          <Field label="Language">
-            <select value={value.language} onChange={(event) => update({ language: event.target.value })} className="input">
-              {APP_LANGUAGES.map((language) => (
-                <option key={language.id} value={language.id}>
-                  {language.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Concurrency">
-            <input
-              type="number"
-              min={1}
-              max={5}
-              value={value.concurrency}
-              onChange={(event) => update({ concurrency: Number(event.target.value) })}
-              className="input"
-            />
-          </Field>
-          <Field label="OpenAI API key">
-            <input type="password" onChange={(event) => update({ openAiApiKey: event.target.value })} className="input" placeholder={value.openAiKeyConfigured ? "Configured" : ""} />
-          </Field>
-          <Field label="Gemini API key">
-            <input type="password" onChange={(event) => update({ geminiApiKey: event.target.value })} className="input" placeholder={value.geminiKeyConfigured ? "Configured" : ""} />
-          </Field>
-          <button className="primary-button col-span-2" type="submit" disabled={save.isPending}>
-            <KeyRound size={16} />
-            Save Settings
-          </button>
-        </form>
-        </Panel>
-        <Panel title="Runtime" icon={TerminalSquare}>
-        <div className="space-y-3 text-sm text-ink-300">
-          <StatusLine label="OpenAI" active={value.openAiKeyConfigured} />
-          <StatusLine label="Gemini" active={value.geminiKeyConfigured} />
-          <StatusLine label="Marketplace adapters" active />
-          <StatusLine label="Local database" active />
-          <div className="rounded-md border border-white/8 bg-white/5 p-3">
-            <div className="mb-2 text-xs uppercase tracking-[0.12em] text-ink-500">Application</div>
-            <div className="mb-3 space-y-1 break-all text-xs leading-5 text-ink-300">
-              <div>Product: {health.data?.product ?? APP_DISPLAY_NAME}</div>
-              <div>Version: {health.data?.version ?? "-"}</div>
-              <div>Packaged: {platform.data?.isPackaged ? "Yes" : "No"}</div>
-            </div>
-            <div className="mb-2 text-xs uppercase tracking-[0.12em] text-ink-500">
-              {platform.data?.os ?? "Platform"} folders
-            </div>
-            <div className="space-y-1 break-all text-xs leading-5 text-ink-300">
-              <div>Data: {platform.data?.directories.data ?? "-"}</div>
-              <div>Reports: {platform.data?.directories.reports ?? "-"}</div>
-              <div>Browser profiles: {platform.data?.directories.browserProfiles ?? "-"}</div>
-            </div>
-            {platform.data?.directories.appData && (
-              <button className="primary-button mt-3" type="button" onClick={() => void apiClient.openPath(platform.data.directories.appData)}>
-                <Archive size={16} />
-                Open App Folder
-              </button>
-            )}
-          </div>
-        </div>
-        </Panel>
-      </div>
-      <Panel title="AI API Key Setup" icon={KeyRound}>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <ApiKeyGuide
-            provider="OpenAI"
-            configured={value.openAiKeyConfigured}
-            steps={[
-              "Open the OpenAI API Keys page and sign in.",
-              "Select Create new secret key and copy it when it is shown.",
-              "Paste it into OpenAI API key above, then save settings."
-            ]}
-            primaryLabel="Open OpenAI API Keys"
-            primaryUrl="https://platform.openai.com/api-keys"
-            documentationUrl="https://help.openai.com/en/articles/4936850-where-do-i-find-my-openai-api-key"
-          />
-          <ApiKeyGuide
-            provider="Gemini"
-            configured={value.geminiKeyConfigured}
-            steps={[
-              "Open Google AI Studio and sign in with your Google account.",
-              "Select Create API key, choose a project, and copy the generated key.",
-              "Paste it into Gemini API key above, then save settings."
-            ]}
-            primaryLabel="Open Google AI Studio"
-            primaryUrl="https://aistudio.google.com/app/apikey"
-            documentationUrl="https://ai.google.dev/gemini-api/docs/api-key"
-          />
-        </div>
-        <div className="mt-4 flex items-start gap-3 rounded-2xl bg-signal-amber/10 p-4 text-sm leading-6 text-ink-400">
-          <ShieldCheck className="mt-0.5 shrink-0 text-signal-amber" size={18} />
-          <span>API keys are secrets. Keep each key private, do not place it in screenshots or source control, and rotate it immediately if it is exposed.</span>
-        </div>
-      </Panel>
-    </section>
-  );
-}
-
-function ApiKeyGuide({
-  provider,
-  configured,
-  steps,
-  primaryLabel,
-  primaryUrl,
-  documentationUrl
-}: {
-  provider: string;
-  configured: boolean;
-  steps: string[];
-  primaryLabel: string;
-  primaryUrl: string;
-  documentationUrl: string;
-}) {
-  return (
-    <article className="rounded-[24px] bg-white/6 p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-base font-semibold text-white">{provider}</div>
-          <div className="mt-1 text-xs text-ink-500">Official provider setup</div>
-        </div>
-        <span className={configured ? "status-pill status-running" : "status-pill status-pending"}>{configured ? "Configured" : "Not configured"}</span>
-      </div>
-      <ol className="mt-4 space-y-3">
-        {steps.map((step, index) => (
-          <li key={step} className="flex gap-3 text-sm leading-6 text-ink-300">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal-blue/14 text-xs font-semibold text-signal-blue">{index + 1}</span>
-            <span>{step}</span>
-          </li>
-        ))}
-      </ol>
-      <div className="mt-5 flex flex-wrap gap-2">
-        <button className="primary-button h-10 w-auto rounded-full px-4 text-sm" type="button" onClick={() => void apiClient.openUrl(primaryUrl)}>
-          <ExternalLink size={15} />
-          {primaryLabel}
-        </button>
-        <button className="secondary-button h-10 w-auto rounded-full px-4 text-sm" type="button" onClick={() => void apiClient.openUrl(documentationUrl)}>
-          <FileText size={15} />
-          Official guide
-        </button>
-      </div>
-    </article>
-  );
 }
 
 function PlatformButton({
@@ -6307,16 +7839,16 @@ function PlatformButton({
     <button
       type="button"
       className={[
-        "flex h-12 items-center justify-center gap-2 rounded-md border px-3 text-sm font-semibold transition",
-        active ? "border-signal-blue/45 bg-signal-blue/12 text-white" : "border-white/8 bg-white/5 text-ink-300 hover:text-white",
-        disabled ? "cursor-not-allowed opacity-45 hover:bg-white/5 hover:text-ink-300" : ""
+        "mio-platform-tile",
+        active ? "mio-platform-tile-active" : "",
+        disabled ? "mio-platform-tile-disabled" : ""
       ].join(" ")}
       onClick={onClick}
       disabled={disabled}
     >
-      <Icon size={16} />
+      <Icon size={17} strokeWidth={1.65} />
       <span className="truncate">{label}</span>
-      {badge && <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-400">{badge}</span>}
+      {badge && <span className="mio-platform-badge">{badge}</span>}
     </button>
   );
 }
@@ -6337,102 +7869,39 @@ function SegmentButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={[
-        "inline-flex h-9 items-center justify-center rounded-md border text-sm transition",
-        compact ? "gap-1.5 px-2" : "gap-2 px-3",
-        active ? "border-signal-blue/45 bg-signal-blue/12 text-white" : "border-white/8 bg-white/5 text-ink-400 hover:text-white",
-        disabled ? "cursor-not-allowed opacity-45" : ""
-      ].join(" ")}
+    <Chip
+      active={active}
+      className={compact ? "mio-chip-compact" : ""}
       onClick={onClick}
       disabled={disabled}
     >
       <Icon size={15} />
       {children}
-    </button>
-  );
-}
-
-function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
-  return (
-    <div className="mio-metric-card rounded-md border border-white/8 bg-white/6 p-4">
-      <div className="mb-4 flex items-center justify-between text-ink-500">
-        <span className="text-xs uppercase tracking-[0.14em]">{label}</span>
-        <Icon size={17} />
-      </div>
-      <div className="text-3xl font-semibold text-white">{value}</div>
-    </div>
-  );
-}
-
-function Panel({
-  title,
-  icon: Icon,
-  action,
-  className,
-  children
-}: {
-  title: string;
-  icon: LucideIcon;
-  action?: ReactNode;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className={["mio-panel rounded-[18px] border border-white/8 bg-ink-900/72 p-5", className ?? ""].join(" ")}>
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm font-semibold text-white">
-          <Icon size={17} className="text-signal-blue" />
-          {title}
-        </div>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="block space-y-2">
-      <span className="text-xs font-medium uppercase tracking-[0.12em] text-ink-500">{label}</span>
-      {children}
-    </div>
+    </Chip>
   );
 }
 
 function InfoLine({ label, value }: { label: string; value: string }) {
+  const language = useUiStore((state) => state.language);
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{label}</div>
+      <div className="text-[11px] uppercase tracking-[0.12em] text-ink-500">{translate(language, label)}</div>
       <div className="mt-1 break-words text-sm text-white">{value}</div>
     </div>
   );
 }
 
-function StatusLine({ label, active }: { label: string; active: boolean }) {
-  return (
-    <div className="flex items-center justify-between rounded-md border border-white/8 bg-white/5 px-3 py-2">
-      <span>{label}</span>
-      <span className={active ? "text-signal-green" : "text-ink-500"}>{active ? "Ready" : "Not configured"}</span>
-    </div>
-  );
-}
-
-function StatusPill({ status }: { status: string }) {
-  return <span className="rounded-full bg-signal-green/15 px-2 py-1 text-xs text-signal-green">{status}</span>;
-}
-
 function ProjectStatusPill({ completed }: { completed: boolean }) {
+  const language = useUiStore((state) => state.language);
   return (
     <span className={["shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold", completed ? "bg-signal-green/15 text-signal-green" : "bg-signal-amber/15 text-signal-amber"].join(" ")}>
-      {completed ? "Completed" : "Incomplete"}
+      {translate(language, completed ? "Completed" : "Incomplete")}
     </span>
   );
 }
 
 function LoadStatePill({ state }: { state: "idle" | "loading" | "ready" | "failed" }) {
+  const language = useUiStore((state) => state.language);
   const labels: Record<typeof state, string> = {
     idle: "Idle",
     loading: "Loading",
@@ -6449,7 +7918,7 @@ function LoadStatePill({ state }: { state: "idle" | "loading" | "ready" | "faile
         state === "idle" ? "border-white/10 bg-white/6 text-ink-300" : ""
       ].join(" ")}
     >
-      {labels[state]}
+      {translate(language, labels[state])}
     </div>
   );
 }
@@ -6462,14 +7931,6 @@ function AndroidStatusTile({ label, value, ready }: { label: string; value: stri
         {ready ? <CheckCircle2 size={14} className="text-signal-green" /> : <Circle size={12} className="text-ink-500" />}
       </div>
       <div className="truncate text-sm text-white">{value}</div>
-    </div>
-  );
-}
-
-function EmptyState({ label }: { label: string }) {
-  return (
-    <div className="rounded-md border border-dashed border-white/12 bg-white/[0.03] p-6 text-sm text-ink-500">
-      {label}
     </div>
   );
 }
@@ -6487,11 +7948,10 @@ function CircularProgress({ value }: { value: number }) {
   const normalized = Math.max(0, Math.min(100, Math.round(value)));
   return (
     <div
-      className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-signal-blue"
-      style={{ background: `conic-gradient(#62a8ff ${normalized * 3.6}deg, rgba(148, 163, 184, 0.18) 0deg)` }}
+      className="mio-circular-progress relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold"
+      style={{ "--mio-progress-angle": `${normalized * 3.6}deg` } as CSSProperties}
       aria-label={`${normalized}% complete`}
     >
-      <div className="absolute inset-[4px] rounded-full bg-white dark:bg-ink-900" />
       <span className="relative">{normalized}%</span>
     </div>
   );
@@ -6502,7 +7962,7 @@ function collectionStageLabel(stage: CollectionStage): string {
     case "PRODUCT_DETAILS":
       return "Part 2 - Product Details";
     case "EVALUATION_KEY_STORE":
-      return "Part 3 - Evaluation and Key Store";
+      return "Part 3 - Key Store Pages";
     case "KEYWORD_GENERAL":
     default:
       return "Part 1 - Keyword General";
@@ -6533,8 +7993,12 @@ function defaultCollectionState(): CollectionState {
       shopTypes: []
     },
     qualifiedProductIds: [],
+    qualifiedProductReferences: [],
+    qualifiedProductsInitialized: false,
     qualifiedProductsApproved: false,
-    storeCollectionCandidates: []
+    storeCollectionCandidates: [],
+    storeListInitialized: false,
+    storeListApproved: false
   };
 }
 
@@ -6542,23 +8006,156 @@ function projectCollectionState(project: ProjectSummary): CollectionState {
   return (project as ProjectSummary & { collectionState?: CollectionState }).collectionState ?? defaultCollectionState();
 }
 
-function isProjectComplete(project: ProjectSummary): boolean {
-  return projectCollectionState(project).progressPercent >= 100;
+function projectFilterMetadata(project: ProjectSummary): { storeType: string; priceRange: string } {
+  const filters = projectCollectionState(project).searchFilters;
+  const labels = (filters?.shopTypes ?? []).map(
+    (shopType) => SHOPEE_SHOP_TYPE_OPTIONS.find((option) => option.id === shopType)?.label ?? shopType
+  );
+  const priceMin = filters?.priceMin;
+  const priceMax = filters?.priceMax;
+  return {
+    storeType: labels.length > 0 ? labels.join(", ") : "All shop types",
+    priceRange:
+      priceMin !== undefined && priceMax !== undefined
+        ? `${formatCurrency(priceMin)} - ${formatCurrency(priceMax)}`
+        : priceMin !== undefined
+          ? `From ${formatCurrency(priceMin)}`
+          : priceMax !== undefined
+            ? `Up to ${formatCurrency(priceMax)}`
+            : "All prices"
+  };
 }
 
-function projectMediaCount(detail: ProjectDetailPayload): number {
-  const productMedia = detail.products.flatMap((product) => [
-    product.imageUrl,
-    ...product.images,
-    ...product.videos,
-    ...product.descriptionImages,
-    ...product.reviewMediaImages,
-    ...product.reviewMediaVideos
-  ].filter((value): value is string => Boolean(value)));
-  return uniqueMediaValues([
-    ...detail.assets.map((asset) => asset.path),
-    ...productMedia
-  ]).length;
+function localizedProjectFilterMetadata(project: ProjectSummary, language: AppLanguage): { storeType: string; priceRange: string } {
+  const filters = projectCollectionState(project).searchFilters;
+  const storeTypes = (filters?.shopTypes ?? []).map(
+    (shopType) => translate(language, SHOPEE_SHOP_TYPE_OPTIONS.find((option) => option.id === shopType)?.label ?? shopType)
+  );
+  const priceMin = filters?.priceMin;
+  const priceMax = filters?.priceMax;
+  return {
+    storeType: storeTypes.length > 0 ? storeTypes.join(", ") : translate(language, "All shop types"),
+    priceRange:
+      priceMin !== undefined && priceMax !== undefined
+        ? `${formatCurrency(priceMin)} - ${formatCurrency(priceMax)}`
+        : priceMin !== undefined
+          ? `${translate(language, "From")} ${formatCurrency(priceMin)}`
+          : priceMax !== undefined
+            ? `${translate(language, "Up to")} ${formatCurrency(priceMax)}`
+            : translate(language, "All prices")
+  };
+}
+
+function ProjectFilterMetadata({ project, chips = false }: { project: ProjectSummary; chips?: boolean }) {
+  const language = useUiStore((state) => state.language);
+  const metadata = localizedProjectFilterMetadata(project, language);
+  return (
+    <div className={chips ? "mio-card-chip-row" : "mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-400"}>
+      <span className={chips ? "mio-card-chip" : "truncate"}>{metadata.storeType}</span>
+      <span className={chips ? "mio-card-chip" : "truncate"}>{metadata.priceRange}</span>
+    </div>
+  );
+}
+
+function orderReportSections(
+  sections: ReportSectionConfig[],
+  savedOrder: ReportSectionId[]
+): ReportSectionConfig[] {
+  const positions = new Map(savedOrder.map((id, index) => [id, index]));
+  return [...sections].sort(
+    (left, right) =>
+      (positions.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (positions.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
+function normalizeReportSections(
+  savedSections: ReportSectionConfig[] | null,
+  savedOrder: ReportSectionId[]
+): ReportSectionConfig[] {
+  if (!savedSections?.length) {
+    return DEFAULT_REPORT_SECTIONS.map((section) => ({ ...section }));
+  }
+  const savedById = new Map(savedSections?.map((section) => [section.id, section]) ?? []);
+  const currentSections = DEFAULT_REPORT_SECTIONS.map((defaultSection) => {
+    const saved = savedById.get(defaultSection.id);
+    return saved ? { ...defaultSection, enabled: saved.enabled } : { ...defaultSection };
+  });
+  const currentIds = new Set(currentSections.map((section) => section.id));
+  const currentSavedOrder = savedOrder.filter((sectionId) => currentIds.has(sectionId));
+  return orderReportSections(currentSections, currentSavedOrder);
+}
+
+function orderReportSectionGroups(savedOrder: ReportSectionId[]): ReportSectionGroupId[] {
+  const positions = new Map(savedOrder.map((id, index) => [id, index]));
+  return [...REPORT_SECTION_GROUPS]
+    .sort((left, right) => {
+      const leftPosition = Math.min(
+        ...left.sectionIds.map((id) => positions.get(id) ?? Number.MAX_SAFE_INTEGER)
+      );
+      const rightPosition = Math.min(
+        ...right.sectionIds.map((id) => positions.get(id) ?? Number.MAX_SAFE_INTEGER)
+      );
+      return leftPosition - rightPosition;
+    })
+    .map((group) => group.id);
+}
+
+function flattenReportSectionsByGroup(
+  sections: ReportSectionConfig[],
+  groupOrder: ReportSectionGroupId[]
+): ReportSectionConfig[] {
+  const groupedIds = new Set<ReportSectionId>();
+  const ordered = groupOrder.flatMap((groupId) => {
+    const group = REPORT_SECTION_GROUPS.find((item) => item.id === groupId);
+    if (!group) {
+      return [];
+    }
+    const groupSectionIds = new Set<ReportSectionId>(group.sectionIds);
+    group.sectionIds.forEach((sectionId) => groupedIds.add(sectionId));
+    return sections.filter((section) => groupSectionIds.has(section.id));
+  });
+  return [...ordered, ...sections.filter((section) => !groupedIds.has(section.id))];
+}
+
+function sanitizeReportFileName(value: string): string {
+  const withoutControlCharacters = Array.from(value, (character) =>
+    character.charCodeAt(0) <= 31 ? "-" : character,
+  ).join("");
+  const sanitized = withoutControlCharacters
+    .replace(/[<>:"/\\|?*]/g, "-")
+    .replace(/[.\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${sanitized.replace(/(?:\.pdf)+$/i, "") || "marketplace-report"}.pdf`;
+}
+
+function buildReportFileName(project: ProjectSummary, template: string): string {
+  const metadata = projectFilterMetadata(project);
+  const timestamp = new Date();
+  const replacements: Record<string, string> = {
+    projectName: project.name,
+    storeType: metadata.storeType,
+    priceRange: metadata.priceRange,
+    date: [
+      timestamp.getFullYear(),
+      String(timestamp.getMonth() + 1).padStart(2, "0"),
+      String(timestamp.getDate()).padStart(2, "0")
+    ].join("-"),
+    time: [
+      String(timestamp.getHours()).padStart(2, "0"),
+      String(timestamp.getMinutes()).padStart(2, "0")
+    ].join("-")
+  };
+  const resolved = template.replace(
+    /\{(projectName|storeType|priceRange|date|time)\}/g,
+    (_match, key: string) => replacements[key] ?? ""
+  );
+  return sanitizeReportFileName(resolved);
+}
+
+function isProjectComplete(project: ProjectSummary): boolean {
+  return projectCollectionState(project).progressPercent >= 100;
 }
 
 function stageCompletionButtonLabel(stage: CollectionStage): string {
@@ -6568,7 +8165,7 @@ function stageCompletionButtonLabel(stage: CollectionStage): string {
     case "PRODUCT_DETAILS":
       return "Collection Complete";
     case "EVALUATION_KEY_STORE":
-      return "Open Evaluation";
+      return "Store Page List";
     default:
       return "Done";
   }
@@ -6639,10 +8236,12 @@ function isCollectionStepComplete(step: CollectionStep, stepAssetPaths: Record<s
   if (stepAssetPaths[step.id]) {
     return true;
   }
-  if (step.stage !== "PRODUCT_DETAILS" || !step.subActions?.length) {
+  if (!step.subActions?.length) {
     return false;
   }
-  return step.subActions.every((action) => Boolean(stepAssetPaths[stepProgressKey(step, action.id)]));
+  return step.subActions
+    .filter((action) => action.metadata?.optional !== true)
+    .every((action) => Boolean(stepAssetPaths[stepProgressKey(step, action.id)]));
 }
 
 function relatedShopHomepageProgressKeys(
@@ -6748,14 +8347,34 @@ function buildShopeeSteps(
   const storeReady = isShopeeStorePage(currentUrl);
   const hasRelevanceProducts = products.some((product) => product.source === "Relevance");
   const hasTopSalesProducts = products.some((product) => product.source === "Top Sales");
-  const rankedKeyProducts = selectKeyProductCandidates(products, project.keyword, 20);
-  const rankedKeyProductsById = new Map(rankedKeyProducts.map((product) => [product.id, product]));
-  const keyProducts = collectionState.qualifiedProductIds?.length
-    ? collectionState.qualifiedProductIds
-        .map((productId) => rankedKeyProductsById.get(productId) ?? products.find((product) => product.id === productId))
-        .filter((product): product is ProjectProductEvidence => Boolean(product))
-    : rankedKeyProducts.slice(0, 10);
-  const candidateStores = buildStoreCollectionCandidates(keyProducts, storeCollectionCandidates);
+  const selectableKeyProducts = allKeyProductCandidates(products, project.keyword);
+  const rankedKeyProducts = rankQualifiedProducts(selectableKeyProducts).slice(0, 120);
+  const selectableById = new Map(selectableKeyProducts.map((product) => [product.id, product]));
+  const keyProducts = collectionState.qualifiedProductReferences?.length
+    ? resolveQualifiedProductReferences(selectableKeyProducts, collectionState.qualifiedProductReferences)
+    : collectionState.qualifiedProductsInitialized
+      ? (collectionState.qualifiedProductIds ?? [])
+          .map((productId) => selectableById.get(productId))
+          .filter((product): product is ProjectProductEvidence => Boolean(product))
+      : rankedKeyProducts.slice(0, 10);
+  const legacyStores = (detail?.stores ?? []).map((store) => ({
+    id: store.id,
+    storeName: store.name,
+    storeUrl: store.url,
+    storeType: store.storeType,
+    shopId: store.marketplaceStoreId
+  }));
+  const candidateStores = resolveCanonicalStoreList(
+    keyProducts,
+    storeCollectionCandidates,
+    Boolean(collectionState.storeListInitialized),
+    legacyStores
+  ).map((candidate) => {
+    const collectedStore = detail ? findCollectedStore(detail, candidate) : undefined;
+    return collectedStore?.marketplaceStoreId && !candidate.shopId
+      ? { ...candidate, shopId: collectedStore.marketplaceStoreId }
+      : candidate;
+  });
 
   const discoverySteps: CollectionStep[] = [
     {
@@ -6891,49 +8510,18 @@ function buildShopeeSteps(
     }
   ];
 
-  const evaluationStep: CollectionStep = {
-    id: "evaluation-phase-scoring",
-    stage: "EVALUATION_KEY_STORE",
-    section: "Evaluation Phase",
-    label: "Prepare Potential Stores",
-    kind: "STORE_HOME",
-    mode: "PROCESS",
-    instruction: "Review the distinct stores declared by qualified products, add any manual store, and choose optional evidence before starting collection.",
-    subActions: [
-      {
-        id: "potential-stores",
-        label: "Potential Store cards",
-        mode: "sync",
-        description: "Deduplicate qualified products by store and show one card per store."
-      },
-      {
-        id: "ai-scoring",
-        label: "AI Scoring",
-        mode: "sync",
-        description: "Run scoring after store details, ratings, categories, products, and visual evidence are collected."
-      },
-      {
-        id: "store-collection",
-        label: "Store collection",
-        mode: "background",
-        description: "Collect evidence for every listed store instead of locking collection to one winner."
-      }
-    ],
-    ready: candidateStores.length > 0
-  };
-  const storeSteps: CollectionStep[] = [
-    evaluationStep,
-    ...candidateStores.flatMap((candidate) => buildShopeeStoreCollectionSteps(candidate, currentUrl, storeReady))
-  ];
+  const storeSteps = candidateStores.map((candidate) =>
+    buildShopeeStoreCollectionStep(candidate, currentUrl, storeReady)
+  );
 
   return [...discoverySteps, ...genericProductSteps, ...productSteps, ...storeSteps];
 }
 
-function buildShopeeStoreCollectionSteps(
+function buildShopeeStoreCollectionStep(
   candidate: StoreCollectionCandidate,
   currentUrl: string,
   storeReady: boolean
-): CollectionStep[] {
+): CollectionStep {
   const homepageUrl = storeHomepageUrl(candidate);
   const commonMetadata = {
     storeCandidateId: candidate.id,
@@ -6941,25 +8529,22 @@ function buildShopeeStoreCollectionSteps(
     shopId: candidate.shopId,
     canonicalStoreUrl: homepageUrl
   };
-  const step = (
-    suffix: string,
+  const action = (
+    id: string,
     label: string,
+    mode: CollectionSubAction["mode"],
     kind: ManualEvidenceKind,
     targetUrl: string,
     storeEvidenceType: string,
-    instruction: string,
-    options: Partial<CollectionStep> = {}
-  ): CollectionStep => ({
-    id: `${candidate.id}-${suffix}`,
-    stage: "EVALUATION_KEY_STORE",
-    section: candidate.storeName,
+    description: string,
+    options: Partial<CollectionSubAction> = {}
+  ): CollectionSubAction => ({
+    id,
     label,
+    mode,
     kind,
-    ownerType: "STORE",
-    ownerId: candidate.id,
     targetUrl,
-    instruction,
-    ready: storeReady && sameUrlIntent(currentUrl, targetUrl),
+    description,
     ...options,
     metadata: {
       ...commonMetadata,
@@ -6967,95 +8552,135 @@ function buildShopeeStoreCollectionSteps(
       ...(options.metadata ?? {})
     }
   });
-  const steps: CollectionStep[] = [
-    step(
-      "homepage",
-      `${candidate.storeName}: Store Home Page`,
+  const actions: CollectionSubAction[] = [
+    action(
+      "store-homepage",
+      "Store Home Page",
+      "screenshot",
       "STORE_HOME",
       homepageUrl,
       "homepage",
       "Capture the store homepage as evidence for this store.",
-      { captureMode: "full-page", captureStrategy: "top-through-selector", targetSelector: ".shop-decoration" }
+      {
+        collectLabel: "Capture Store Page",
+        captureMode: "full-page",
+        captureStrategy: "top-through-selector",
+        targetSelector: ".shop-decoration"
+      }
     ),
-    step(
-      "details",
-      `${candidate.storeName}: Store Data`,
+    action(
+      "store-details",
+      "Store Data",
+      "collect",
       "STORE_HOME",
-      storeDetailsUrl(candidate),
+      homepageUrl,
       "details",
-      "Collect followers, following, rating, chat response, product count, joined date, and description from Shop Details.",
-      { metadata: { dataOnly: true } }
+      "Collect products, followers, following, rating, chat performance, joined date, and description from the visible store homepage.",
+      {
+        collectLabel: "Collect Store Data",
+        guidance: "Collect the visible profile metrics in either view. Switch to Mobile when you also need the Store Description.",
+        metadata: { dataOnly: true, descriptionViewMode: "mobile" }
+      }
     ),
-    step(
-      "rating-negative",
-      `${candidate.storeName}: 1-star Store Ratings`,
+    action(
+      "store-rating-negative",
+      "1 Star Store Ratings",
+      "collect",
       "REVIEW_SECTION",
       storeRatingsUrl(candidate, 1),
       "rating-1",
       "Collect up to five 1-star store ratings that include both review text and customer image or video proof.",
-      { metadata: { dataOnly: true, requestedRating: 1 } }
+      { collectLabel: "Collect 1 Star", preferredViewMode: "desktop", metadata: { dataOnly: true, requestedRating: 1 } }
     ),
-    step(
-      "rating-positive",
-      `${candidate.storeName}: 5-star Store Ratings`,
+    action(
+      "store-rating-positive",
+      "5 Star Store Ratings",
+      "collect",
       "REVIEW_SECTION",
       storeRatingsUrl(candidate, 5),
       "rating-5",
       "Collect up to five 5-star store ratings that include both review text and customer image or video proof.",
-      { metadata: { dataOnly: true, requestedRating: 5 } }
+      { collectLabel: "Collect 5 Star", preferredViewMode: "desktop", metadata: { dataOnly: true, requestedRating: 5 } }
     ),
-    step(
-      "categories",
-      `${candidate.storeName}: Store Categories`,
+    action(
+      "store-categories",
+      "Store Categories",
+      "collect",
       "STORE_HOME",
       storeCategoriesUrl(candidate),
       "categories",
       "Collect the visible store category names and product counts.",
-      { metadata: { dataOnly: true } }
+      { collectLabel: "Collect Categories", preferredViewMode: "mobile", metadata: { dataOnly: true } }
     )
   ];
-  if (candidate.includePopularProducts) {
-    steps.push(step(
-      "popular",
-      `${candidate.storeName}: Popular Products`,
-      "STORE_FEATURED_PRODUCTS",
-      storeProductsUrl(candidate, "pop"),
-      "popular-products",
-      "Collect the full first page of store products sorted by Popular.",
-      { targetSelector: ".shop-page__all-products-section", metadata: { dataOnly: true } }
-    ));
-  }
-  steps.push(step(
-    "best-seller",
-    `${candidate.storeName}: Best Sellers`,
+  actions.push(action(
+    "store-popular",
+    "Popular Products",
+    "collect",
+    "STORE_FEATURED_PRODUCTS",
+    storeProductsUrl(candidate, "pop"),
+    "popular-products",
+    "Collect the full first page of store products sorted by Popular.",
+    {
+      collectLabel: "Add Popular Products",
+      targetSelector: ".shop-page__all-products-section, [class*='shop-page__all-products'], [class*='all-products-section'], [class*='shop-search-result-view']",
+      metadata: { dataOnly: true }
+    }
+  ));
+  actions.push(action(
+    "store-best-seller",
+    "Store Best Sellers",
+    "collect",
     "STORE_BEST_SELLER",
     storeProductsUrl(candidate, "sales"),
     "best-sellers",
     "Collect the full first page of store products sorted by Top Sales.",
-    { targetSelector: ".shop-page__all-products-section", metadata: { dataOnly: true } }
+    {
+      collectLabel: "Collect Best Sellers",
+      targetSelector: ".shop-page__all-products-section, [class*='shop-page__all-products'], [class*='all-products-section'], [class*='shop-search-result-view']",
+      metadata: { dataOnly: true }
+    }
   ));
-  if (candidate.includeShopBanner) {
-    steps.push(step(
-      "banner",
-      `${candidate.storeName}: Visual Shop Banner`,
-      "STORE_BANNER",
-      homepageUrl,
-      "banner",
-      "Download banner and carousel images from shop-decoration while excluding product-card images.",
-      { targetSelector: ".shop-decoration", metadata: { dataOnly: true } }
-    ));
-  }
+  actions.push(action(
+    "store-banner",
+    "Visual Shop Banner",
+    "download",
+    "STORE_BANNER",
+    homepageUrl,
+    "banner",
+    "Download banner and carousel images from shop-decoration while excluding product-card images.",
+    {
+      collectLabel: "Add Shop Banners",
+      targetSelector: ".shop-decoration",
+      metadata: { dataOnly: true }
+    }
+  ));
   const tiktokTarget = `https://www.tiktok.com/search?q=${encodeURIComponent(candidate.storeName)}`;
-  steps.push(step(
-    "tiktok",
-    `${candidate.storeName}: TikTok Evidence`,
+  actions.push(action(
+    "store-tiktok",
+    "TikTok Evidence",
+    "screenshot",
     "SOCIAL_ACCOUNT",
     tiktokTarget,
     "tiktok",
     `Open TikTok search for ${candidate.storeName}, then capture or attach cross-platform evidence.`,
-    { ready: sameUrlIntent(currentUrl, tiktokTarget) || isTikTokPage(currentUrl) }
+    { collectLabel: "Capture TikTok" }
   ));
-  return steps;
+  return {
+    id: `${candidate.id}-store`,
+    stage: "EVALUATION_KEY_STORE",
+    section: "Key Store Page List",
+    label: candidate.storeName,
+    kind: "STORE_HOME",
+    ownerType: "STORE",
+    ownerId: candidate.id,
+    targetUrl: actions[0]?.targetUrl,
+    instruction: `Collect store evidence for ${candidate.storeName}.`,
+    substeps: actions.map((item) => item.label),
+    subActions: actions,
+    ready: storeReady && sameUrlIntent(currentUrl, homepageUrl),
+    metadata: commonMetadata
+  };
 }
 
 function buildTikTokSteps(project: ProjectSummary, currentUrl: string): CollectionStep[] {
@@ -7154,19 +8779,7 @@ function isTikTokPage(value: string): boolean {
 }
 
 function sameUrlIntent(current: string, target: string): boolean {
-  try {
-    const currentUrl = new URL(current);
-    const targetUrl = new URL(target);
-    return (
-      currentUrl.hostname === targetUrl.hostname &&
-      currentUrl.pathname === targetUrl.pathname &&
-      currentUrl.searchParams.get("keyword") === targetUrl.searchParams.get("keyword") &&
-      currentUrl.searchParams.get("sortBy") === targetUrl.searchParams.get("sortBy") &&
-      currentUrl.searchParams.get("fe_filter_options") === targetUrl.searchParams.get("fe_filter_options")
-    );
-  } catch {
-    return false;
-  }
+  return matchesShopeeSearchIntent(current, target);
 }
 
 function sameProductIntent(current: string, target: string): boolean {
@@ -7211,20 +8824,36 @@ function sameStoreIntent(left?: string | null, right?: string | null): boolean {
   return Boolean(leftCanonical && rightCanonical && leftCanonical.toLowerCase() === rightCanonical.toLowerCase());
 }
 
+function matchesStoreCollectionTarget(
+  currentUrl: string,
+  targetUrl?: string,
+  canonicalUrl?: string,
+  shopId?: string
+): boolean {
+  if (!isShopeeStorePage(currentUrl) && !/shopee\.co\.id\/(?:buyer|shop)\//iu.test(currentUrl)) {
+    return false;
+  }
+  const currentShopId = extractShopeeShopId(currentUrl);
+  const expectedShopId = shopId || extractShopeeShopId(targetUrl) || extractShopeeShopId(canonicalUrl);
+  if (currentShopId && expectedShopId) {
+    return currentShopId === expectedShopId;
+  }
+  return sameStoreIntent(currentUrl, canonicalUrl) || sameStoreIntent(currentUrl, targetUrl);
+}
+
 function shopeeProductIdentity(value: string): string | undefined {
   const match = /(?:-i\.|i\.|product\/)(\d+)[./](\d+)/u.exec(value);
   return match ? `${match[1]}:${match[2]}` : undefined;
 }
 
-function selectKeyProductCandidates(
+function allKeyProductCandidates(
   products: ProjectProductEvidence[],
-  keyword = "",
-  limit = 10
+  keyword = ""
 ): ProjectProductEvidence[] {
   const merged = new Map<string, ProjectProductEvidence>();
   for (const rawProduct of products.filter(isQualifiedProductSource)) {
     const product = normalizeProductSelectionSignals(rawProduct);
-    if (isExcludedCommerceProductTitle(product.title) || !isRelevantProductCandidate(product, keyword)) {
+    if (isExcludedCommerceProductTitle(product.title)) {
       continue;
     }
     const key = normalizeProductKey(product);
@@ -7235,42 +8864,50 @@ function selectKeyProductCandidates(
       merged.set(key, mergeProductSignals(product, current));
     }
   }
-  const candidates = Array.from(merged.values()).filter((product) => product.title && product.productUrl);
-  return candidates
-    .filter((product) => selectionDiagnostics(product, candidates, keyword).classification !== "Not Recommended")
-    .sort((left, right) => {
-      const sourceDelta = Number(hasTopSalesPlacement(right)) - Number(hasTopSalesPlacement(left));
-      if (sourceDelta !== 0) {
-        return sourceDelta;
-      }
-      const rightDiagnostics = selectionDiagnostics(right, candidates, keyword);
-      const leftDiagnostics = selectionDiagnostics(left, candidates, keyword);
-      const tierDelta = selectionTier(rightDiagnostics.classification) - selectionTier(leftDiagnostics.classification);
-      if (tierDelta !== 0) {
-        return tierDelta;
-      }
-      return rightDiagnostics.finalScore - leftDiagnostics.finalScore ||
-        rightDiagnostics.relevanceScore - leftDiagnostics.relevanceScore ||
-        (right.monthlySold ?? 0) - (left.monthlySold ?? 0) ||
-        (right.totalSold ?? 0) - (left.totalSold ?? 0) ||
-        rightDiagnostics.commercialValueScore - leftDiagnostics.commercialValueScore ||
-        rightDiagnostics.thumbnailScore - leftDiagnostics.thumbnailScore ||
-        (right.rating ?? 0) - (left.rating ?? 0) ||
-        (right.reviewCount ?? 0) - (left.reviewCount ?? 0);
-    })
-    .slice(0, limit)
-    .map((product) => ({
+  const candidates = Array.from(merged.values()).filter(
+    (product) => product.title && product.productUrl
+  );
+  return candidates.map((product) => ({
       ...product,
       selectionReason: selectionReasonForDisplay(product, candidates, keyword)
     }));
 }
 
-function isExcludedCommerceProductTitle(title: string): boolean {
-  return /\b(?:GIMMICK|NOT\s+FOR\s+SALE|FREE\s+GIFT)\b/iu.test(title);
+function projectSavedKeyProductCandidates(detail: ProjectDetailPayload, limit = 10): ProjectProductEvidence[] {
+  const selectable = allKeyProductCandidates(detail.products, detail.project.keyword);
+  const ranked = rankQualifiedProducts(selectable).slice(0, 120);
+  const state = projectCollectionState(detail.project);
+  if (state.qualifiedProductReferences?.length) {
+    return resolveQualifiedProductReferences(selectable, state.qualifiedProductReferences);
+  }
+  if (!state.qualifiedProductsInitialized) return ranked.slice(0, limit);
+
+  const productsById = new Map<string, ProjectProductEvidence>();
+  for (const product of selectable) productsById.set(product.id, product);
+  return (state.qualifiedProductIds ?? [])
+    .map((id) => productsById.get(id))
+    .filter((product): product is ProjectProductEvidence => Boolean(product));
 }
 
-function hasTopSalesPlacement(product: ProjectProductEvidence): boolean {
-  return product.source === "Top Sales" || /\b(?:top\s+)?\d+\s+in\s+sales\b/iu.test(productSourcePlacement(product));
+function projectSavedStoreCandidates(detail: ProjectDetailPayload): StoreCollectionCandidate[] {
+  const state = projectCollectionState(detail.project);
+  const legacyStores = detail.stores.map((store) => ({
+    id: store.id,
+    storeName: store.name,
+    storeUrl: store.url,
+    storeType: store.storeType,
+    shopId: store.marketplaceStoreId
+  }));
+  return resolveCanonicalStoreList(
+    projectSavedKeyProductCandidates(detail, 20),
+    state.storeCollectionCandidates ?? [],
+    Boolean(state.storeListInitialized),
+    legacyStores
+  );
+}
+
+function isExcludedCommerceProductTitle(title: string): boolean {
+  return /\b(?:GIMMICK|NOT\s+FOR\s+SALE|FREE\s+GIFT)\b/iu.test(title);
 }
 
 function isQualifiedProductSource(product: ProjectProductEvidence): boolean {
@@ -7327,7 +8964,7 @@ function mergeProductSignals(base: ProjectProductEvidence | undefined, preferred
     rating: mergeRatingValue(base, preferred),
     storeName: preferred.storeName ?? base.storeName,
     storeUrl: preferred.storeUrl ?? base.storeUrl,
-    storeBadgeImageUrl: preferred.storeBadgeImageUrl ?? base.storeBadgeImageUrl,
+    storeBadgeImageUrl: storeTypeImage(mergeStoreType(base, preferred)) ?? undefined,
     imageUrl: preferred.imageUrl ?? base.imageUrl,
     images: preferred.images.length > 0 ? preferred.images : base.images,
     videos: preferred.videos.length > 0 ? preferred.videos : base.videos,
@@ -7341,20 +8978,28 @@ function hasPdpDetailSignal(product: ProjectProductEvidence): boolean {
   return Boolean(product.storeName || product.reviewText || product.description || product.images.length || product.videos.length);
 }
 
-function officialStoreTypeFromProductName(product?: ProjectProductEvidence): "Mall ORI" | undefined {
-  return /\bofficial\s+(?:store|shop)\b|\btoko\s+resmi\b|\bgerai\s+resmi\b/iu.test(product?.storeName ?? "") ? "Mall ORI" : undefined;
+function mergeStoreType(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): StoreType | undefined {
+  const detectedTypes = [
+    normalizeStoreTypeValue(preferred.storeBadgeImageUrl),
+    normalizeStoreTypeValue(preferred.storeType),
+    normalizeStoreTypeValue(base?.storeBadgeImageUrl),
+    normalizeStoreTypeValue(base?.storeType),
+  ].filter((value): value is StoreType => Boolean(value));
+
+  if (detectedTypes.includes("shopee_mall")) return "shopee_mall";
+  if (detectedTypes.includes("star_plus")) return "star_plus";
+  if (detectedTypes.includes("star")) return "star";
+  return undefined;
 }
 
-function mergeStoreType(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): string | undefined {
-  const officialType = officialStoreTypeFromProductName(preferred) ?? officialStoreTypeFromProductName(base);
-  if (officialType) {
-    return officialType;
-  }
-  const values = [preferred.storeType, base?.storeType].filter((value): value is string => Boolean(value));
-  return values.find((value) => value === "Mall ORI") ??
-    values.find((value) => value === "Star+") ??
-    values.find((value) => value === "Star") ??
-    values[0];
+function strongestStoreType(values: Array<StoreType | string | null | undefined>): StoreType | undefined {
+  const normalized = values
+    .map((value) => normalizeStoreTypeValue(value))
+    .filter((value): value is StoreType => Boolean(value));
+  if (normalized.includes("shopee_mall")) return "shopee_mall";
+  if (normalized.includes("star_plus")) return "star_plus";
+  if (normalized.includes("star")) return "star";
+  return undefined;
 }
 
 function mergeRatingText(base: ProjectProductEvidence | undefined, preferred: ProjectProductEvidence): string | undefined {
@@ -7386,51 +9031,28 @@ function productQualityScore(product: ProjectProductEvidence): number {
   return topSalesBoost + monthlySoldScore + totalSoldScore + reviewScore + ratingScore + priceScore + imageScore;
 }
 
-function selectionTier(classification: ProductSelectionClassification): number {
-  switch (classification) {
-    case "Priority":
-      return 5;
-    case "High":
-      return 4;
-    case "Platform recommended":
-      return 3;
-    case "Average - Emerging Product":
-      return 2;
-    case "Average - Established but Slowing":
-      return 1;
-    case "Not Recommended":
-      return -1;
-    default:
-      return 0;
-  }
-}
-
 function selectionReasonForDisplay(product: ProjectProductEvidence, pool: ProjectProductEvidence[], keyword = ""): string {
-  if (product.selectionReason && /final score\s+\d+\/100/iu.test(product.selectionReason)) {
-    return product.selectionReason;
-  }
   const diagnostics = selectionDiagnostics(product, pool, keyword);
   const priority = diagnostics.classification;
-  const existing = mergeReasonLabels(product.selectionReason);
   if (priority === "Priority") {
-    return `Priority - high price, high sold/month, high total sold, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Premium-priced product with strong monthly and historical demand (${diagnostics.finalScore}/100).`;
   }
   if (priority === "High") {
-    return `High - low price with high sold/month and high total sold, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Accessible price supported by strong monthly and historical demand (${diagnostics.finalScore}/100).`;
   }
   if (priority === "Average - Emerging Product") {
-    return `Average - Emerging Product, high sold/month with growing historical sales, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Emerging product with strong current momentum and developing historical sales (${diagnostics.finalScore}/100).`;
   }
   if (priority === "Average - Established but Slowing") {
-    return `Average - Established but Slowing, historical sales are stronger than current demand, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Established premium product whose historical sales exceed recent demand (${diagnostics.finalScore}/100).`;
   }
   if (priority === "Not Recommended") {
-    return `Not recommended - low sold/month and low total sold${existing ? ` / ${existing}` : ""}`;
+    return "Not recommended because current and historical demand are both weak.";
   }
   if (priority === "Platform recommended") {
-    return `Platform recommended - relevant search placement with supporting sales signal, final score ${diagnostics.finalScore}/100${existing ? ` / ${existing}` : ""}`;
+    return `Relevant marketplace placement supported by sales and visual quality (${diagnostics.finalScore}/100).`;
   }
-  return existing || "platform recommended";
+  return "Selected for keyword relevance and commercial potential.";
 }
 
 function isPlatformRecommendedProduct(product: ProjectProductEvidence): boolean {
@@ -7601,22 +9223,6 @@ function normalizeSearchTerms(keyword: string): string[] {
     .filter((term) => term.length >= 2);
 }
 
-function isRelevantProductCandidate(product: ProjectProductEvidence, keyword = ""): boolean {
-  if (!product.title || !product.productUrl) {
-    return false;
-  }
-  const terms = normalizeSearchTerms(keyword);
-  if (terms.length === 0) {
-    return true;
-  }
-  const title = [product.title, product.productType].filter(Boolean).join(" ").toLowerCase();
-  const matched = terms.filter((term) => title.includes(term)).length;
-  if (matched > 0) {
-    return true;
-  }
-  return product.source === "Top Sales" && Boolean(product.monthlySold || product.totalSold) && relevanceScoreForProduct(product, keyword) >= 52;
-}
-
 function thumbnailHeuristicScore(product: ProjectProductEvidence, keyword = ""): number {
   let score = 48;
   if (product.imageUrl) {
@@ -7736,21 +9342,6 @@ function uniqueInlineLabels(values: Array<string | null | undefined>): string[] 
   return output;
 }
 
-function uniqueStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const output: string[] = [];
-  for (const value of values) {
-    const normalized = String(value ?? "").replace(/\s+/gu, " ").trim();
-    const key = normalized.toLowerCase();
-    if (!normalized || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    output.push(normalized);
-  }
-  return output;
-}
-
 function shortProductTitle(title: string): string {
   return title.length > 54 ? `${title.slice(0, 51).trim()}...` : title;
 }
@@ -7831,14 +9422,7 @@ function inferredProductTypeLabel(title: string): string {
 }
 
 function storeTypeLabel(product: ProjectProductEvidence): string {
-  if (product.storeType && /^(Mall ORI|Star\+|Star)$/u.test(product.storeType)) {
-    return product.storeType;
-  }
-  const officialType = officialStoreTypeFromProductName(product);
-  if (officialType) {
-    return officialType;
-  }
-  return "-";
+  return storeTypeDisplayLabel(product.storeType);
 }
 
 function productRatingText(product: ProjectProductEvidence): string {
@@ -7867,128 +9451,8 @@ function isMonthlySoldProductSource(source?: string | null): boolean {
   return source === "Top Sales" || Boolean(source?.startsWith("Store Best Sellers"));
 }
 
-type StoreEvaluationCandidate = {
-  key: string;
-  name: string;
-  url?: string;
-  type: string;
-  score: number;
-  productCount: number;
-  gmvEstimate: number;
-  monthlySoldEstimate: number;
-  promotionCount: number;
-  thumbnail?: string;
-  hasStoreEvidence: boolean;
-};
-
-function storeEvaluationCandidates(detail: ProjectDetailPayload): StoreEvaluationCandidate[] {
-  const storeEvidenceKinds: Array<ProjectDetailPayload["assets"][number]["kind"]> = [
-    "STORE_HOME",
-    "STORE_FEATURED_PRODUCTS",
-    "STORE_BEST_SELLER",
-    "STORE_BANNER",
-    "STORE_PROMOTION",
-    "STORE_VOUCHER"
-  ];
-  const hasStoreEvidence = hasAnyAsset(detail, storeEvidenceKinds);
-  const grouped = new Map<string, StoreEvaluationCandidate & { qualityTotal: number }>();
-  for (const product of selectKeyProductCandidates(detail.products, detail.project.keyword).filter((item) => item.storeName || item.storeUrl)) {
-    const key = normalizeStoreKey(product);
-    const existing = grouped.get(key);
-    const monthlySold = product.monthlySold ?? 0;
-    const price = product.priceAverage ?? 0;
-    const promotionCount = product.promotionCount ?? product.shopVouchers.length + product.bundleDeals.length;
-    const candidate = existing ?? {
-      key,
-      name: product.storeName ?? product.storeUrl ?? "Store pending PDP capture",
-      url: product.storeUrl ?? undefined,
-      type: storeTypeLabel(product),
-      score: 0,
-      productCount: 0,
-      gmvEstimate: 0,
-      monthlySoldEstimate: 0,
-      promotionCount: 0,
-      thumbnail: product.imageUrl ?? undefined,
-      hasStoreEvidence,
-      qualityTotal: 0
-    };
-    candidate.productCount += 1;
-    candidate.gmvEstimate += price * monthlySold;
-    candidate.monthlySoldEstimate += monthlySold;
-    candidate.promotionCount += promotionCount;
-    candidate.qualityTotal += productQualityScore(product) + Math.min(18, promotionCount * 3);
-    candidate.score = Math.min(100, Math.round(candidate.qualityTotal / candidate.productCount));
-    if (!candidate.thumbnail && product.imageUrl) {
-      candidate.thumbnail = product.imageUrl;
-    }
-    if (!candidate.url && product.storeUrl) {
-      candidate.url = product.storeUrl;
-    }
-    grouped.set(key, candidate);
-  }
-  const candidates = [...grouped.values()];
-  if (detail.analyses.length > 0) {
-    candidates.sort((left, right) => right.gmvEstimate - left.gmvEstimate || right.score - left.score);
-  }
-  return candidates
-    .slice(0, 10)
-    .map((candidate) => ({
-      key: candidate.key,
-      name: candidate.name,
-      url: candidate.url,
-      type: candidate.type,
-      score: candidate.score,
-      productCount: candidate.productCount,
-      gmvEstimate: candidate.gmvEstimate,
-      monthlySoldEstimate: candidate.monthlySoldEstimate,
-      promotionCount: candidate.promotionCount,
-      thumbnail: candidate.thumbnail,
-      hasStoreEvidence: candidate.hasStoreEvidence
-    }));
-}
-
 function normalizeStoreKey(product: ProjectProductEvidence): string {
   return (canonicalStoreUrl(product.storeUrl) ?? product.storeName ?? product.title).toLowerCase().replace(/\s+/g, "-");
-}
-
-function keyStoreOverallConclusions(candidate: StoreEvaluationCandidate, resultJson?: string): string[] {
-  const parsed = resultJson ? parseRecord(resultJson) : null;
-  const candidates = [
-    textFromAnalysisValue(parsed?.executiveSummary),
-    textFromAnalysisValue(parsed?.summary),
-    textFromAnalysisValue(parsed?.storeAnalysis),
-    textFromAnalysisValue(parsed?.competitivePosition),
-    textFromAnalysisValue(parsed?.recommendations)
-  ].filter(Boolean) as string[];
-  const evidenceSentence = `${candidate.name} is selected as the Key Store because it has the strongest combined signal across estimated monthly GMV, sold-per-month volume, promotion activity, store type, and captured evidence readiness.`;
-  const benchmarkSentence = `Use ${candidate.name} as the benchmark for homepage structure, product matrix, best-seller presentation, banner style, voucher strategy, and TikTok brand presence.`;
-  const scoreSentence = `The current local score is ${candidate.score}/100 from ${candidate.productCount} qualified product signal${candidate.productCount === 1 ? "" : "s"}, estimated GMV ${formatCurrency(candidate.gmvEstimate)}, and ${candidate.promotionCount} promotion signal${candidate.promotionCount === 1 ? "" : "s"}.`;
-  return uniqueStrings([evidenceSentence, ...candidates, scoreSentence, benchmarkSentence]).slice(0, 5);
-}
-
-function textFromAnalysisValue(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return value.trim() || undefined;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => (typeof item === "string" ? item : undefined)).filter(Boolean).join(" ").slice(0, 360) || undefined;
-  }
-  if (isRecord(value)) {
-    const summary = value.summary ?? value.overall ?? value.rationale ?? value.recommendation ?? value.description;
-    if (typeof summary === "string" && summary.trim()) {
-      return summary.trim();
-    }
-  }
-  return undefined;
-}
-
-function parseRecord(value: string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -8035,10 +9499,6 @@ function formatFileSize(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))} MB`;
 }
 
-function hasAnyAsset(detail: ProjectDetailPayload, kinds: Array<ProjectDetailPayload["assets"][number]["kind"]>): boolean {
-  return detail.assets.some((asset) => kinds.includes(asset.kind));
-}
-
 function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): string {
   switch (state) {
     case "not-installed":
@@ -8056,10 +9516,31 @@ function formatAndroidRuntimeState(state: AndroidAppRuntimeStatus["state"]): str
   }
 }
 
+async function selectShopeeStoreRatingTab(webview: WebviewElement | null, rating: 1 | 5): Promise<boolean> {
+  if (!webview?.executeJavaScript) return false;
+  return webview.executeJavaScript<boolean>(`
+    (() => {
+      const rating = ${rating};
+      const compact = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+      const exactLabel = new RegExp("^" + rating + "\\\\s*(?:star|stars|bintang)(?:\\\\s*\\\\(.*\\\\))?$", "i");
+      const candidates = Array.from(document.querySelectorAll(
+        "button, [role='tab'], [role='button'], .product-rating-overview__filter, [class*='rating-overview'][class*='filter'], [class*='rating'][class*='filter']"
+      ));
+      const target = candidates
+        .filter((element) => exactLabel.test(compact(element.textContent)))
+        .sort((left, right) => compact(left.textContent).length - compact(right.textContent).length)[0];
+      if (!(target instanceof HTMLElement)) return false;
+      target.scrollIntoView({ block: "center", inline: "nearest" });
+      target.click();
+      return true;
+    })()
+  `).catch(() => false);
+}
+
 async function extractRenderedPageSnapshot(
   webview: WebviewElement,
   productScopeSelector?: string,
-  options: { includeHtml?: boolean; requestedStoreRating?: number } = {}
+  options: { includeHtml?: boolean; requestedStoreRating?: number; viewMode?: PlatformViewMode } = {}
 ): Promise<{
   html: string;
   visibleText: string;
@@ -8105,9 +9586,11 @@ async function extractRenderedPageSnapshot(
     storeDecorationImages: string[];
   }>(`
     (async () => {
+      const storeTypeImages = ${JSON.stringify(STORE_TYPE_IMAGES)};
       const requestedStoreRating = ${Number.isFinite(options.requestedStoreRating)
         ? Math.max(1, Math.min(5, Number(options.requestedStoreRating)))
         : "undefined"};
+      const capturedViewMode = ${JSON.stringify(options.viewMode ?? "desktop")};
       const parseHumanNumber = (value) => {
         if (!value) return undefined;
         const normalized = String(value).toLowerCase().replace(/\\+/g, "").replace(/,/g, ".").trim();
@@ -8162,7 +9645,7 @@ async function extractRenderedPageSnapshot(
       const productScopeSelector = ${JSON.stringify(productScopeSelector ?? "")};
       const includeHtml = ${JSON.stringify(options.includeHtml !== false)};
       const productScopeRoot = productScopeSelector ? document.querySelector(productScopeSelector) || htmlRoot : htmlRoot;
-      const isStoreProductScope = /shop-page__all-products-section/i.test(productScopeSelector);
+      const isStoreProductScope = /shop-page__all-products|all-products-section|shop-search-result-view/i.test(productScopeSelector);
       const isSearchProductScope = /shopee-search-item-result/i.test(productScopeSelector);
       const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
       const hydrateProductScope = async () => {
@@ -8247,57 +9730,18 @@ async function extractRenderedPageSnapshot(
           .join(" ");
         return firstUseful || "marketplace product";
       };
-      const inferStoreType = (text, imageUrl, outerHtml) => {
-        const value = compact([text, imageUrl, outerHtml].filter(Boolean).join(" ")).toLowerCase();
-        if (/star\\s*\\+|starplus|star-plus/u.test(value)) return "Star+";
-        if (/mall\\s*ori|mallori|mall-ori/u.test(value)) return "Mall ORI";
-        if (/shopee\\s*mall|mall/u.test(value)) return "Mall ORI";
-        if (/(^|[^a-z])star([^a-z]|$)/u.test(value)) return "Star";
+      const inferStoreType = (text, imageUrl) => {
+        const url = String(imageUrl || "").toLowerCase();
+        if (url.includes("id-11134258-7r98o-lyam4dmlnqcoba")) return "star";
+        if (url.includes("id-11134258-7r98r-lyalscj1g30l0b")) return "star_plus";
+        if (url.includes("id-11134258-7r98z-lykpu80ygbvs76")) return "shopee_mall";
+        const value = compact(text).toLowerCase();
+        if (/\\b(star\\s*\\+|starplus|star-plus|preferred\\s*plus)\\b/u.test(value)) return "star_plus";
+        if (/\\b(mall\\s*ori|shopee\\s*mall|official\\s*mall)\\b/u.test(value)) return "shopee_mall";
+        if (/\\b(star|preferred)\\b/u.test(value)) return "star";
         return undefined;
       };
-      const classifyBadgeImageByPixels = async (imageElement) => {
-        if (!imageElement) return undefined;
-        const rect = imageElement.getBoundingClientRect?.();
-        const width = Math.max(1, Math.round(rect?.width || imageElement.naturalWidth || 0));
-        const height = Math.max(1, Math.round(rect?.height || imageElement.naturalHeight || 0));
-        if (width < 8 || height < 6 || width > 120 || height > 50) return undefined;
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.min(width, 120);
-          canvas.height = Math.min(height, 50);
-          const context = canvas.getContext("2d", { willReadFrequently: true });
-          if (!context) return undefined;
-          context.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
-          const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
-          let red = 0;
-          let orange = 0;
-          let bright = 0;
-          for (let index = 0; index < data.length; index += 4) {
-            const r = data[index];
-            const g = data[index + 1];
-            const b = data[index + 2];
-            const a = data[index + 3];
-            if (a < 120) continue;
-            if (r > 150 || g > 100 || b > 100) bright += 1;
-            if (r > 170 && g < 95 && b < 95) red += 1;
-            if (r > 180 && g >= 65 && g < 170 && b < 95) orange += 1;
-          }
-          const denominator = Math.max(bright, 1);
-          const ratio = width / Math.max(height, 1);
-          if (red / denominator > 0.12) {
-            if (ratio > 2.45) return "Mall ORI";
-            if (orange / denominator > 0.04 || width <= 46) return "Star";
-            return "Star";
-          }
-          if (orange / denominator > 0.10) {
-            return width / height > 2.15 ? "Star+" : "Star";
-          }
-        } catch {
-          return undefined;
-        }
-        return undefined;
-      };
-      const findStoreBadgeImage = (card, productImageUrl) => {
+      const findStoreBadgeImage = (card, productImageUrl, titleElement) => {
         const dataRoots = [
           card.querySelector('div.p-2.flex-1.flex.flex-col.justify-between'),
           card.querySelector('div[class*="p-2"][class*="flex-1"][class*="flex-col"]'),
@@ -8316,19 +9760,16 @@ async function extractRenderedPageSnapshot(
               imageCandidate.alt,
               imageCandidate.title,
               imageCandidate.getAttribute("aria-label"),
-              imageCandidate.getAttribute("src"),
-              imageCandidate.getAttribute("srcset"),
-              imageCandidate.outerHTML
+              imageCandidate.parentElement?.getAttribute("aria-label"),
+              imageCandidate.parentElement?.getAttribute("data-testid"),
+              imageCandidate.parentElement?.className
             ].filter(Boolean).join(" "));
-            const explicit = inferStoreType(descriptor, candidateUrl, imageCandidate.outerHTML);
-            const smallBadgeShape = width >= 8 && height >= 6 && width <= 120 && height <= 50;
-            const score =
-              (explicit ? 100 : 0) +
-              (smallBadgeShape ? 50 : 0) +
-              (width > height ? 10 : 0) -
-              (width > 160 || height > 80 ? 100 : 0);
-            if (score > 0) {
-              candidates.push({ image: imageCandidate, score });
+            const explicit = inferStoreType(descriptor, candidateUrl);
+            if (explicit) {
+              const distance = titleElement
+                ? Math.abs((titleElement.getBoundingClientRect?.().top || 0) - (rect?.top || 0))
+                : 0;
+              candidates.push({ image: imageCandidate, storeType: explicit, score: 1000 - distance });
             }
           }
         }
@@ -8496,10 +9937,18 @@ async function extractRenderedPageSnapshot(
           if (!title) continue;
           seen.add(key);
           if (card?.outerHTML) capturedProductCardHtml.push(card.outerHTML);
-          const badgeImage = findStoreBadgeImage(card, productImageUrl);
+          const titleElement = Array.from(dataRoot.querySelectorAll("div, span"))
+            .find((element) => compact(element.textContent || "") === title);
+          const badgeImage = findStoreBadgeImage(card, productImageUrl, titleElement || anchor);
           const badgeImageUrl = imageUrlFrom(badgeImage);
-          const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title, badgeImage?.outerHTML].filter(Boolean).join(" "));
-          const storeType = inferStoreType(badgeText, badgeImageUrl, badgeImage?.outerHTML) || await classifyBadgeImageByPixels(badgeImage);
+          const badgeText = compact([badgeImage?.alt, badgeImage?.getAttribute("aria-label"), badgeImage?.title].filter(Boolean).join(" "));
+          const storeTypeLabel = Array.from(dataRoot.querySelectorAll("span, div"))
+            .map((element) => compact(element.textContent || ""))
+            .find((value) => /^(mall\\s*ori|shopee\\s*mall|star\\s*\\+|starplus|star-plus|star)$/iu.test(value));
+          const storeType = inferStoreType(
+            [badgeText, storeTypeLabel, card.getAttribute("aria-label")].filter(Boolean).join(" "),
+            badgeImageUrl
+          );
           const priceText = extractPriceText(text);
           const soldText = extractSoldText(text);
           const ratingText = extractRatingFromRoot(dataRoot, text, soldText);
@@ -8518,11 +9967,11 @@ async function extractRenderedPageSnapshot(
             soldText,
             productType: inferProductType(title),
             storeType,
-            storeBadgeImageUrl: badgeImageUrl,
+            storeBadgeImageUrl: storeType ? storeTypeImages[storeType] : undefined,
             sourcePlacement: String(products.length + 1),
-            mallStatus: storeType === "Mall ORI",
+            mallStatus: storeType === "shopee_mall",
             officialStatus: /official|resmi/i.test(cardText),
-            starSeller: storeType === "Star" || storeType === "Star+",
+            starSeller: storeType === "star" || storeType === "star_plus",
             rawText: compact(cardText).slice(0, 1200)
           });
         }
@@ -8614,8 +10063,6 @@ async function extractRenderedPageSnapshot(
           !/^(mall\\s*ori|star\\+?|official|resmi)$/iu.test(lowered) &&
           !/^\\d+(?:[.,]\\d+)?\\s*(rb|k|jt|juta|%|months?|bulan)?/iu.test(lowered);
       };
-      const officialStoreTypeFromName = (value) =>
-        /\\bofficial\\s+(?:store|shop)\\b|\\btoko\\s+resmi\\b|\\bgerai\\s+resmi\\b/iu.test(compact(value)) ? "Mall ORI" : undefined;
       const storeNameLinesFrom = (element) => String(element?.innerText || element?.textContent || "")
         .split(/\\n|\\|/u)
         .map(compact)
@@ -8680,10 +10127,15 @@ async function extractRenderedPageSnapshot(
         titleElement?.closest?.("div")
       ].filter(Boolean);
       const pdpBadgeImage = pdpBadgeRoots
-        .map((root) => findStoreBadgeImage(root, undefined))
+        .map((root) => findStoreBadgeImage(root, undefined, titleElement))
         .find(Boolean);
-      const compactBadgeStoreType = inferStoreType("", imageUrlFrom(pdpBadgeImage), pdpBadgeImage?.outerHTML) || await classifyBadgeImageByPixels(pdpBadgeImage);
-      const storeType = compactBadgeStoreType || officialStoreTypeFromName(storeName);
+      const pdpStoreTypeLabel = pdpBadgeRoots.flatMap((root) => Array.from(root.querySelectorAll?.("span, div") || []))
+        .map((element) => compact(element.textContent || ""))
+        .find((value) => /^(mall\\s*ori|shopee\\s*mall|star\\s*\\+|starplus|star-plus|star)$/iu.test(value));
+      const storeType = inferStoreType(
+        compact([pdpBadgeImage?.alt, pdpBadgeImage?.title, pdpBadgeImage?.getAttribute?.("aria-label")].filter(Boolean).join(" ")) || pdpStoreTypeLabel,
+        imageUrlFrom(pdpBadgeImage)
+      );
       const pdpSoldText = extractSoldText(productPageText);
       const pdpRatingText = extractRatingFromRoot(productPageRoot, productPageText, pdpSoldText);
       const pdpReviewText = extractReviewText(productPageText);
@@ -8840,7 +10292,7 @@ async function extractRenderedPageSnapshot(
         for (const line of bodyLines) {
           const cutoffIndex = line.search(/(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual|Report Abuse|Laporkan Penyalahgunaan)\\b/iu);
           const content = compact(cutoffIndex >= 0 ? line.slice(0, cutoffIndex) : line);
-          if (content && !/^(Helpful|Membantu)\\s*[\\d.,kkrb]*$/iu.test(content) && !/^(Like|Share)$/iu.test(content)) {
+          if (content && !/^(Helpful\\??|Membantu\\??)(?:\\s*[\\d.,kkrb]*)?$/iu.test(content) && !/^(Like|Share)$/iu.test(content)) {
             trimmedLines.push(content);
           }
           if (cutoffIndex >= 0) break;
@@ -9037,21 +10489,24 @@ async function extractRenderedPageSnapshot(
         .split("\\n")
         .map(compact)
         .filter(Boolean);
-      const firstCountNearLabel = (labels) => {
-        for (const line of storePageLines) {
-          if (!labels.some((label) => label.test(line))) continue;
-          const match = line.match(/([\\d.,]+)\\s*(rb|ribu|k|jt|juta|m)?/iu);
-          if (match) return parseHumanNumber(\`\${match[1]}\${match[2] || ""}\`);
-        }
-        return undefined;
-      };
-      const firstTextNearLabel = (labels) => {
-        for (const line of storePageLines) {
-          if (!labels.some((label) => label.test(line))) continue;
-          const value = compact(line.replace(/^[^:]{0,40}:\\s*/u, ""));
-          if (value) return value;
-        }
-        return undefined;
+      const storeMetricText = compact(storePageText);
+      const metricNumber = (match) => match
+        ? parseHumanNumber(String(match[1] || "") + String(match[2] || ""))
+        : undefined;
+      const productsMetricMatch = storeMetricText.match(/(?:Products?|Produk)\\s*:?\\s*([\\d.,]+)\\s*(rb|ribu|k|jt|juta|m)?/iu);
+      const followersMetricMatch = storeMetricText.match(/(?:Followers?|Pengikut)\\s*:?\\s*([\\d.,]+)\\s*(rb|ribu|k|jt|juta|m)?/iu);
+      const followingMetricMatch = storeMetricText.match(/(?:Following|Mengikuti)\\s*:?\\s*([\\d.,]+)\\s*(rb|ribu|k|jt|juta|m)?/iu);
+      const ratingMetricMatch = storeMetricText.match(/(?:Rating|Penilaian)\\s*:?\\s*([1-5](?:[.,]\\d+)?)\\s*(?:\\(([\\d.,]+)\\s*(rb|ribu|k|jt|juta|m)?\\s*(?:Ratings?|Penilaian)?\\))?/iu);
+      const chatMetricMatch = storeMetricText.match(/(?:Chat\\s*(?:Performance|Response)|Performa\\s*Chat|Respon\\s*Chat)\\s*:?\\s*([\\d.,]+%?(?:\\s*\\([^)]{1,80}\\))?)/iu);
+      const joinedMetricMatch = storeMetricText.match(/(?:Joined|Bergabung)\\s*:?\\s*(.{1,80}?)(?=\\s+(?:Home|Beranda|All Products|Semua Produk|Categories|Kategori|Follow|Chat|Products?|Followers?|Rating|$))/iu);
+      const normalizeJoinedAge = (value) => {
+        const normalized = compact(value);
+        const match = normalized.match(/([\\d.,]+)\\s*(months?|bulan|years?|tahun)\\b/iu);
+        if (!match) return normalized.slice(0, 80) || undefined;
+        const amount = String(match[1]).replace(",", ".");
+        const singular = Number(amount) === 1;
+        const monthUnit = /month|bulan/iu.test(match[2]);
+        return amount + " " + (monthUnit ? (singular ? "Month" : "Months") : (singular ? "Year" : "Years"));
       };
       const currentUrl = new URL(location.href);
       const marketplaceStoreId = currentUrl.searchParams.get("shopid") ||
@@ -9065,7 +10520,8 @@ async function extractRenderedPageSnapshot(
               return undefined;
             }
           })
-          .find(Boolean);
+          .find(Boolean) ||
+        document.documentElement?.innerHTML.match(/["']?(?:shopid|shop_id)["']?\\s*[:=]\\s*["']?(\\d{5,})/iu)?.[1];
       const profileNameCandidates = [
         textFrom(document.querySelector("[class*='shop-name'], [class*='ShopName']")),
         textFrom(document.querySelector(".shop-detail h1, .shop-page h1, [class*='shop-info'] h1")),
@@ -9075,11 +10531,11 @@ async function extractRenderedPageSnapshot(
       const profileName = unique(profileNameCandidates)
         .map(cleanStoreNameCandidate)
         .find(isGoodStoreName) || storeName;
-      const profileRatingText = firstTextNearLabel([/^rating\\b/iu, /^penilaian\\b/iu, /shop rating/iu]);
-      const profileRatingMatch = profileRatingText?.match(/([1-5](?:[.,]\\d+)?)\\s*(?:out of 5|dari 5)?/iu);
-      const profileRatingCountMatch = profileRatingText?.match(/\\(([\\d.,]+)\\s*(rb|ribu|k|jt|juta|m)?\\s*(?:ratings?|penilaian)?\\)/iu);
+      const explicitDescription = textFrom(document.querySelector(
+        "[class*='shop-description'], [class*='ShopDescription'], [data-testid*='description'], [class*='shop-info'] [class*='description']"
+      ));
       const profileDescriptionIndex = storePageLines.findIndex((line) => /^(description|deskripsi)\\b/iu.test(line));
-      const profileDescription = profileDescriptionIndex >= 0
+      const lineDescription = profileDescriptionIndex >= 0
         ? storePageLines
             .slice(profileDescriptionIndex, profileDescriptionIndex + 8)
             .map((line, index) => index === 0 ? line.replace(/^(description|deskripsi)\\s*:?\\s*/iu, "") : line)
@@ -9087,60 +10543,171 @@ async function extractRenderedPageSnapshot(
             .join("\\n")
             .slice(0, 2400)
         : undefined;
-      const categoryCandidates = Array.from(document.querySelectorAll(
+      const descriptionMatch = storeMetricText.match(/(?:Description Store|Store Description|Description|Deskripsi Toko|Deskripsi)\\s*:?\\s*(.{20,2400}?)(?=\\s+(?:Shop Link|Tautan Toko|Verified Accounts?|Akun Terverifikasi|View All Products?|Lihat Semua Produk|Customer Service|Pusat Bantuan|$))/iu);
+      const profileDescription = capturedViewMode === "mobile"
+        ? compact(explicitDescription || lineDescription || descriptionMatch?.[1] || "").slice(0, 2400) || undefined
+        : undefined;
+      const categoryCandidates = [
+        ...Array.from(document.querySelectorAll(
         "a[href*='tab=category'], [class*='category'] a, [class*='category'] [role='button'], [class*='category'] li"
-      ))
-        .map((element) => textFrom(element))
+        )).map((element) => textFrom(element)),
+        ...Array.from(storePageText.matchAll(/([A-Za-z][A-Za-z0-9 &+/'-]{1,80})\\s*\\((\\d{1,5})\\)/gu))
+          .map((match) => compact(match[1]) + " (" + match[2] + ")")
+      ]
         .filter((value) => value.length >= 2 && value.length <= 120)
         .filter((value) => !/^(category|categories|kategori|products?|produk|shop|toko|home|beranda)$/iu.test(value))
+        .filter((value) => !/(rating|penilaian|within minutes|dalam hitungan menit)/iu.test(value))
         .filter((value) => /\\(\\s*\\d+\\s*\\)/u.test(value) || currentUrl.searchParams.get("tab") === "category");
-      const storeRatingRowCandidates = Array.from(document.querySelectorAll(
+      const exactStoreRatingRows = Array.from(document.querySelectorAll(".A7MThp"))
+        .filter((row) => !row.parentElement?.closest?.(".A7MThp"));
+      const productReviewAnchorFrom = (element) => Array.from(element?.querySelectorAll?.("a[href]") || [])
+        .find((anchor) => /(?:-i\\.\\d+\\.\\d+|\\/product\\/|itemid=)/iu.test(anchor.getAttribute("href") || ""));
+      const semanticStoreRatingRows = Array.from(new Set(Array.from(document.querySelectorAll(".icon-rating-solid"))
+        .map((star) => {
+          let current = star.parentElement;
+          while (current && current !== document.body && current !== document.documentElement) {
+            const solidCount = current.querySelectorAll(".icon-rating-solid").length;
+            if ((solidCount === 1 || solidCount === 5) && productReviewAnchorFrom(current)) {
+              return current;
+            }
+            current = current.parentElement;
+          }
+          return undefined;
+        })
+        .filter(Boolean)));
+      const genericStoreRatingRows = Array.from(document.querySelectorAll(
         ".shopee-product-rating, [class*='shop-rating'], [class*='product-rating'], [class*='rating-item'], [class*='review-item']"
       ));
+      const storeRatingRowCandidates = exactStoreRatingRows.length > 0
+        ? exactStoreRatingRows
+        : semanticStoreRatingRows.length > 0
+          ? semanticStoreRatingRows
+          : genericStoreRatingRows;
+      const seenStoreRatingSamples = new Set();
       const storeRatingSamples = storeRatingRowCandidates
-        .map((row) => {
+        .map((row, sourceIndex) => {
           const rowText = blockTextFromHtml(row);
           const rowLines = rowText.split("\\n").map(compact).filter(Boolean);
-          const mediaElements = Array.from(row.querySelectorAll("video, picture, img[src], img[srcset], source[srcset]"));
+          const productAnchor = row.querySelector("a.h3xEIM[href]") || productReviewAnchorFrom(row);
+          const knownReviewMediaElements = Array.from(row.querySelectorAll(".rating-media-list__zoomed-image-item, .rating-media-list__image-wrapper--image"));
+          const mediaElements = knownReviewMediaElements.length > 0
+            ? knownReviewMediaElements
+            : Array.from(row.querySelectorAll("video, picture, img[src], img[srcset], source[srcset]"));
           const mediaUrls = unique(mediaElements
+            .filter((element) => !productAnchor?.contains?.(element))
             .filter((element) => !element.closest("[class*='avatar'], [class*='profile'], [class*='user-avatar']"))
-            .map((element) => element.tagName === "VIDEO"
+            .map((element) => element.tagName === "VIDEO" || element.tagName === "SOURCE"
               ? absoluteUrl(element.currentSrc || element.src || element.getAttribute("src") || "")
-              : imageUrlFrom(element))
+              : absoluteUrl(element.getAttribute("src") || imageUrlFrom(element) || ""))
+            .map((value) => value?.replace(/@resize_[^/?#]+/iu, ""))
             .filter((value) => value && !/(avatar|profile|default[-_]?avatar|sprite|icon)/iu.test(value)));
-          const detectedRating = requestedStoreRating ||
-            Math.min(5, Math.max(1, row.querySelectorAll("[class*='star'][class*='active'], svg[class*='star']").length || 0));
-          const reviewer = rowLines.find((line) =>
+          const detectedRating = row.querySelectorAll(".rGdC5O .icon-rating-solid").length;
+          const productUrl = productAnchor ? absoluteUrl(productAnchor.getAttribute("href") || productAnchor.href || "") : undefined;
+          const productTitle = compact(
+            textFrom(row.querySelector(".EQ3yLe, [class*='product-name'], [class*='item-name'], [class*='product-title']")) ||
+            textFrom(productAnchor) ||
+            productAnchor?.getAttribute("title") ||
+            productAnchor?.querySelector("img")?.getAttribute("alt") ||
+            ""
+          ).slice(0, 300) || undefined;
+          const productVariation = compact(textFrom(row.querySelector(".TaSogz"))) || undefined;
+          const reviewerAnchor = row.querySelector("a.InK5kS[href], .d72He7 a[href*='/shop/']");
+          const reviewer = compact(textFrom(reviewerAnchor)) || rowLines.find((line) =>
             line.length >= 2 &&
             line.length <= 80 &&
             !/^\\d|^(variation|variasi|quality|kualitas|effect|efek|performance|performa|texture|tekstur)/iu.test(line)
-          ) || "Shopee buyer";
-          const capturedAt = rowText.match(/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u)?.[0];
-          const comment = cleanReviewComment(rowText);
+          ) || "";
+          const reviewerUrl = reviewerAnchor
+            ? absoluteUrl(reviewerAnchor.getAttribute("href") || reviewerAnchor.href || "")
+            : undefined;
+          const capturedAt = compact(textFrom(row.querySelector(".XYk98l"))) ||
+            rowText.match(/\\b20\\d{2}[-/]\\d{1,2}[-/]\\d{1,2}(?:\\s+\\d{1,2}:\\d{2})?\\b/u)?.[0];
+          const exactCommentRoot = row.querySelector(".meQyXP");
+          const comment = exactCommentRoot
+            ? blockTextFromHtml(exactCommentRoot).slice(0, 900)
+            : cleanReviewComment(rowText);
+          const sellerResponseElement = row.querySelector(
+            ".QSiE2A, [class*='seller-response'], [class*='seller-reply'], [class*='shop-reply'], [class*='reply-content']"
+          );
+          const sellerResponseMatch = rowText.match(
+            /(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual)\\s*:?\\s*([\\s\\S]+?)(?=(?:Report Abuse|Laporkan Penyalahgunaan|Helpful|Membantu)\\b|$)/iu
+          );
+          const sellerResponse = compact(textFrom(sellerResponseElement) || sellerResponseMatch?.[1] || "");
           return {
-            rating: detectedRating || requestedStoreRating || 5,
+            rating: detectedRating,
             reviewer,
+            reviewerUrl,
             comment,
+            productTitle,
+            productUrl,
+            productVariation,
+            sellerResponse: sellerResponse || undefined,
             mediaUrls,
-            capturedAt
+            capturedAt,
+            sourceIndex
           };
         })
-        .filter((sample) => sample.mediaUrls.length > 0 && sample.comment.length >= 20)
+        .filter((sample) => sample.rating === 1 || sample.rating === 5)
+        .filter((sample) => Boolean(sample.productTitle || sample.productUrl))
         .filter((sample) => !requestedStoreRating || sample.rating === requestedStoreRating)
-        .slice(0, 5);
+        .filter((sample) => {
+          const key = [sample.rating, sample.productUrl || sample.productTitle || "", sample.reviewer, sample.capturedAt || "", sample.comment, sample.sellerResponse || ""]
+            .map(compact)
+            .join(":")
+            .toLocaleLowerCase();
+          if (seenStoreRatingSamples.has(key)) return false;
+          seenStoreRatingSamples.add(key);
+          return true;
+        })
+        .sort((left, right) => {
+          const priority = (sample) => {
+            const seller = Boolean(sample.sellerResponse?.trim());
+            const comment = Boolean(sample.comment.trim());
+            const media = sample.mediaUrls.length > 0;
+            if (seller && media && comment) return 1;
+            if (seller && media && !comment) return 2;
+            if (seller && comment && !media) return 3;
+            if (comment && media && !seller) return 4;
+            if (comment && !seller && !media) return 5;
+            if (seller && !media && !comment) return 6;
+            if (media && !seller && !comment) return 7;
+            return 8;
+          };
+          const meaningfulLength = (value) => compact(value || "").length;
+          return priority(left) - priority(right) ||
+            right.mediaUrls.length - left.mediaUrls.length ||
+            meaningfulLength(right.comment) - meaningfulLength(left.comment) ||
+            meaningfulLength(right.sellerResponse) - meaningfulLength(left.sellerResponse) ||
+            left.sourceIndex - right.sourceIndex;
+        })
+        .slice(0, 5)
+        .map(({ sourceIndex, ...sample }) => sample);
       const storeProfile = {
         name: profileName,
         url: location.href,
         marketplaceStoreId: marketplaceStoreId || undefined,
-        followers: firstCountNearLabel([/followers?/iu, /pengikut/iu]),
-        following: firstCountNearLabel([/following/iu, /mengikuti/iu]),
-        productsCount: firstCountNearLabel([/^products?\\b/iu, /^produk\\b/iu]),
-        rating: profileRatingMatch ? Number(profileRatingMatch[1].replace(",", ".")) : undefined,
-        ratingCount: profileRatingCountMatch
-          ? parseHumanNumber(\`\${profileRatingCountMatch[1]}\${profileRatingCountMatch[2] || ""}\`)
+        storeType: (() => {
+          const profileHeader = document.querySelector(
+            ".shop-page__info, .shop-detail__info, [class*='shop-header'], [class*='ShopHeader'], [class*='shop-info']"
+          ) || storePageRoot;
+          const profileBadge = findStoreBadgeImage(profileHeader, undefined, profileHeader);
+          const exactTypeLabel = Array.from(profileHeader.querySelectorAll?.("span, div") || [])
+            .map((element) => compact(element.textContent || ""))
+            .find((value) => /^(mall\\s*ori|shopee\\s*mall|star\\s*\\+|starplus|star-plus|star)$/iu.test(value));
+          return inferStoreType(
+            compact([profileBadge?.alt, profileBadge?.title, profileBadge?.getAttribute?.("aria-label"), exactTypeLabel].filter(Boolean).join(" ")),
+            imageUrlFrom(profileBadge)
+          ) || storeType;
+        })(),
+        followers: metricNumber(followersMetricMatch),
+        following: metricNumber(followingMetricMatch),
+        productsCount: metricNumber(productsMetricMatch),
+        rating: ratingMetricMatch ? Number(ratingMetricMatch[1].replace(",", ".")) : undefined,
+        ratingCount: ratingMetricMatch?.[2]
+          ? parseHumanNumber(String(ratingMetricMatch[2]) + String(ratingMetricMatch[3] || ""))
           : undefined,
-        chatResponse: firstTextNearLabel([/chat (?:performance|response)/iu, /performa chat/iu, /respon chat/iu]),
-        joinedDate: firstTextNearLabel([/^joined\\b/iu, /^bergabung\\b/iu]),
+        chatResponse: compact(chatMetricMatch?.[1] || "") || undefined,
+        joinedDate: normalizeJoinedAge(joinedMetricMatch?.[1]),
         description: profileDescription || undefined,
         categories: unique(categoryCandidates).slice(0, 60),
         ratingSamples: storeRatingSamples,
@@ -9149,9 +10716,20 @@ async function extractRenderedPageSnapshot(
       const capturedProductCards = capturedProductCardHtml.length > 0
         ? \`<section data-mio-captured-product-cards="true">\${capturedProductCardHtml.join("")}</section>\`
         : "";
-      const html = includeHtml
-        ? prettyHtml(\`\${htmlRoot.outerHTML || document.documentElement?.outerHTML || ""}\${capturedProductCards}\`)
+      const requestedRatingRows = requestedStoreRating
+        ? storeRatingRowCandidates
+            .filter((row) => row.querySelectorAll(".rGdC5O .icon-rating-solid").length === requestedStoreRating)
+            .slice(0, 30)
+            .map((row) => row.outerHTML || "")
+            .filter(Boolean)
+        : [];
+      const focusedRatingHtml = requestedRatingRows.length > 0
+        ? \`<main data-mio-store-rating="\${requestedStoreRating}">\${requestedRatingRows.join("")}</main>\`
         : "";
+      const rawHtml = focusedRatingHtml || \`\${htmlRoot.outerHTML || document.documentElement?.outerHTML || ""}\${capturedProductCards}\`;
+      // Keep the archival HTML useful without posting an unbounded marketplace DOM
+      // through Electron's local HTTP bridge. Structured records above remain complete.
+      const html = includeHtml ? rawHtml.slice(0, 8_000_000) : "";
       const visibleTextSource = htmlRoot.innerText || document.body?.innerText || "";
       const visibleText = [document.title || "", location.href, compact(visibleTextSource).slice(0, 24000)]
         .filter(Boolean)
@@ -9283,6 +10861,45 @@ async function captureViewportScreenshot(webview: WebviewElement): Promise<FullP
     height: size.height,
     mode: "viewport"
   };
+}
+
+async function waitForRenderedProductRows(
+  webview: WebviewElement,
+  selector: string | undefined,
+  label: string,
+  timeoutMs = 20_000
+): Promise<void> {
+  if (!webview.executeJavaScript) {
+    throw new Error("The embedded browser cannot inspect marketplace results in the current runtime.");
+  }
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveReadyChecks = 0;
+  while (Date.now() < deadline) {
+    const state = await webview.executeJavaScript<{ readyState: string; productCount: number }>(`
+      (() => {
+        const selector = ${JSON.stringify(selector ?? "")};
+        const target = selector ? document.querySelector(selector) : document;
+        const scope = target || document;
+        const productSelector = 'a[href*="-i."], a[href*="/product/"], a[href*="i."]';
+        const scopedCount = scope.querySelectorAll(productSelector).length;
+        const documentCount = document.querySelectorAll(productSelector).length;
+        return {
+          readyState: document.readyState,
+          productCount: Math.max(scopedCount, documentCount)
+        };
+      })();
+    `).catch(() => undefined);
+    if (state && state.readyState !== "loading" && state.productCount > 0) {
+      consecutiveReadyChecks += 1;
+      if (consecutiveReadyChecks >= 2) {
+        return;
+      }
+    } else {
+      consecutiveReadyChecks = 0;
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
+  }
+  throw new Error(`${label} is not ready because no rendered marketplace product rows were found.`);
 }
 
 async function captureElementScreenshot(webview: WebviewElement, selector: string): Promise<FullPageScreenshot> {

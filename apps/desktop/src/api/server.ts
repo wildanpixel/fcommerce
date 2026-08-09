@@ -11,6 +11,16 @@ import {
   LEGACY_REPORT_SECTION_IDS,
   REPORT_SECTION_ORDER
 } from "../shared/reportSections.js";
+import {
+  normalizeStoreType,
+  STORE_TYPE_IMAGES,
+  storeTypeFromBadgeContext,
+  type StoreType
+} from "../shared/storeTypes.js";
+import {
+  compareRatingSamples,
+  parseShopeeStoreRatingHtmlWithDiagnostics
+} from "../shared/shopeeStoreRatings.js";
 import type {
   BrowserOption,
   AndroidApkCandidate,
@@ -23,21 +33,24 @@ import type {
   CollectionState,
   CreateJobPayload,
   ExtractedPageProduct,
+  EvidenceTranslationPayload,
   HtmlSnapshotPayload,
   ManualEvidencePayload,
   ManualEvidenceResetPayload,
   ManualFileEvidencePayload,
   NewProjectInput,
   PlatformPayload,
+  LicenseActivationPayload,
   ReportGenerationPayload,
   ReportHtmlPayload,
+  EvidenceTranslationResult,
   SaveSettingsPayload
 } from "../shared/contracts.js";
 import type { ProductDetail, ReviewEvidence, StoreProfile } from "../domain/models.js";
 import { ProjectService } from "../application/services/ProjectService.js";
 import { JobQueue } from "../application/services/JobQueue.js";
 import { IntelligenceWorkflow } from "../application/services/IntelligenceWorkflow.js";
-import { ReportService } from "../application/services/ReportService.js";
+import { ReportService, translateReportData } from "../application/services/ReportService.js";
 import type { ReportData } from "../application/services/ReportService.js";
 import type { AnalysisInput } from "../application/services/AIAnalysisService.js";
 import { prisma } from "../infrastructure/db/prismaClient.js";
@@ -65,6 +78,7 @@ import { getPlatformService } from "../infrastructure/platform/PlatformService.j
 import { NoopUpdateService } from "../application/services/UpdateService.js";
 import { AndroidToolingService } from "../infrastructure/android/AndroidToolingService.js";
 import { AdbAndroidAutomationAdapter } from "../infrastructure/android/AdbAndroidAutomationAdapter.js";
+import { LicenseActivationService } from "../infrastructure/security/LicenseActivationService.js";
 
 const marketplaceSchema = z.enum([
   "SHOPEE_ID",
@@ -96,8 +110,17 @@ const storeCollectionCandidateSchema = z.object({
   storeName: z.string().min(1),
   storeUrl: z.string().url(),
   shopId: z.string().optional(),
+  storeType: z.enum(["star", "star_plus", "shopee_mall"]).optional(),
+  sourceProductIds: z.array(z.string()).max(20).optional(),
   includePopularProducts: z.boolean(),
   includeShopBanner: z.boolean()
+});
+
+const qualifiedProductReferenceSchema = z.object({
+  productId: z.string().optional(),
+  productUrl: z.string().url().optional(),
+  fallbackIdentity: z.string().min(1),
+  manuallyAdded: z.boolean().optional()
 });
 
 const projectSchema = z.object({
@@ -130,6 +153,8 @@ const settingsSchema = z.object({
   screenshotFolder: z.string().min(1),
   language: z.string().min(2),
   concurrency: z.number().int().min(1).max(5),
+  reportFilenameTemplate: z.string().min(1),
+  reportSectionOrder: z.array(z.enum([...REPORT_SECTION_ORDER, ...LEGACY_REPORT_SECTION_IDS])),
   openAiApiKey: z.string().optional(),
   geminiApiKey: z.string().optional()
 });
@@ -140,6 +165,10 @@ export const reportSchema = z.object({
   projectId: z.string().uuid(),
   templateId: z.string().min(2),
   theme: z.enum(["light", "dark"]).optional(),
+  fileName: z.string().min(1).optional(),
+  exportFolder: z.string().min(1).optional(),
+  formats: z.array(z.enum(["DOCX", "PDF", "HTML"])).min(1).optional(),
+  language: z.enum(["id-ID", "en-US", "zh-CN"]).optional(),
   sections: z.array(
     z.object({
       id: reportSectionIdSchema,
@@ -156,7 +185,20 @@ const bulkReportSchema = z.object({
   formats: z.array(z.enum(["DOCX", "PDF", "HTML"])).min(1),
   templateId: z.string().min(2),
   theme: z.enum(["light", "dark"]).optional(),
+  exportFolder: z.string().min(1).optional(),
+  language: z.enum(["id-ID", "en-US", "zh-CN"]).optional(),
   sections: reportSchema.shape.sections
+});
+
+const evidenceTranslationSchema = z.object({
+  language: z.enum(["id-ID", "en-US", "zh-CN"]),
+  texts: z.array(z.string().trim().min(1).max(4000)).min(1).max(100)
+});
+
+const licenseActivationSchema = z.object({
+  email: z.string().trim().email(),
+  password: z.string().min(8).max(256),
+  license: z.string().trim().min(80).max(16_000)
 });
 
 const manualEvidenceKindSchema = z.enum([
@@ -196,7 +238,7 @@ const extractedPageProductSchema = z.object({
   reviewText: z.string().optional(),
   soldText: z.string().optional(),
   productType: z.string().optional(),
-  storeType: z.string().optional(),
+  storeType: z.enum(["star", "star_plus", "shopee_mall"]).optional(),
   storeBadgeImageUrl: z.string().optional(),
   sourcePlacement: z.string().optional(),
   storeName: z.string().optional(),
@@ -255,8 +297,12 @@ const collectionStateSchema = z.object({
   viewMode: z.enum(["desktop", "mobile"]).optional(),
   searchFilters: shopeeSearchFiltersSchema.optional(),
   qualifiedProductIds: z.array(z.string()).max(20).optional(),
+  qualifiedProductReferences: z.array(qualifiedProductReferenceSchema).max(20).optional(),
+  qualifiedProductsInitialized: z.boolean().optional(),
   qualifiedProductsApproved: z.boolean().optional(),
   storeCollectionCandidates: z.array(storeCollectionCandidateSchema).max(50).optional(),
+  storeListInitialized: z.boolean().optional(),
+  storeListApproved: z.boolean().optional(),
   savedAt: z.string().optional()
 });
 
@@ -304,7 +350,7 @@ export function createApp(): Express {
   app.use(express.json({ limit: "80mb" }));
   app.use((request, response, next) => {
     response.header("Access-Control-Allow-Origin", request.headers.origin ?? "*");
-    response.header("Access-Control-Allow-Headers", "Content-Type");
+    response.header("Access-Control-Allow-Headers", "Content-Type, X-MIO-Session");
     response.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
     if (request.method === "OPTIONS") {
       response.sendStatus(204);
@@ -316,9 +362,26 @@ export function createApp(): Express {
   app.get("/api/health", (_request, response) => {
     response.json({
       ok: true,
-      product: "MarketPlace Keyword Competitor Analysis",
+      product: "Marketplace Intelligence OS",
       version: process.env.MIO_APP_VERSION ?? "1.0.0"
     });
+  });
+
+  app.get("/api/license/status", asyncRoute(async (_request, response) => {
+    response.json(await dependencies.license.status());
+  }));
+
+  app.post("/api/license/activate", asyncRoute(async (request, response) => {
+    const input = licenseActivationSchema.parse(request.body) satisfies LicenseActivationPayload;
+    response.json(await dependencies.license.activate(input));
+  }));
+
+  app.use("/api", (request, response, next) => {
+    if (dependencies.license.hasValidSession(request.header("X-MIO-Session"))) {
+      next();
+      return;
+    }
+    response.status(401).json({ error: "A valid Research Product Market license session is required." });
   });
 
   app.get("/api/marketplaces", (_request, response) => {
@@ -432,6 +495,14 @@ export function createApp(): Express {
       currentStepId: input.currentStepId,
       browserUrl: input.browserUrl,
       viewMode: input.viewMode,
+      searchFilters: input.searchFilters,
+      qualifiedProductIds: input.qualifiedProductIds,
+      qualifiedProductReferences: input.qualifiedProductReferences,
+      qualifiedProductsInitialized: input.qualifiedProductsInitialized,
+      qualifiedProductsApproved: input.qualifiedProductsApproved,
+      storeCollectionCandidates: input.storeCollectionCandidates,
+      storeListInitialized: input.storeListInitialized,
+      storeListApproved: input.storeListApproved,
       savedAt: input.savedAt ?? new Date().toISOString()
     };
     response.json(await dependencies.projectRepository.updateCollectionState(params.id, state));
@@ -616,7 +687,8 @@ export function createApp(): Express {
       textPath,
       pdfPath,
       extractedProductCount: normalizedEvidence.extractedProductCount,
-      storeBannerCount: storeBannerAssetPaths.length
+      storeBannerCount: storeBannerAssetPaths.length,
+      storeRatingCount: normalizedEvidence.storeRatingCount
     });
   }));
 
@@ -827,11 +899,19 @@ export function createApp(): Express {
       screenshotFolder: input.screenshotFolder,
       language: input.language,
       concurrency: input.concurrency,
+      reportFilenameTemplate: input.reportFilenameTemplate,
+      reportSectionOrder: input.reportSectionOrder,
       openAiKeyConfigured: Boolean(input.openAiApiKey),
       geminiKeyConfigured: Boolean(input.geminiApiKey)
     });
     dependencies.queue.setConcurrency(saved.concurrency);
     response.json(saved);
+  }));
+
+  app.post("/api/translations/evidence", asyncRoute(async (request, response) => {
+    const input = evidenceTranslationSchema.parse(request.body) satisfies EvidenceTranslationPayload;
+    const result = await dependencies.ai.translateTexts(input.texts, input.language);
+    response.json({ language: input.language, ...result } satisfies EvidenceTranslationResult);
   }));
 
   app.get("/api/report-sections", (_request, response) => {
@@ -840,7 +920,20 @@ export function createApp(): Express {
 
   app.post("/api/reports", asyncRoute(async (request, response) => {
     const input = reportSchema.parse(request.body) satisfies ReportGenerationPayload;
-    response.status(201).json(await dependencies.reports.generate(input));
+    const preparedInput = await prepareReportPayload(dependencies, input);
+    const generated = await dependencies.reports.generate(preparedInput);
+    if (preparedInput.formats?.includes("DOCX")) {
+      const data = await translateReportData(
+        await dependencies.reportDataLoader.load(preparedInput.projectId),
+        preparedInput.language,
+        dependencies.ai
+      );
+      const docxPath = generated.htmlPath.replace(/\.html$/iu, ".docx");
+      await writeFile(docxPath, await dependencies.docxReports.render(data, preparedInput));
+      response.status(201).json({ ...generated, docxPath });
+      return;
+    }
+    response.status(201).json(generated);
   }));
 
   app.post("/api/reports/bulk", asyncRoute(async (request, response) => {
@@ -851,13 +944,21 @@ export function createApp(): Express {
     let fileCount = 0;
 
     for (const projectId of input.projectIds) {
-      const data = await dependencies.reportDataLoader.load(projectId);
-      const generated = await dependencies.reports.generate({
+      const preparedInput = await prepareReportPayload(dependencies, {
         projectId,
         templateId: input.templateId,
         theme: input.theme,
-        sections: input.sections
+        sections: input.sections,
+        formats: input.formats,
+        language: input.language,
+        exportFolder: input.exportFolder
       });
+      const data = await translateReportData(
+        await dependencies.reportDataLoader.load(projectId),
+        preparedInput.language,
+        dependencies.ai
+      );
+      const generated = await dependencies.reports.generate(preparedInput);
       archiveDirectory ??= dirname(generated.htmlPath);
       const fileStem = `${slug(data.project.name)}-${projectId.slice(0, 8)}`;
 
@@ -870,12 +971,7 @@ export function createApp(): Express {
         fileCount += 1;
       }
       if (formats.has("DOCX")) {
-        const docx = await dependencies.docxReports.render(data, {
-          projectId,
-          templateId: input.templateId,
-          sections: input.sections,
-          theme: input.theme
-        });
+        const docx = await dependencies.docxReports.render(data, preparedInput);
         archive.file(`${fileStem}.docx`, docx);
         fileCount += 1;
       }
@@ -884,7 +980,9 @@ export function createApp(): Express {
     if (!archiveDirectory) {
       throw new Error("No report output directory was created.");
     }
-    const zipPath = join(archiveDirectory, `${slug(input.category)}.zip`);
+    const zipDirectory = input.exportFolder ? resolve(input.exportFolder) : archiveDirectory;
+    await mkdir(zipDirectory, { recursive: true });
+    const zipPath = join(zipDirectory, `${slug(input.category)}.zip`);
     await writeFile(zipPath, await archive.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
     response.status(201).json({
       ok: true,
@@ -909,6 +1007,9 @@ export function createApp(): Express {
     response.json({
       reportId: report.id,
       htmlPath: report.htmlPath,
+      pdfPath: report.pdfPath,
+      docxPath: report.docxPath,
+      formats: report.formats,
       html,
       text: htmlToPlainText(html)
     } satisfies ReportHtmlPayload);
@@ -921,12 +1022,18 @@ export function createApp(): Express {
       response.status(404).json({ error: "Report HTML not found" });
       return;
     }
-    const data = await dependencies.reportDataLoader.load(report.projectId);
+    const data = await translateReportData(
+      await dependencies.reportDataLoader.load(report.projectId),
+      report.language,
+      dependencies.ai
+    );
     const docxPath = report.htmlPath.replace(/\.html$/iu, ".docx");
     await writeFile(docxPath, await dependencies.docxReports.render(data, {
       projectId: report.projectId,
       templateId: report.templateId,
-      sections: report.sections ?? DEFAULT_REPORT_SECTIONS
+      sections: report.sections ?? DEFAULT_REPORT_SECTIONS,
+      formats: report.formats,
+      language: report.language
     }));
     response.json({ ok: true, reportId: report.id, docxPath });
   }));
@@ -985,6 +1092,10 @@ function createDependencies() {
   const android = new AndroidToolingService();
   const androidAdapter = new AdbAndroidAutomationAdapter(android);
   const workspace = new ProjectWorkspace();
+  const license = new LicenseActivationService(
+    platform.info.directories.settings,
+    !platform.info.isPackaged && process.env.MIO_LICENSE_ENFORCEMENT !== "1"
+  );
   const ai = new CompositeAIAnalysisService(settingsRepository);
   const reportDataLoader = new PrismaReportDataLoader(prisma);
   const workflow = new IntelligenceWorkflow(
@@ -999,6 +1110,7 @@ function createDependencies() {
   const queue = new JobQueue(jobRepository, workflow, logRepository, 1);
   return {
     platform,
+    license,
     browsers,
     android,
     androidAdapter,
@@ -1016,13 +1128,39 @@ function createDependencies() {
       new PrismaReportDataAdapter(reportDataLoader),
       new ConsultingHtmlReportRenderer(),
       new PuppeteerPdfExporter(),
-      workspace
+      workspace,
+      ai
     ),
     ai,
     docxReports: new ConsultingDocxReportExporter(),
     reportDataLoader,
     reportRepository
   };
+}
+
+async function prepareReportPayload(
+  dependencies: ReturnType<typeof createDependencies>,
+  input: ReportGenerationPayload
+): Promise<ReportGenerationPayload> {
+  const settings = await dependencies.settings.get();
+  const aiConfigured = settings.openAiKeyConfigured || settings.geminiKeyConfigured;
+  const sections = input.sections.map((section) =>
+    section.id === "intelligence" && !aiConfigured
+      ? { ...section, enabled: false }
+      : section
+  );
+  const preparedInput = { ...input, sections };
+  if (!aiConfigured || !sections.some((section) => section.id === "intelligence" && section.enabled)) {
+    return preparedInput;
+  }
+
+  const data = await dependencies.reportDataLoader.load(input.projectId);
+  const analysis = await dependencies.ai.analyze({
+    ...toAnalysisInput(data),
+    language: input.language ?? data.project.language
+  });
+  await dependencies.intelligenceRepository.saveAnalysis(input.projectId, analysis);
+  return preparedInput;
 }
 
 function toAnalysisInput(data: ReportData): AnalysisInput {
@@ -1169,9 +1307,9 @@ async function repairMissingProductStoresFromCapturedHtml(projectId: string): Pr
       data: {
         storeName: product.storeName ?? storeInfo.storeName,
         storeUrl: product.storeUrl ?? storeInfo.storeUrl,
-        mallStatus: storeInfo.storeType === "Mall ORI" ? true : product.mallStatus,
-        officialStatus: storeInfo.storeType === "Mall ORI" ? true : product.officialStatus,
-        starSeller: storeInfo.storeType === "Star" || storeInfo.storeType === "Star+" ? true : product.starSeller,
+        mallStatus: storeInfo.storeType === "shopee_mall" ? true : product.mallStatus,
+        officialStatus: storeInfo.storeType === "shopee_mall" ? true : product.officialStatus,
+        starSeller: storeInfo.storeType === "star" || storeInfo.storeType === "star_plus" ? true : product.starSeller,
         rawJson: JSON.stringify({
           ...currentRaw,
           storeType: storeInfo.storeType ?? currentRaw.storeType,
@@ -1321,6 +1459,7 @@ type EvidencePersistenceResult = {
   normalizedRecordCount: number;
   reviewCount?: number;
   storeId?: string;
+  storeRatingCount?: number;
   ownerType?: "PRODUCT" | "STORE";
   ownerId?: string;
 };
@@ -1328,7 +1467,7 @@ type EvidencePersistenceResult = {
 type StructuredProductDetail = {
   storeName?: string;
   storeUrl?: string;
-  storeType?: string;
+  storeType?: StoreType;
   rating?: number;
   ratingText?: string;
   reviewText?: string;
@@ -1357,6 +1496,7 @@ type StructuredStoreProfile = {
   name?: string;
   url?: string;
   marketplaceStoreId?: string;
+  storeType?: StoreType;
   followers?: number;
   following?: number;
   productsCount?: number;
@@ -1369,7 +1509,12 @@ type StructuredStoreProfile = {
   ratingSamples: Array<{
     rating: number;
     reviewer: string;
+    reviewerUrl?: string;
     comment: string;
+    productTitle?: string;
+    productUrl?: string;
+    productVariation?: string;
+    sellerResponse?: string;
     mediaUrls: string[];
     capturedAt?: string;
   }>;
@@ -1443,9 +1588,9 @@ async function persistCapturedPageData(
           totalSold: enrichment.totalSold ?? product.totalSold,
           storeName: enrichment.storeName ?? product.storeName,
           storeUrl: enrichment.storeUrl ?? product.storeUrl,
-          mallStatus: enrichment.storeType === "Mall ORI" ? true : product.mallStatus,
-          officialStatus: enrichment.storeType === "Mall ORI" ? true : product.officialStatus,
-          starSeller: enrichment.storeType === "Star" || enrichment.storeType === "Star+" ? true : product.starSeller,
+          mallStatus: enrichment.storeType === "shopee_mall" ? true : product.mallStatus,
+          officialStatus: enrichment.storeType === "shopee_mall" ? true : product.officialStatus,
+          starSeller: enrichment.storeType === "star" || enrichment.storeType === "star_plus" ? true : product.starSeller,
           stock: enrichment.stock ?? product.stock,
           voucherText: enrichment.voucherText ?? enrichment.shopVouchers[0] ?? product.voucherText,
           shippingText: enrichment.shippingText ?? product.shippingText,
@@ -1533,11 +1678,12 @@ async function persistCapturedPageData(
     }
   }
 
-  if (isStoreEvidenceKind(input.kind)) {
+  if (isStoreScopedEvidence(input)) {
     const store = extractStoreProfile(input, projectId);
     const storeId = await intelligenceRepository.saveStore(projectId, store);
     result.normalizedRecordCount += 1;
     result.storeId = storeId;
+    result.storeRatingCount = store.ratingSamples.length;
     if (input.ownerType === "PRODUCT" && input.ownerId) {
       result.ownerType = "PRODUCT";
       result.ownerId = input.ownerId;
@@ -1653,7 +1799,7 @@ function toProductDetail(
 ): ProductDetail {
   const priceAverage = product.priceAverage ?? parsePrice(product.priceText);
   const salesLikeSource = isSalesLikeProductSource(context.source);
-  const normalizedStoreType = normalizeStoreType(product.storeType) ?? storeTypeFromOfficialStoreName(product.storeName);
+  const normalizedStoreType = normalizeStoreType(product.storeType);
   return {
     marketplace: "SHOPEE_ID",
     rank: product.rank,
@@ -1674,9 +1820,9 @@ function toProductDetail(
     totalSold: salesLikeSource ? undefined : product.soldCount,
     storeName: product.storeName,
     storeUrl: product.storeUrl ? normalizeUrl(product.storeUrl) : undefined,
-    mallStatus: normalizedStoreType === "Mall ORI" || Boolean(product.mallStatus),
-    officialStatus: normalizedStoreType === "Mall ORI" || Boolean(product.officialStatus),
-    starSeller: normalizedStoreType === "Star" || normalizedStoreType === "Star+" || Boolean(product.starSeller),
+    mallStatus: normalizedStoreType === "shopee_mall",
+    officialStatus: normalizedStoreType === "shopee_mall",
+    starSeller: normalizedStoreType === "star" || normalizedStoreType === "star_plus",
     variants: [],
     specifications: {},
     images: product.imageUrl ? [product.imageUrl] : [],
@@ -1691,7 +1837,7 @@ function toProductDetail(
       images: product.imageUrl ? [product.imageUrl] : [],
       productType: product.productType,
       storeType: normalizedStoreType,
-      storeBadgeImageUrl: product.storeBadgeImageUrl,
+      storeBadgeImageUrl: normalizedStoreType ? STORE_TYPE_IMAGES[normalizedStoreType] : undefined,
       ratingText: product.ratingText,
       reviewText: product.reviewText,
       soldText: product.soldText,
@@ -1888,6 +2034,13 @@ function isStoreEvidenceKind(kind: ManualEvidencePayload["kind"]): boolean {
   ].includes(kind);
 }
 
+export function isStoreScopedEvidence(
+  input: Pick<ManualEvidencePayload, "kind" | "ownerType">
+): boolean {
+  return isStoreEvidenceKind(input.kind) ||
+    (input.kind === "REVIEW_SECTION" && input.ownerType === "STORE");
+}
+
 function extractProductEnrichment(
   input: ManualEvidencePayload,
   files: {
@@ -1926,7 +2079,7 @@ function extractProductEnrichment(
   reviews: ReviewEvidence[];
   storeName?: string;
   storeUrl?: string;
-  storeType?: string;
+  storeType?: StoreType;
   shopVouchers: string[];
   bundleDeals: string[];
   promotionCount?: number;
@@ -1945,10 +2098,7 @@ function extractProductEnrichment(
   const collectDescriptionPromotions = collectEverything || subAction === "description-promotions";
   const htmlStoreInfo = extractPdpStoreInfoFromHtml(html);
   const resolvedStoreName = safeStoreName(structured?.storeName ?? htmlStoreInfo.storeName);
-  const resolvedStoreType =
-    normalizeStoreType(htmlStoreInfo.storeType) ??
-    storeTypeFromOfficialStoreName(resolvedStoreName) ??
-    normalizeStoreType(structured?.storeType);
+  const resolvedStoreType = normalizeStoreType(htmlStoreInfo.storeType) ?? normalizeStoreType(structured?.storeType);
   const price = extractMoneyRange(text);
   const structuredImages = structured?.images ?? [];
   const structuredVideos = structured?.videos ?? [];
@@ -1996,7 +2146,7 @@ function extractProductEnrichment(
     reviews,
     storeName: resolvedStoreName,
     storeUrl: structured?.storeUrl ? normalizeUrl(structured.storeUrl) : htmlStoreInfo.storeUrl,
-    storeType: resolvedStoreType,
+    storeType: resolvedStoreType ?? undefined,
     shopVouchers,
     bundleDeals,
     promotionCount: structured?.promotionCount ?? shopVouchers.length + bundleDeals.length,
@@ -2015,11 +2165,27 @@ function extractStoreProfile(input: ManualEvidencePayload, projectId: string): S
   const url = normalizeUrl(canonicalStoreUrl ?? structured?.url ?? input.sourceUrl ?? `https://shopee.co.id/store-${projectId}`);
   const metadataStoreName = typeof input.metadata?.storeName === "string" ? input.metadata.storeName.trim() : undefined;
   const metadataShopId = typeof input.metadata?.shopId === "string" ? input.metadata.shopId.trim() : undefined;
-  const storeName = structured?.name || metadataStoreName || inferStoreName(text, url, input.label);
+  const storeName = metadataStoreName || structured?.name || inferStoreName(text, url, input.label);
   const voucherLine = findLine(text, ["voucher", "diskon", "cashback"]);
+  const requestedRating = typeof input.metadata?.requestedRating === "number"
+    ? input.metadata.requestedRating
+    : undefined;
+  const parsedRatings = parseShopeeStoreRatingHtmlWithDiagnostics(input.pageHtml ?? "", requestedRating);
+  const htmlRatingSamples = parsedRatings.samples;
+  if (requestedRating && htmlRatingSamples.length === 0) {
+    console.warn("[store-rating-parser] zero results", {
+      ...parsedRatings.diagnostics,
+      requestedRating,
+      selectedStoreIdentity: metadataShopId || url || storeName
+    });
+  }
+  const ratingSamples = htmlRatingSamples.length >= (structured?.ratingSamples.length ?? 0)
+    ? htmlRatingSamples
+    : structured?.ratingSamples ?? [];
   return {
     marketplace: "SHOPEE_ID",
-    marketplaceStoreId: structured?.marketplaceStoreId || metadataShopId,
+    marketplaceStoreId: metadataShopId || structured?.marketplaceStoreId,
+    storeType: structured?.storeType,
     name: storeName,
     url,
     followers: structured?.followers ?? extractCountNear(text, ["followers", "pengikut"]),
@@ -2028,7 +2194,7 @@ function extractStoreProfile(input: ManualEvidencePayload, projectId: string): S
     rating: structured?.rating ?? extractRating(text),
     ratingCount: structured?.ratingCount ?? extractCountNear(text, ["ratings", "penilaian"]),
     chatResponse: structured?.chatResponse ?? findLine(text, ["chat", "response", "respon"]),
-    joinedDate: structured?.joinedDate ?? findLine(text, ["joined", "bergabung"]),
+    joinedDate: normalizeJoinedAge(structured?.joinedDate ?? findLine(text, ["joined", "bergabung"])),
     description: structured?.description,
     categories: structured?.categories.length
       ? structured.categories
@@ -2038,7 +2204,7 @@ function extractStoreProfile(input: ManualEvidencePayload, projectId: string): S
     featuredProducts: [],
     bestSellers: [],
     visualTheme: extractVisualTheme(text, input.kind),
-    ratingSamples: structured?.ratingSamples ?? [],
+    ratingSamples,
     raw: {
       source: "guided-manual-collector",
       sourceStepId: input.stepId,
@@ -2046,6 +2212,7 @@ function extractStoreProfile(input: ManualEvidencePayload, projectId: string): S
       ownerId: input.ownerId,
       storeCandidateId: input.metadata?.storeCandidateId,
       storeEvidenceType: input.metadata?.storeEvidenceType,
+      storeType: structured?.storeType,
       bannerUrls: structured?.bannerUrls ?? extractStringArray(input.metadata?.storeDecorationImages),
       htmlCaptured: Boolean(input.pageHtml),
       textCaptured: Boolean(input.visibleText),
@@ -2117,7 +2284,7 @@ function readStructuredProductDetail(metadata?: Record<string, unknown>): Struct
   return {
     storeName: typeof raw.storeName === "string" && raw.storeName.trim() ? raw.storeName.trim() : undefined,
     storeUrl: typeof raw.storeUrl === "string" && raw.storeUrl.trim() ? raw.storeUrl.trim() : undefined,
-    storeType: normalizeStoreType(typeof raw.storeType === "string" ? raw.storeType : undefined),
+    storeType: normalizeStoreType(typeof raw.storeType === "string" ? raw.storeType : undefined) ?? undefined,
     rating: typeof raw.rating === "number" && Number.isFinite(raw.rating) && raw.rating >= 1 && raw.rating <= 5 ? raw.rating : undefined,
     ratingText: typeof raw.ratingText === "string" && raw.ratingText.trim() ? raw.ratingText.trim() : undefined,
     reviewText: typeof raw.reviewText === "string" && raw.reviewText.trim() ? raw.reviewText.trim() : undefined,
@@ -2148,33 +2315,57 @@ function readStructuredStoreProfile(metadata?: Record<string, unknown>): Structu
   const ratingSamples = Array.isArray(raw.ratingSamples)
     ? raw.ratingSamples
         .filter(isRecord)
-        .map((sample) => ({
+        .map((sample, sourceIndex) => ({
           rating: Math.max(1, Math.min(5, readFiniteNumber(sample.rating) ?? 5)),
-          reviewer: readString(sample.reviewer) ?? "Shopee buyer",
+          reviewer: readString(sample.reviewer) ?? "",
+          reviewerUrl: readString(sample.reviewerUrl),
           comment: sanitizeShopeeReviewComment(readString(sample.comment) ?? ""),
+          productTitle: readString(sample.productTitle),
+          productUrl: readString(sample.productUrl),
+          productVariation: readString(sample.productVariation),
+          sellerResponse: readString(sample.sellerResponse),
           mediaUrls: extractStringArray(sample.mediaUrls).filter(isReviewMediaUrl),
-          capturedAt: readString(sample.capturedAt)
+          capturedAt: readString(sample.capturedAt),
+          sourceIndex
         }))
-        .filter((sample) => sample.comment.length >= 20 && sample.mediaUrls.length > 0)
+        .filter((sample) => Boolean(sample.productTitle || sample.productUrl))
+        .sort(compareRatingSamples)
         .slice(0, 5)
+        .map(({ sourceIndex: _sourceIndex, ...sample }) => sample)
     : [];
 
   return {
     name: readString(raw.name),
     url: readString(raw.url),
     marketplaceStoreId: readString(raw.marketplaceStoreId),
+    storeType: normalizeStoreType(readString(raw.storeType)) ?? undefined,
     followers: readFiniteNumber(raw.followers),
     following: readFiniteNumber(raw.following),
     productsCount: readFiniteNumber(raw.productsCount),
     rating: readFiniteNumber(raw.rating),
     ratingCount: readFiniteNumber(raw.ratingCount),
     chatResponse: readString(raw.chatResponse),
-    joinedDate: readString(raw.joinedDate),
+    joinedDate: normalizeJoinedAge(readString(raw.joinedDate)),
     description: readString(raw.description),
     categories: extractStringArray(raw.categories),
     ratingSamples,
     bannerUrls: extractStringArray(raw.bannerUrls)
   };
+}
+
+function normalizeJoinedAge(value?: string): string | undefined {
+  const normalized = value?.replace(/\s+/gu, " ").trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const match = normalized.match(/([\d.,]+)\s*(months?|bulan|years?|tahun)\b/iu);
+  if (!match) {
+    return normalized.slice(0, 80);
+  }
+  const amount = match[1].replace(",", ".");
+  const singular = Number(amount) === 1;
+  const monthUnit = /month|bulan/iu.test(match[2]);
+  return `${amount} ${monthUnit ? singular ? "Month" : "Months" : singular ? "Year" : "Years"}`;
 }
 
 function toReviewEvidence(input: StructuredProductDetail["reviews"][number]): ReviewEvidence {
@@ -2209,7 +2400,7 @@ function sanitizeShopeeReviewComment(comment: string): string {
     if (!line) continue;
     const cutoffIndex = line.search(/(?:Seller'?s? Response|Respon(?:s)? Penjual|Respons(?:e)? Penjual|Penjual Membalas|Tanggapan Penjual|Report Abuse|Laporkan Penyalahgunaan)\b/iu);
     const content = cleanText(cutoffIndex >= 0 ? line.slice(0, cutoffIndex) : line);
-    if (content && !/^(?:Helpful|Membantu|Like|Share)\s*[\d.,kkrb]*$/iu.test(content)) {
+    if (content && !/^(?:Helpful\??|Membantu\??|Like|Share)(?:\s*[\d.,kkrb]*)?$/iu.test(content)) {
       output.push(content);
     }
     if (cutoffIndex >= 0) break;
@@ -2230,42 +2421,6 @@ function metadataFlag(metadata: Record<string, unknown> | undefined, key: string
 function productDetailSubAction(metadata: Record<string, unknown> | undefined): string | undefined {
   const value = metadata?.productDetailSubAction;
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-function normalizeStoreType(value?: string): "Mall ORI" | "Star+" | "Star" | undefined {
-  const normalized = String(value ?? "").trim();
-  if (/^mall\s*ori$/iu.test(normalized) || /^shopee\s*mall$/iu.test(normalized)) {
-    return "Mall ORI";
-  }
-  if (/^star\s*\+$/iu.test(normalized) || /^starplus$/iu.test(normalized)) {
-    return "Star+";
-  }
-  if (/^star$/iu.test(normalized)) {
-    return "Star";
-  }
-  return undefined;
-}
-
-function storeTypeFromOfficialStoreName(value?: string): "Mall ORI" | undefined {
-  return /\bofficial\s+(?:store|shop)\b|\btoko\s+resmi\b|\bgerai\s+resmi\b/iu.test(String(value ?? "")) ? "Mall ORI" : undefined;
-}
-
-function normalizeStoreTypeFromBadge(value?: string): "Mall ORI" | "Star+" | "Star" | undefined {
-  const direct = normalizeStoreType(value);
-  if (direct) {
-    return direct;
-  }
-  const normalized = String(value ?? "").toLowerCase();
-  if (/star\s*(?:plus|\+)/iu.test(normalized)) {
-    return "Star+";
-  }
-  if (/mall\s*ori|mallori|mall-ori|shopee\s*mall|mall/iu.test(normalized)) {
-    return "Mall ORI";
-  }
-  if (/(?:^|[^a-z])star(?:[^a-z]|$)/iu.test(normalized)) {
-    return "Star";
-  }
-  return undefined;
 }
 
 function reviewDedupeKey(reviewItem: ReviewEvidence): string {
@@ -2432,7 +2587,7 @@ function extractHtmlTitle(html: string): string | undefined {
 export function extractPdpStoreInfoFromHtml(html: string): {
   storeName?: string;
   storeUrl?: string;
-  storeType?: string;
+  storeType?: StoreType;
 } {
   if (!html) {
     return {};
@@ -2448,8 +2603,14 @@ export function extractPdpStoreInfoFromHtml(html: string): {
     extractHtmlAttribute(block, /<a\b(?=[^>]*#product_list\b)[^>]*\bhref=["'](?<value>[^"']+)["'][^>]*>/iu) ??
     extractHtmlAttribute(block, /<a\b(?![^>]*\b(?:chat|cart|checkout|help|report|seller|login|verify|mall)\b)[^>]*\bhref=["'](?<value>\/[^"']+)["'][^>]*>/iu);
   const storeType = [...block.matchAll(/<img\b[^>]{0,1600}>/giu)]
-    .map((match) => normalizeStoreTypeFromBadge(match[0]))
-    .find((value): value is "Mall ORI" | "Star+" | "Star" => Boolean(value));
+    .map((match) => {
+      const tag = match[0];
+      const src = extractHtmlAttribute(tag, /\bsrc=["'](?<value>[^"']+)["']/iu);
+      const alt = extractHtmlAttribute(tag, /\balt=["'](?<value>[^"']+)["']/iu);
+      const title = extractHtmlAttribute(tag, /\btitle=["'](?<value>[^"']+)["']/iu);
+      return normalizeStoreType(src) ?? storeTypeFromBadgeContext(`${alt ?? ""} ${title ?? ""}`);
+    })
+    .find((value): value is StoreType => Boolean(value));
   const candidates = [
     ...extractHtmlClassTextCandidates(block, "fV3TIn"),
     ...extractHtmlClassTextCandidates(block, "shop-name"),
@@ -2462,7 +2623,7 @@ export function extractPdpStoreInfoFromHtml(html: string): {
   return {
     storeName,
     storeUrl: storeUrl ? normalizeUrl(storeUrl) : undefined,
-    storeType: storeType ?? storeTypeFromOfficialStoreName(storeName)
+    storeType
   };
 }
 

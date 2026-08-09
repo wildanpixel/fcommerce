@@ -1,4 +1,5 @@
-import type { ReportSectionConfig } from "./reportSections.js";
+import type { ReportSectionConfig, ReportSectionId } from "./reportSections.js";
+import type { StoreType } from "./storeTypes.js";
 
 export const MARKETPLACES = [
   "SHOPEE_ID",
@@ -44,8 +45,17 @@ export type StoreCollectionCandidate = {
   storeName: string;
   storeUrl: string;
   shopId?: string;
+  storeType?: StoreType;
+  sourceProductIds?: string[];
   includePopularProducts: boolean;
   includeShopBanner: boolean;
+};
+
+export type QualifiedProductReference = {
+  productId?: string;
+  productUrl?: string;
+  fallbackIdentity: string;
+  manuallyAdded?: boolean;
 };
 
 export type CollectionState = {
@@ -60,8 +70,12 @@ export type CollectionState = {
   viewMode?: "desktop" | "mobile";
   searchFilters?: ShopeeSearchFilters;
   qualifiedProductIds?: string[];
+  qualifiedProductReferences?: QualifiedProductReference[];
+  qualifiedProductsInitialized?: boolean;
   qualifiedProductsApproved?: boolean;
   storeCollectionCandidates?: StoreCollectionCandidate[];
+  storeListInitialized?: boolean;
+  storeListApproved?: boolean;
   savedAt?: string;
 };
 
@@ -121,7 +135,7 @@ export type ProjectDetailPayload = {
     imageUrl?: string | null;
     storeBadgeImageUrl?: string | null;
     productType?: string | null;
-    storeType?: string | null;
+    storeType?: StoreType | null;
     sourcePlacement?: string | null;
     ratingText?: string | null;
     reviewText?: string | null;
@@ -159,6 +173,7 @@ export type ProjectDetailPayload = {
   stores: Array<{
     id: string;
     marketplaceStoreId?: string | null;
+    storeType?: StoreType | null;
     name: string;
     url: string;
     followers?: number | null;
@@ -173,7 +188,12 @@ export type ProjectDetailPayload = {
     ratingSamples: Array<{
       rating: number;
       reviewer: string;
+      reviewerUrl?: string;
       comment: string;
+      productTitle?: string;
+      productUrl?: string;
+      productVariation?: string;
+      sellerResponse?: string;
       mediaUrls: string[];
       capturedAt?: string;
     }>;
@@ -239,8 +259,22 @@ export type SettingsPayload = {
   screenshotFolder: string;
   language: string;
   concurrency: number;
+  reportFilenameTemplate: string;
+  reportSectionOrder: ReportSectionId[];
   openAiKeyConfigured: boolean;
   geminiKeyConfigured: boolean;
+};
+
+export type EvidenceTranslationPayload = {
+  language: "id-ID" | "en-US" | "zh-CN";
+  texts: string[];
+};
+
+export type EvidenceTranslationResult = {
+  language: EvidenceTranslationPayload["language"];
+  translations: string[];
+  translated: boolean;
+  provider: "openai" | "gemini" | "source" | "unavailable";
 };
 
 export type SaveSettingsPayload = Omit<
@@ -277,7 +311,7 @@ export type BrowserOption = {
 
 export type HealthPayload = {
   ok: true;
-  product: "MarketPlace Keyword Competitor Analysis";
+  product: "Marketplace Intelligence OS";
   version: string;
 };
 
@@ -296,13 +330,19 @@ export type ReportGenerationPayload = {
   projectId: string;
   templateId: string;
   sections: ReportSectionConfig[];
+  formats?: BulkReportFormat[];
+  language?: "id-ID" | "en-US" | "zh-CN";
   theme?: "light" | "dark";
+  fileName?: string;
+  exportFolder?: string;
 };
 
 export type ReportGenerationResult = {
   reportId: string;
   htmlPath: string;
   pdfPath: string;
+  docxPath?: string;
+  formats: BulkReportFormat[];
 };
 
 export type BulkReportFormat = "DOCX" | "PDF" | "HTML";
@@ -313,6 +353,8 @@ export type BulkReportGenerationPayload = {
   formats: BulkReportFormat[];
   templateId: string;
   sections: ReportSectionConfig[];
+  exportFolder?: string;
+  language?: "id-ID" | "en-US" | "zh-CN";
   theme?: "light" | "dark";
 };
 
@@ -326,6 +368,9 @@ export type BulkReportGenerationResult = {
 export type ReportHtmlPayload = {
   reportId: string;
   htmlPath: string;
+  pdfPath?: string | null;
+  docxPath?: string | null;
+  formats?: BulkReportFormat[];
   html: string;
   text: string;
 };
@@ -336,6 +381,22 @@ export type ReportDocxResult = {
   docxPath: string;
 };
 
+export type LicenseActivationPayload = {
+  email: string;
+  password: string;
+  license: string;
+};
+
+export type LicenseStatusPayload = {
+  requiresActivation: boolean;
+  authenticated: boolean;
+  developmentBypass?: boolean;
+  machineId: string;
+  email?: string;
+  expiresAt?: string;
+  sessionToken?: string;
+};
+
 export type ReportSummary = {
   id: string;
   projectId: string;
@@ -343,6 +404,9 @@ export type ReportSummary = {
   templateId: string;
   status: "DRAFT" | "GENERATED" | "FAILED";
   sections?: ReportSectionConfig[];
+  formats?: BulkReportFormat[];
+  language?: "id-ID" | "en-US" | "zh-CN";
+  docxPath?: string | null;
   htmlPath?: string | null;
   pdfPath?: string | null;
   generatedAt?: string | null;
@@ -437,6 +501,7 @@ export type ManualEvidenceResult = {
   pdfPath?: string;
   extractedProductCount?: number;
   storeBannerCount?: number;
+  storeRatingCount?: number;
 };
 
 export type ExtractedPageProduct = {
@@ -452,7 +517,7 @@ export type ExtractedPageProduct = {
   reviewCount?: number;
   soldCount?: number;
   productType?: string;
-  storeType?: string;
+  storeType?: StoreType;
   storeBadgeImageUrl?: string;
   sourcePlacement?: string;
   ratingText?: string;

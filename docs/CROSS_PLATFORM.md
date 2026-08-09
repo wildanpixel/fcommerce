@@ -135,11 +135,11 @@ pnpm package:all
 
 ## GitHub Actions
 
-`.github/workflows/build.yml` packages each operating system on its native runner:
+`.github/workflows/build.yml` packages the currently supported release target:
 
 - Windows runner: installs dependencies, generates Prisma Client, runs checks, builds React/Electron code, packages NSIS installer and portable EXE, then uploads `.exe` artifacts.
-- macOS runner: installs dependencies, generates Prisma Client, runs checks, builds React/Electron code, packages `.app` directories and `.dmg` artifacts for x64 and arm64, then uploads macOS artifacts.
-- macOS installation and download instructions are maintained in [MACOS_INSTALLATION.md](MACOS_INSTALLATION.md).
+- Version tags publish the Windows portable EXE and SHA-256 checksum to GitHub Releases.
+- Automated macOS artifact publishing is disabled until the native Xcode configuration and packaged renderer are revalidated. The shared source and local `package:mac` command remain available for that future work.
 
 Prisma is configured with `native`, `windows`, `darwin`, and `darwin-arm64` binary targets so packaged desktop builds include the correct SQLite query engines.
 

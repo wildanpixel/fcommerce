@@ -98,11 +98,12 @@ pnpm build
 
 ## Continuous Builds
 
-GitHub Actions builds production artifacts from the same repository:
+GitHub Actions builds the supported Windows release artifacts from the same repository:
 
 - `.github/workflows/ci.yml` runs source checks.
-- `.github/workflows/build.yml` builds Windows installer/portable artifacts on Windows runners and macOS app/DMG artifacts on macOS runners.
-- macOS download and install instructions are documented in [docs/MACOS_INSTALLATION.md](docs/MACOS_INSTALLATION.md).
+- `.github/workflows/build.yml` builds Windows installer/portable artifacts on Windows runners.
+- Version tags publish the Windows portable executable and SHA-256 checksum as a durable GitHub Release download.
+- macOS binary downloads are disabled until the native Xcode configuration and runtime renderer are revalidated.
 
 ## Packaging
 
@@ -120,7 +121,7 @@ pnpm package:mac
 
 Build outputs are generated under `apps/desktop/release/` and are intentionally ignored by Git.
 
-macOS users should install the generated `.dmg`; the Windows portable `.exe` cannot run natively on macOS.
+The Windows portable `.exe` cannot run natively on macOS. macOS packaging remains a local development capability, but downloadable macOS binaries are not currently published.
 
 ## AI Configuration
 

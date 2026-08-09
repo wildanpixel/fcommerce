@@ -10,7 +10,8 @@ import {
 } from "electron";
 import type { MenuItemConstructorOptions, OpenDialogOptions } from "electron";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { dirname, extname, join } from "node:path";
 import type { ApiServer } from "../api/server.js";
 import {
   configurePlatformService,
@@ -29,7 +30,8 @@ async function createWindow(): Promise<void> {
 
   const { startApiServer } = await import("../api/server.js");
   process.env.MIO_APP_VERSION = app.getVersion();
-  apiServer = await startApiServer();
+  const configuredApiPort = Number(process.env.MIO_API_PORT ?? "4123");
+  apiServer = await startApiServer(Number.isFinite(configuredApiPort) ? configuredApiPort : 4123);
   process.env.MIO_API_BASE_URL = `http://127.0.0.1:${apiServer.port}/api`;
 
   mainWindow = new BrowserWindow({
@@ -37,8 +39,8 @@ async function createWindow(): Promise<void> {
     height: 880,
     minWidth: 1120,
     minHeight: 720,
-    backgroundColor: "#f5f7fb",
-    title: "MarketPlace Keyword Competitor Analysis",
+    backgroundColor: "#171717",
+    title: "Research Product Market",
     autoHideMenuBar: process.platform !== "darwin",
     webPreferences: {
       preload: join(currentDir, "preload.js"),
@@ -68,7 +70,7 @@ app.on("before-quit", () => {
 });
 
 app.whenReady().then(() => {
-  app.setName("MarketPlace Keyword Competitor Analysis");
+  app.setName("Research Product Market");
   void createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -145,6 +147,34 @@ function registerPlatformIpc(): void {
   ipcMain.handle("platform:get", () => getPlatformService().info);
   ipcMain.handle("platform:open-path", async (_event, targetPath: string) => {
     await getPlatformService().openPath(targetPath);
+    return true;
+  });
+  ipcMain.handle("platform:read-preview-file", async (_event, targetPath: string) => {
+    const extension = extname(targetPath).toLocaleLowerCase();
+    const mimeTypes: Record<string, string> = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".webp": "image/webp",
+      ".avif": "image/avif",
+      ".gif": "image/gif",
+      ".bmp": "image/bmp",
+      ".svg": "image/svg+xml",
+      ".pdf": "application/pdf",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    };
+    const mimeType = mimeTypes[extension];
+    if (!mimeType) {
+      throw new Error("This file type is not supported by the in-app preview.");
+    }
+    const buffer = await readFile(targetPath);
+    if (buffer.byteLength > 50 * 1024 * 1024) {
+      throw new Error("This file is larger than the 50 MB in-app preview limit.");
+    }
+    return { extension, mimeType, dataBase64: buffer.toString("base64") };
+  });
+  ipcMain.handle("platform:show-item-in-folder", (_event, targetPath: string) => {
+    shell.showItemInFolder(targetPath);
     return true;
   });
   ipcMain.handle("platform:open-url", async (_event, url: string) => {

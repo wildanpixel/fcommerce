@@ -7,10 +7,10 @@ test.describe.configure({ mode: "serial" });
 
 test("renders the guided manual analysis flow", async ({ page }) => {
   await page.goto(e2eApiOverride);
-  await expect(page.getByRole("button", { name: "Hide sidebar" })).toBeVisible();
-  await page.getByRole("button", { name: "Hide sidebar" }).click();
-  await expect(page.getByRole("button", { name: "Show sidebar" })).toBeVisible();
-  await page.getByRole("button", { name: "Show sidebar" }).click();
+  await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
+  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+  await page.getByRole("button", { name: "Expand sidebar" }).click();
   await expect(page.getByRole("button", { name: /Create Analysis/ })).toBeVisible();
   await page.getByRole("button", { name: /Create Analysis/ }).click();
   await expect(page.getByLabel("Desired Keyword")).toBeVisible();
@@ -23,7 +23,7 @@ test("renders the guided manual analysis flow", async ({ page }) => {
   await expect(page.getByText("Platform Browser")).toBeVisible();
   await expect(page.getByText(/Step 1\/\d+/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Expand collector" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Dark" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Light" })).toBeVisible();
 
   await page.getByRole("button", { name: "Expand browser" }).click();
   const fullscreen = page.locator(".mio-browser-fullscreen");
@@ -68,6 +68,34 @@ test("shows TikTok as a coming-soon platform", async ({ page }) => {
   await expect(tiktokButton).toBeVisible();
   await expect(tiktokButton).toBeDisabled();
   await expect(tiktokButton).toContainText("Coming soon");
+});
+
+test("keeps the refined shell usable at a narrow desktop width", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 720 });
+  await page.goto(e2eApiOverride);
+
+  const vaultButton = page.getByRole("button", { name: "Local Evidence Vault" });
+  await vaultButton.click();
+  const popover = page.locator(".mio-popover");
+  await expect(popover).toBeVisible();
+  const popoverBox = await popover.boundingBox();
+  expect(popoverBox).not.toBeNull();
+  expect((popoverBox?.x ?? -1) + (popoverBox?.width ?? 0)).toBeLessThanOrEqual(1100);
+  expect((popoverBox?.y ?? -1) + (popoverBox?.height ?? 0)).toBeLessThanOrEqual(720);
+  await page.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
+
+  await page.getByRole("button", { name: /Create Analysis/ }).click();
+  await page.getByLabel("Desired Keyword").fill("responsive research");
+  await page.getByLabel("Product Category").fill("responsive category");
+  await page.getByRole("checkbox", { name: "Shopee Mall" }).check();
+  await expect(page.getByRole("checkbox", { name: "Shopee Mall" })).toBeChecked();
+  await expect(page.getByRole("button", { name: /Proceed to Browser/ })).toBeEnabled();
+  expect(await page.evaluate(() => document.body.scrollWidth - document.body.clientWidth)).toBe(0);
+
+  await page.getByRole("button", { name: "Light" }).click();
+  await expect(page.locator(".mio-app")).toHaveClass(/mio-light/);
+  expect(await page.evaluate(() => document.body.scrollWidth - document.body.clientWidth)).toBe(0);
 });
 
 test("keeps New Research inputs responsive after deleting a project", async ({ page }) => {

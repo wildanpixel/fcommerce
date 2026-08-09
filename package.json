@@ -1,7 +1,7 @@
 {
   "name": "marketplace-intelligence-os",
-  "version": "1.0.0",
-  "description": "Workspace for MarketPlace Keyword Competitor Analysis desktop application and reusable marketplace intelligence packages.",
+  "version": "1.1.0",
+  "description": "Workspace for the Research Product Market desktop application and reusable marketplace research packages.",
   "author": "Wildan Ega",
   "private": true,
   "type": "module",

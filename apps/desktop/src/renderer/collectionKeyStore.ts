@@ -1,7 +1,10 @@
+import { normalizeStoreType, type StoreType } from "../shared/storeTypes.js";
+
 export type CollectionStoreProduct = {
   id?: string;
   storeName?: string | null;
   storeUrl?: string | null;
+  storeType?: StoreType | string | null;
 };
 
 export type EvaluatedStoreTarget = {
@@ -20,6 +23,8 @@ export type StoreCollectionCandidateInput = {
   storeName: string;
   storeUrl: string;
   shopId?: string;
+  storeType?: StoreType;
+  sourceProductIds?: string[];
   includePopularProducts: boolean;
   includeShopBanner: boolean;
 };
@@ -58,9 +63,8 @@ export function canonicalStoreUrl(value?: string | null): string | undefined {
   }
   try {
     const url = new URL(value, "https://shopee.co.id");
-    const categoryId = url.searchParams.get("categoryId");
     const base = `${url.origin}${url.pathname.replace(/\/$/u, "")}`;
-    return `${base}${categoryId ? `?categoryId=${encodeURIComponent(categoryId)}` : ""}`.toLowerCase();
+    return base.toLowerCase();
   } catch {
     return value.split(/[?#]/u)[0]?.replace(/\/$/u, "").toLowerCase();
   }
@@ -70,30 +74,74 @@ export function buildStoreCollectionCandidates<T extends CollectionStoreProduct>
   products: T[],
   existing: StoreCollectionCandidateInput[] = []
 ): StoreCollectionCandidateInput[] {
-  const byStore = new Map<string, StoreCollectionCandidateInput>();
-  for (const candidate of existing) {
-    const key = canonicalStoreUrl(candidate.storeUrl) ?? normalizeStoreName(candidate.storeName);
-    if (key) {
-      byStore.set(key, { ...candidate, storeUrl: canonicalStoreUrl(candidate.storeUrl) ?? candidate.storeUrl });
-    }
-  }
+  const candidates = [...existing];
   for (const product of products) {
+    const shopId = extractShopeeShopId(product.storeUrl);
     const storeUrl = canonicalStoreUrl(product.storeUrl);
     const storeName = product.storeName?.trim();
-    const key = storeUrl ?? normalizeStoreName(storeName);
-    if (!key || !storeName || !storeUrl || byStore.has(key)) {
+    if (!storeName || !storeUrl) {
       continue;
     }
-    byStore.set(key, {
+    candidates.push({
       id: stableStoreCandidateId(storeUrl, storeName),
       storeName,
       storeUrl,
-      shopId: extractShopeeShopId(storeUrl),
+      shopId,
+      storeType: normalizeStoreType(product.storeType) ?? undefined,
+      sourceProductIds: product.id ? [product.id] : [],
       includePopularProducts: false,
       includeShopBanner: false
     });
   }
-  return [...byStore.values()].slice(0, 50);
+  return dedupeStoreCollectionCandidates(candidates).slice(0, 50);
+}
+
+export function resolveCanonicalStoreList<T extends CollectionStoreProduct>(
+  products: T[],
+  saved: StoreCollectionCandidateInput[],
+  initialized: boolean,
+  legacyStores: CollectionStoreProduct[] = []
+): StoreCollectionCandidateInput[] {
+  if (initialized) {
+    return dedupeStoreCollectionCandidates(saved).slice(0, 50);
+  }
+  return buildStoreCollectionCandidates([...products, ...legacyStores], saved);
+}
+
+export function dedupeStoreCollectionCandidates(
+  candidates: StoreCollectionCandidateInput[]
+): StoreCollectionCandidateInput[] {
+  const result: StoreCollectionCandidateInput[] = [];
+  for (const input of candidates) {
+    const candidate = {
+      ...input,
+      storeName: input.storeName.trim(),
+      storeUrl: canonicalStoreUrl(input.storeUrl) ?? input.storeUrl,
+      shopId: input.shopId ?? extractShopeeShopId(input.storeUrl),
+      storeType: normalizeStoreType(input.storeType) ?? undefined
+    };
+    const existingIndex = result.findIndex((current) => sameStoreCandidate(current, candidate));
+
+    if (existingIndex < 0) {
+      result.push(candidate);
+      continue;
+    }
+
+    const current = result[existingIndex];
+    const merged = {
+      ...current,
+      storeName: current.storeName || candidate.storeName,
+      storeUrl: current.storeUrl || candidate.storeUrl,
+      shopId: current.shopId ?? candidate.shopId,
+      storeType: preferredStoreType(current.storeType, candidate.storeType),
+      sourceProductIds: [...new Set([...(current.sourceProductIds ?? []), ...(candidate.sourceProductIds ?? [])])],
+      includePopularProducts: current.includePopularProducts || candidate.includePopularProducts,
+      includeShopBanner: current.includeShopBanner || candidate.includeShopBanner
+    };
+    result[existingIndex] = merged;
+  }
+
+  return result;
 }
 
 export function stableStoreCandidateId(storeUrl: string, storeName: string): string {
@@ -155,4 +203,25 @@ export function extractShopeeShopId(value?: string | null): string | undefined {
 
 function normalizeStoreName(value?: string | null): string {
   return value?.trim().toLocaleLowerCase().replace(/\s+/gu, " ") ?? "";
+}
+
+function sameStoreCandidate(left: StoreCollectionCandidateInput, right: StoreCollectionCandidateInput): boolean {
+  const leftShopId = left.shopId ?? extractShopeeShopId(left.storeUrl);
+  const rightShopId = right.shopId ?? extractShopeeShopId(right.storeUrl);
+  if (leftShopId && rightShopId) {
+    return leftShopId === rightShopId;
+  }
+  const leftUrl = canonicalStoreUrl(left.storeUrl);
+  const rightUrl = canonicalStoreUrl(right.storeUrl);
+  if (leftUrl && rightUrl && leftUrl === rightUrl) {
+    return true;
+  }
+  return (!leftShopId || !rightShopId) && normalizeStoreName(left.storeName) === normalizeStoreName(right.storeName);
+}
+
+function preferredStoreType(left: StoreType | undefined, right: StoreType | undefined): StoreType | undefined {
+  const priority: Record<StoreType, number> = { star: 1, star_plus: 2, shopee_mall: 3 };
+  if (!left) return right;
+  if (!right) return left;
+  return priority[right] > priority[left] ? right : left;
 }
