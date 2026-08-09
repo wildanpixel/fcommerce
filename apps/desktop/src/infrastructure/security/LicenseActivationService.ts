@@ -5,15 +5,15 @@ import { join } from "node:path";
 import type { LicenseActivationPayload, LicenseStatusPayload } from "../../shared/contracts.js";
 
 const LICENSE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAr00PyChcm0ijwUS69NRQ
-J+P6g+7cZ63qn8nCebBSXNXQk6ILIFHmKU187IvZJ9jIDB4qrE/Tyf+HJq8Lf6+5
-+Ut2eWDJyYxARy/ZRIO1ajLsq8E5+sdI8H7S4cxHdGt0FwUdO7vBwP0xpe+5lFYe
-wg2babi4qS1idnKgKxZfsD+6Z1nrTMFE6JeDwkvjiIMbFQ0j8BaAnDAKLyNjyPZm
-UDn2tqrtN9x67dofwLRsHF6VsetmsNs+wnZMVyT9NqYuhRzz3B+66a1lQYorokXd
-aT5AUmi5ByddBT8fUFx5aLcKbP0cTFu5Sghljjh3sxSuCHBNvuFXs+2yMrTbz9Ix
-Y41zFO8wVsDvd+sIofeegidINyP/6CqGOBGkRy0iB+qjoDCrn/Hj8geQSQHmzGo7
-m/LN4Ze0GNYAtyztm2oHFOrKs/ki7ALDDrbyFGWm4JiQbh6JISpRyyG8dwHgSarT
-b5I2WM5+l76uZRvgzoQMTr0B985AcapVK6rK9G+Ju8b5AgMBAAE=
+MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAq3d58WfAsjoYMLYtZOjp
+LJXJiXJhp06eVDDTXxAwAQGWdzGLX7ypwxYWsHsnQ7Q98iX/HPWCBIV6nARV0BTe
+0wZ6/SyKXAId1UuwruiyCWu+HXHyDbfD9oGn30d+ZK3krV8JmmJwfXdGjV6QgmXN
+ZWOED6+PXCbU6/aTefOIvlqjZjpVHrhsBNW8WckFZ14pVoOioDtcorhHKpinGH/9
+pw5Gf1Bv8oSuJ0NOx/A9zp1tnJLffF3c3rjAXZj8Ts60aGwuq5dOHG879BuT3ARt
+2NLCxV/dtT76Y96WRvhbA/q9uPqRX56/cJZ2K0+t3j9ocALT+DfrG9NtWwxEXVMD
+Nn/eBdktw9aLYrTGNk97P8u21N205Izoeq/u464J9e/ectyho6LehzX7qPCfyga8
+631RfcPYKLoInQ5+juMfy2Nj0KTqJpdGEqQjorS5Wyb+toeGjmvT7ItluvRqW7l8
+UgStXc6mcRSfuhp5to7zovrpJ9txOMqiYVRHfZUsnRtVAgMBAAE=
 -----END PUBLIC KEY-----`;
 
 type LicenseClaims = {
