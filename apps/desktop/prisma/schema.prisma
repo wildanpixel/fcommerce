@@ -146,7 +146,7 @@ model Product {
   reviewCount          Int?
   monthlySold          Int?
   totalSold            Int?
-  stock                Int?
+  stock                BigInt?
   storeName            String?
   storeUrl             String?
   productUrl           String

@@ -158,7 +158,7 @@ export class PrismaProjectRepository implements ProjectRepository {
         reviewCount: product.reviewCount,
         monthlySold: product.monthlySold,
         totalSold: product.totalSold,
-        stock: product.stock,
+        stock: databaseBigIntToNumber(product.stock),
         storeName: product.storeName,
         storeUrl: product.storeUrl,
         voucherText: product.voucherText,
@@ -330,7 +330,7 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
         reviewCount: product.reviewCount,
         monthlySold: product.monthlySold,
         totalSold: product.totalSold,
-        stock: product.stock,
+        stock: toDatabaseBigInt(product.stock),
         productUrl: product.url,
         storeName: product.storeName,
         storeUrl: product.storeUrl,
@@ -853,6 +853,20 @@ function toAssetSummary(asset: AssetRecord) {
     metadata: parseJsonObject(asset.metadataJson),
     createdAt: asset.createdAt.toISOString()
   };
+}
+
+function toDatabaseBigInt(value: number | null | undefined): bigint | null {
+  if (value == null || !Number.isFinite(value)) {
+    return null;
+  }
+  return BigInt(Math.trunc(value));
+}
+
+function databaseBigIntToNumber(value: bigint | number | null | undefined): number | null {
+  if (value == null) {
+    return null;
+  }
+  return Number(value);
 }
 
 function toReportSummary(report: ReportWithProject): ReportSummary {
