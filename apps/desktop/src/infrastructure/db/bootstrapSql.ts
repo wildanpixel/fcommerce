@@ -74,7 +74,7 @@ const statements = [
     "reviewCount" INTEGER,
     "monthlySold" INTEGER,
     "totalSold" INTEGER,
-    "stock" INTEGER,
+    "stock" BIGINT,
     "storeName" TEXT,
     "storeUrl" TEXT,
     "productUrl" TEXT NOT NULL,
@@ -186,6 +186,7 @@ export async function ensureDatabaseSchema(db: PrismaClient): Promise<void> {
   }
   await ensureColumn(db, "Project", "productCategory", "TEXT");
   await ensureColumn(db, "Project", "collectionStateJson", "TEXT NOT NULL DEFAULT '{}'");
+  await ensureProductStockBigInt(db);
 }
 
 async function ensureColumn(
@@ -194,8 +195,149 @@ async function ensureColumn(
   column: string,
   definition: string
 ): Promise<void> {
-  const columns = await db.$queryRawUnsafe<Array<{ name: string }>>(`PRAGMA table_info("${table}")`);
+  const columns = await db.$queryRawUnsafe<Array<{ name: string }>>(
+    `PRAGMA table_info("${table}")`
+  );
   if (!columns.some((entry) => entry.name === column)) {
     await db.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`);
   }
+}
+
+async function ensureProductStockBigInt(db: PrismaClient): Promise<void> {
+  const columns = await db.$queryRawUnsafe<Array<{ name: string; type: string }>>(
+    `PRAGMA table_info("Product")`
+  );
+  const stockColumn = columns.find((entry) => entry.name === "stock");
+  if (!stockColumn || stockColumn.type.toUpperCase() === "BIGINT") {
+    return;
+  }
+
+  await db.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
+  await db.$executeRawUnsafe(`
+    CREATE TABLE "new_Product" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "projectId" TEXT NOT NULL,
+      "storeId" TEXT,
+      "marketplace" TEXT NOT NULL,
+      "marketplaceProductId" TEXT,
+      "rank" INTEGER,
+      "source" TEXT,
+      "selectionReason" TEXT,
+      "productType" TEXT,
+      "title" TEXT NOT NULL,
+      "priceMin" REAL,
+      "priceMax" REAL,
+      "priceAverage" REAL,
+      "originalPrice" REAL,
+      "discount" TEXT,
+      "rating" REAL,
+      "reviewCount" INTEGER,
+      "monthlySold" INTEGER,
+      "totalSold" INTEGER,
+      "stock" BIGINT,
+      "storeName" TEXT,
+      "storeUrl" TEXT,
+      "productUrl" TEXT NOT NULL,
+      "mallStatus" BOOLEAN NOT NULL DEFAULT false,
+      "officialStatus" BOOLEAN NOT NULL DEFAULT false,
+      "starSeller" BOOLEAN NOT NULL DEFAULT false,
+      "voucherText" TEXT,
+      "shippingText" TEXT,
+      "variantsJson" TEXT NOT NULL,
+      "specificationsJson" TEXT NOT NULL,
+      "description" TEXT,
+      "rawJson" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      CONSTRAINT "Product_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "Product_storeId_fkey" FOREIGN KEY ("storeId") REFERENCES "Store" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    )
+  `);
+  await db.$executeRawUnsafe(`
+    INSERT INTO "new_Product" (
+      "id",
+      "projectId",
+      "storeId",
+      "marketplace",
+      "marketplaceProductId",
+      "rank",
+      "source",
+      "selectionReason",
+      "productType",
+      "title",
+      "priceMin",
+      "priceMax",
+      "priceAverage",
+      "originalPrice",
+      "discount",
+      "rating",
+      "reviewCount",
+      "monthlySold",
+      "totalSold",
+      "stock",
+      "storeName",
+      "storeUrl",
+      "productUrl",
+      "mallStatus",
+      "officialStatus",
+      "starSeller",
+      "voucherText",
+      "shippingText",
+      "variantsJson",
+      "specificationsJson",
+      "description",
+      "rawJson",
+      "createdAt",
+      "updatedAt"
+    )
+    SELECT
+      "id",
+      "projectId",
+      "storeId",
+      "marketplace",
+      "marketplaceProductId",
+      "rank",
+      "source",
+      "selectionReason",
+      "productType",
+      "title",
+      "priceMin",
+      "priceMax",
+      "priceAverage",
+      "originalPrice",
+      "discount",
+      "rating",
+      "reviewCount",
+      "monthlySold",
+      "totalSold",
+      "stock",
+      "storeName",
+      "storeUrl",
+      "productUrl",
+      "mallStatus",
+      "officialStatus",
+      "starSeller",
+      "voucherText",
+      "shippingText",
+      "variantsJson",
+      "specificationsJson",
+      "description",
+      "rawJson",
+      "createdAt",
+      "updatedAt"
+    FROM "Product"
+  `);
+  await db.$executeRawUnsafe(`DROP TABLE "Product"`);
+  await db.$executeRawUnsafe(`ALTER TABLE "new_Product" RENAME TO "Product"`);
+  await db.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS "Product_projectId_rank_idx" ON "Product"("projectId", "rank")`
+  );
+  await db.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS "Product_storeId_idx" ON "Product"("storeId")`
+  );
+  await db.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS "Product_marketplace_marketplaceProductId_idx" ON "Product"("marketplace", "marketplaceProductId")`
+  );
+  await db.$executeRawUnsafe("PRAGMA foreign_key_check");
+  await db.$executeRawUnsafe("PRAGMA foreign_keys = ON");
 }
