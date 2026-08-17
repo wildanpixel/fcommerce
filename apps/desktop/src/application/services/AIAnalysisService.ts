@@ -1,4 +1,5 @@
 import type { AiAnalysisJson, ProductDetail, ReviewEvidence, StoreProfile } from "../../domain/models.js";
+import type { AnalyzeProjectPayload } from "../../shared/contracts.js";
 
 export type AnalysisInput = {
   projectId: string;
@@ -13,5 +14,5 @@ export type AnalysisInput = {
 };
 
 export interface AIAnalysisService {
-  analyze(input: AnalysisInput): Promise<AiAnalysisJson>;
+  analyze(input: AnalysisInput, selection?: AnalyzeProjectPayload): Promise<AiAnalysisJson>;
 }

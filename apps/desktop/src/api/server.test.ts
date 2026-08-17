@@ -4,6 +4,7 @@ import {
   extractMoneyRange,
   extractPdpStoreInfoFromHtml,
   extractRatingTextValue,
+  hasSavedProjectAnalysis,
   isStoreScopedEvidence,
   parsePrice,
   reportSchema
@@ -97,6 +98,36 @@ describe("Report request validation", () => {
       templateId: "default",
       sections: DEFAULT_REPORT_SECTIONS
     })).not.toThrow();
+  });
+
+  it("reuses an existing structured project analysis during report generation", () => {
+    expect(hasSavedProjectAnalysis({
+      analyses: [{
+        id: "analysis-1",
+        subjectType: "PROJECT",
+        subjectId: null,
+        provider: "openai:gpt-5-mini",
+        resultJson: JSON.stringify({
+          schemaVersion: "1.0",
+          provider: "openai:gpt-5-mini",
+          subjectType: "PROJECT",
+          keywordCompetitionMatrix: [],
+          synthesizedCategoryInsights: []
+        })
+      }]
+    })).toBe(true);
+  });
+
+  it("does not treat malformed or non-project analysis as reusable", () => {
+    expect(hasSavedProjectAnalysis({
+      analyses: [{
+        id: "analysis-1",
+        subjectType: "PRODUCT",
+        subjectId: null,
+        provider: "openai:gpt-5-mini",
+        resultJson: "not-json"
+      }]
+    })).toBe(false);
   });
 });
 

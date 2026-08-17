@@ -17,6 +17,56 @@ const payload: ReportGenerationPayload = {
 };
 
 describe("multi-store report rendering", () => {
+  it("ships a self-contained bento report with navigation and image inspection controls", async () => {
+    const html = await new ConsultingHtmlReportRenderer().render(reportData(), payload);
+
+    expect(html).toContain('id="report-nav-toggle"');
+    expect(html).toContain('id="report-expand-all"');
+    expect(html).toContain('id="report-image-modal"');
+    expect(html).toContain('document.querySelectorAll("main img")');
+    expect(html).toContain("grid-template-columns: repeat(12, minmax(0, 1fr))");
+    expect(html).toContain("@page { size: A4; margin: 12.7mm; }");
+    expect(html).toContain("report-nav-group-toggle");
+    expect(html).not.toMatch(/<details\b[^>]*\bopen\b/iu);
+    expect(html).toContain('data-report-nav-parent="Key Store Page List"');
+    expect(html).toContain('data-report-nav-label="Alpha Official Store"');
+    expect(html).toContain('data-report-nav-label="Beta Star Shop"');
+  });
+
+  it("uses the saved Inspector product list and exposes products under the Product Detail sub-navigation", async () => {
+    const data = reportData();
+    const first = product("first-qualified", "First Qualified Product", "Relevance", "Alpha Official Store");
+    const second = product("second-qualified", "Second Qualified Product", "Top Sales", "Beta Star Shop");
+    const excluded = product("not-qualified", "Product That Was Not Selected", "Top Sales", "Beta Star Shop");
+    data.products.push(first, second, excluded);
+    data.project.collectionStateJson = JSON.stringify({
+      qualifiedProductsInitialized: true,
+      qualifiedProductReferences: [
+        { productId: second.id, productUrl: second.productUrl, fallbackIdentity: "second" },
+        { productId: first.id, productUrl: first.productUrl, fallbackIdentity: "first" }
+      ]
+    });
+    const productPayload: ReportGenerationPayload = {
+      ...payload,
+      sections: DEFAULT_REPORT_SECTIONS.map((section) => ({
+        ...section,
+        enabled: section.id === "keyProducts" || section.id === "productDetailFirstPage"
+      }))
+    };
+
+    const html = await new ConsultingHtmlReportRenderer().render(data, productPayload);
+    expect(html).toContain('data-report-nav-parent="Product Detail"');
+    expect(html).toContain('data-report-nav-label="Second Qualified Product"');
+    expect(html.indexOf("Second Qualified Product")).toBeLessThan(html.indexOf("First Qualified Product"));
+    expect(html).not.toContain("Product That Was Not Selected");
+
+    const buffer = await new ConsultingDocxReportExporter().render(data, productPayload);
+    const archive = await JSZip.loadAsync(buffer);
+    const documentXml = await archive.file("word/document.xml")?.async("string") ?? "";
+    expect(documentXml.indexOf("Second Qualified Product")).toBeLessThan(documentXml.indexOf("First Qualified Product"));
+    expect(documentXml).not.toContain("Product That Was Not Selected");
+  });
+
   it("keeps candidate stores, products, and ratings scoped in HTML and DOCX", async () => {
     const data = reportData();
 

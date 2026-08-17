@@ -1,6 +1,6 @@
 {
   "name": "@marketplace-intelligence-os/desktop",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Research Product Market desktop application for marketplace research, evidence collection, AI analysis, and consulting report generation.",
   "author": "Wildan Ega",
   "private": true,
@@ -34,6 +34,7 @@
     "@tanstack/react-query": "5.101.1",
     "clsx": "2.1.1",
     "docx": "^9.7.1",
+    "docx-preview": "0.4.0",
     "electron-is-dev": "3.0.1",
     "express": "5.2.1",
     "framer-motion": "12.42.0",
@@ -52,9 +53,9 @@
     "zustand": "4.5.7"
   },
   "devDependencies": {
-    "@puppeteer/browsers": "2.13.2",
     "@eslint/js": "9.39.4",
     "@playwright/test": "1.61.1",
+    "@puppeteer/browsers": "2.13.2",
     "@types/express": "5.0.6",
     "@types/node": "24.13.2",
     "@types/react": "18.3.31",

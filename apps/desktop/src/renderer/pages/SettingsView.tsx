@@ -20,7 +20,7 @@ export function SettingsView() {
   const browsers = useQuery({ queryKey: ["browsers"], queryFn: apiClient.browsers });
   const [activeSection, setActiveSection] = useState<"general" | "ai">("general");
   type SettingsFormState = SaveSettingsPayload &
-    Pick<SettingsPayload, "openAiKeyConfigured" | "geminiKeyConfigured">;
+    Pick<SettingsPayload, "openAiKeyConfigured" | "geminiKeyConfigured" | "claudeKeyConfigured">;
   const [form, setForm] = useState<SettingsFormState | null>(null);
   const value: SettingsFormState | null = form ?? settings.data ?? null;
   const save = useMutation({
@@ -54,8 +54,12 @@ export function SettingsView() {
       concurrency: value.concurrency,
       reportFilenameTemplate: value.reportFilenameTemplate,
       reportSectionOrder: value.reportSectionOrder,
+      openAiModel: value.openAiModel,
+      geminiModel: value.geminiModel,
+      claudeModel: value.claudeModel,
       openAiApiKey: value.openAiApiKey,
-      geminiApiKey: value.geminiApiKey
+      geminiApiKey: value.geminiApiKey,
+      claudeApiKey: value.claudeApiKey
     });
   }
 
@@ -169,6 +173,7 @@ export function SettingsView() {
         <div className="space-y-3 text-sm text-ink-300">
           <StatusLine label="OpenAI" active={value.openAiKeyConfigured} />
           <StatusLine label="Gemini" active={value.geminiKeyConfigured} />
+          <StatusLine label="Claude" active={value.claudeKeyConfigured} />
           <StatusLine label={translate(language, "Marketplace adapters")} active />
           <StatusLine label={translate(language, "Local database")} active />
           <div className="rounded-md border border-white/8 bg-white/5 p-3">
@@ -199,21 +204,33 @@ export function SettingsView() {
         ) : (
         <>
         <Panel title={translate(language, "AI Configuration")} icon={KeyRound}>
-          <form className="grid gap-4 lg:grid-cols-2" onSubmit={submit}>
+          <form className="grid gap-4 lg:grid-cols-3" onSubmit={submit}>
             <Field label={translate(language, "OpenAI API key")}>
               <Input type="password" onChange={(event) => update({ openAiApiKey: event.target.value })} placeholder={value.openAiKeyConfigured ? translate(language, "Configured") : ""} />
             </Field>
             <Field label={translate(language, "Gemini API key")}>
               <Input type="password" onChange={(event) => update({ geminiApiKey: event.target.value })} placeholder={value.geminiKeyConfigured ? translate(language, "Configured") : ""} />
             </Field>
-            <Button variant="primary" className="lg:col-span-2" type="submit" loading={save.isPending}>
+            <Field label={translate(language, "Claude API key")}>
+              <Input type="password" onChange={(event) => update({ claudeApiKey: event.target.value })} placeholder={value.claudeKeyConfigured ? translate(language, "Configured") : ""} />
+            </Field>
+            <Field label="OpenAI model">
+              <Input value={value.openAiModel} onChange={(event) => update({ openAiModel: event.target.value })} placeholder="gpt-5-mini" />
+            </Field>
+            <Field label="Gemini model">
+              <Input value={value.geminiModel} onChange={(event) => update({ geminiModel: event.target.value })} placeholder="gemini-3.6-flash" />
+            </Field>
+            <Field label="Claude model">
+              <Input value={value.claudeModel} onChange={(event) => update({ claudeModel: event.target.value })} placeholder="claude-sonnet-5" />
+            </Field>
+            <Button variant="primary" className="lg:col-span-3" type="submit" loading={save.isPending}>
               <KeyRound size={16} />
               {translate(language, "Save AI Configuration")}
             </Button>
           </form>
         </Panel>
       <Panel title={translate(language, "AI API Key Setup")} icon={KeyRound}>
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-3">
           <ApiKeyGuide
             provider="OpenAI"
             configured={value.openAiKeyConfigured}
@@ -237,6 +254,18 @@ export function SettingsView() {
             primaryLabel="Open Gemini API Keys"
             primaryUrl="https://aistudio.google.com/app/apikey"
             documentationUrl="https://ai.google.dev/gemini-api/docs/api-key"
+          />
+          <ApiKeyGuide
+            provider="Claude"
+            configured={value.claudeKeyConfigured}
+            steps={[
+              "Open the Anthropic Console and sign in.",
+              "Create an API key in Settings, then copy it once.",
+              "Paste it into Claude API key above, configure the model, then save settings."
+            ]}
+            primaryLabel="Open Claude API Keys"
+            primaryUrl="https://console.anthropic.com/settings/keys"
+            documentationUrl="https://docs.anthropic.com/en/api/getting-started"
           />
         </div>
         <div className="mt-4 flex items-start gap-3 rounded-2xl bg-signal-amber/10 p-4 text-sm leading-6 text-ink-400">

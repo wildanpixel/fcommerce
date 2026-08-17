@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Circle,
   ClipboardCheck,
-  Copy,
   Eye,
   ExternalLink,
   FileDown,
@@ -50,6 +49,7 @@ import type { LucideIcon } from "lucide-react";
 import type {
   AndroidAppRuntimeStatus,
   AndroidToolStatus,
+  AIProvider,
   BulkReportFormat,
   CollectionStage,
   CollectionState,
@@ -60,7 +60,6 @@ import type {
   MarketplaceId,
   NewProjectInput,
   ProjectDetailPayload,
-  ReportHtmlPayload,
   ReportSummary,
   ShopeeSearchFilters,
   ShopeeShopTypeFilter,
@@ -443,6 +442,10 @@ export default function App() {
     window.dispatchEvent(new CustomEvent("mio:toggle-activity"));
   }, []);
 
+  const requestBackToProject = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("mio:back-to-project"));
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => setShowSplash(false), 1800);
     return () => window.clearTimeout(timer);
@@ -523,7 +526,12 @@ export default function App() {
             title={topBarTitle}
             breadcrumbs={topBarBreadcrumbs}
             description={topBarDescription}
-            action={activeView === "projects" && !projectHeaderTitle ? (
+            action={collectionPageActive ? (
+              <Button variant="secondary" onClick={requestBackToProject}>
+                <ChevronLeft size={15} />
+                {translate(language, "Back to project")}
+              </Button>
+            ) : activeView === "projects" && !projectHeaderTitle ? (
               <Button variant="primary" onClick={requestNewResearch}>
                 <Plus size={15} />
                 {translate(language, "New Research")}
@@ -772,7 +780,6 @@ function ManualResearchExperience() {
         project={activeProject}
         productCategory={form.productCategory}
         onNewAnalysis={returnToProjectInspector}
-        exitLabel="Back to Projects"
       />
     );
   }
@@ -784,7 +791,6 @@ function ManualResearchExperience() {
       browserUrl={browserUrl}
       onBrowserUrlChange={setBrowserUrl}
       onNewAnalysis={returnToProjectInspector}
-      exitLabel="Back to Projects"
     />
   );
 }
@@ -1014,13 +1020,11 @@ function AnalysisSetupForm({
 function AndroidTikTokCollector({
   project,
   productCategory,
-  onNewAnalysis,
-  exitLabel = "New Analysis"
+  onNewAnalysis
 }: {
   project: ProjectSummary;
   productCategory: string;
   onNewAnalysis: () => void;
-  exitLabel?: string;
 }) {
   const queryClient = useQueryClient();
   const androidStatus = useQuery({
@@ -1046,6 +1050,19 @@ function AndroidTikTokCollector({
   const activeStep = steps[activeStepIndex] ?? steps[0];
   const collectedCount = steps.filter((step) => collectedSteps[step.id]).length;
   const bootedDevice = Boolean(status?.devices.some((device) => device.bootCompleted));
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("mio:collection-page-state", { detail: true }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("mio:collection-page-state", { detail: false }));
+    };
+  }, []);
+
+  useEffect(() => {
+    const backToProject = () => onNewAnalysis();
+    window.addEventListener("mio:back-to-project", backToProject);
+    return () => window.removeEventListener("mio:back-to-project", backToProject);
+  }, [onNewAnalysis]);
 
   useEffect(() => {
     if (!selectedAvd && status?.avds[0]) {
@@ -1150,10 +1167,6 @@ function AndroidTikTokCollector({
           <div className="mt-4 rounded-md border border-white/8 bg-white/5 p-3 text-xs leading-5 text-ink-300">
             <TranslatedText>Launch Android, install or open TikTok, log in with Gmail if needed, then enter TikTok Shop manually. Closing the emulator keeps the AVD data partition, installed apps, and login state.</TranslatedText>
           </div>
-          <button className="secondary-button mt-5" type="button" onClick={onNewAnalysis}>
-            <ClipboardCheck size={16} />
-            {exitLabel}
-          </button>
         </Panel>
 
         <Panel title="Mobile Collection Steps" icon={ListChecks}>
@@ -1341,8 +1354,7 @@ function GuidedBrowserCollector({
   browserUrl,
   onBrowserUrlChange,
   onNewAnalysis,
-  onCollectionCompleted,
-  exitLabel = "New Analysis"
+  onCollectionCompleted
 }: {
   project: ProjectSummary;
   productCategory: string;
@@ -1350,7 +1362,6 @@ function GuidedBrowserCollector({
   onBrowserUrlChange: (url: string) => void;
   onNewAnalysis: () => void;
   onCollectionCompleted?: (projectId: string) => void;
-  exitLabel?: string;
 }) {
   const webviewRef = useRef<WebviewElement | null>(null);
   const queryClient = useQueryClient();
@@ -1380,7 +1391,13 @@ function GuidedBrowserCollector({
   );
   const [storeListInitialized, setStoreListInitialized] = useState(Boolean(savedCollectionState.storeListInitialized));
   const [storeListApproved, setStoreListApproved] = useState(Boolean(savedCollectionState.storeListApproved));
+  const [manualCompletionContexts, setManualCompletionContexts] = useState<Record<string, string>>(
+    savedCollectionState.manualCompletionContexts ?? {}
+  );
   const [activeSubActionId, setActiveSubActionId] = useState<string | undefined>(undefined);
+  const [collectionSidebarCollapsed, setCollectionSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("mio-collection-sidebar-collapsed") === "true"
+  );
   const [analysisSessionCollapsed, setAnalysisSessionCollapsed] = useState(true);
   const [activitySidebarOpen, setActivitySidebarOpen] = useState(false);
   const [zoomFactor, setZoomFactor] = useState(1);
@@ -1403,8 +1420,12 @@ function GuidedBrowserCollector({
   });
 
   useEffect(() => {
-    setExpandedPortalRoot(document.querySelector<HTMLElement>(".mio-app"));
+    setExpandedPortalRoot(document.body);
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("mio-collection-sidebar-collapsed", String(collectionSidebarCollapsed));
+  }, [collectionSidebarCollapsed]);
 
   const allSteps = useMemo(
     () => buildCollectionSteps(
@@ -1508,6 +1529,7 @@ function GuidedBrowserCollector({
   }, [availableKeyProductPool, projectDetail.data?.products, qualifiedProductIds, qualifiedProductReferences, qualifiedProductsInitialized]);
   const collectedCount = allSteps.filter((step) => isCollectionStepComplete(step, collectedSteps)).length;
   const stageCollectedCount = steps.filter((step) => isCollectionStepComplete(step, collectedSteps)).length;
+  const stageAllStepsComplete = steps.length > 0 && stageCollectedCount === steps.length;
   const collectionProgressPercent = allSteps.length > 0 ? Math.round((collectedCount / allSteps.length) * 100) : 0;
   const isManualActionState =
     platform === "SHOPEE_ID" &&
@@ -1636,6 +1658,12 @@ function GuidedBrowserCollector({
   }, []);
 
   useEffect(() => {
+    const backToProject = () => onNewAnalysis();
+    window.addEventListener("mio:back-to-project", backToProject);
+    return () => window.removeEventListener("mio:back-to-project", backToProject);
+  }, [onNewAnalysis]);
+
+  useEffect(() => {
     setActiveSubActionId(undefined);
   }, [activeStep?.id]);
 
@@ -1674,6 +1702,7 @@ function GuidedBrowserCollector({
       storeCollectionCandidates: dedupeStoreCollectionCandidates(overrides.storeCollectionCandidates ?? storeCollectionCandidates),
       storeListInitialized: overrides.storeListInitialized ?? storeListInitialized,
       storeListApproved: overrides.storeListApproved ?? storeListApproved,
+      manualCompletionContexts: overrides.manualCompletionContexts ?? manualCompletionContexts,
       savedAt: new Date().toISOString()
     };
   }
@@ -1976,20 +2005,26 @@ function GuidedBrowserCollector({
     const label = action?.label ?? step.label;
     setCaptureStatus({ message: `Resetting ${label}`, state: "working", progress: 20 });
     const nextCollectedSteps = { ...collectedSteps };
-    delete nextCollectedSteps[stepProgressKey(step, subActionId)];
+    const progressKey = stepProgressKey(step, subActionId);
+    const manuallyCompleted = nextCollectedSteps[progressKey]?.startsWith("manual-complete:") === true;
+    delete nextCollectedSteps[progressKey];
+    const nextManualCompletionContexts = { ...manualCompletionContexts };
+    delete nextManualCompletionContexts[progressKey];
     if (preservesStoreEvidenceDuringReset(subActionId) && step.ownerType === "STORE") {
       try {
         await persistCollectionStateAsync({
           stepAssetPaths: nextCollectedSteps,
           completedStepIds: Object.keys(nextCollectedSteps),
           progressPercent: collectionProgress(allSteps, nextCollectedSteps),
-          currentStepId: step.id
+          currentStepId: step.id,
+          manualCompletionContexts: nextManualCompletionContexts
         });
       } catch {
         setCaptureStatus({ message: `${label} reset failed`, state: "failed", progress: 100 });
         return;
       }
       setCollectedSteps(nextCollectedSteps);
+      setManualCompletionContexts(nextManualCompletionContexts);
       if (subActionId) {
         selectSubAction(subActionId);
       }
@@ -1997,14 +2032,16 @@ function GuidedBrowserCollector({
       appendLog(setActivityLog, `${label} is ready to collect again. The last valid result remains available until the refresh succeeds.`);
       return;
     }
-    await resetEvidence.mutateAsync({
-      projectId: project.id,
-      stepId: step.id,
-      ownerType: step.ownerType,
-      ownerId: step.ownerId,
-      subActionId,
-      kind: step.kind
-    });
+    if (!manuallyCompleted) {
+      await resetEvidence.mutateAsync({
+        projectId: project.id,
+        stepId: step.id,
+        ownerType: step.ownerType,
+        ownerId: step.ownerId,
+        subActionId,
+        kind: step.kind
+      });
+    }
     if (subActionId === "shop-homepage" && step.ownerType === "PRODUCT" && step.ownerId) {
       for (const relatedKey of relatedShopHomepageProgressKeys(step.ownerId, allSteps, projectDetail.data)) {
         delete nextCollectedSteps[relatedKey];
@@ -2021,11 +2058,69 @@ function GuidedBrowserCollector({
       stepAssetPaths: nextCollectedSteps,
       completedStepIds: Object.keys(nextCollectedSteps),
       progressPercent: collectionProgress(allSteps, nextCollectedSteps),
-      currentStepId: step.id
+      currentStepId: step.id,
+      manualCompletionContexts: nextManualCompletionContexts
     });
     setCollectedSteps(nextCollectedSteps);
+    setManualCompletionContexts(nextManualCompletionContexts);
     setCaptureStatus({ message: `${label} ready to collect again`, state: "done", progress: 100 });
     appendLog(setActivityLog, `Reset ${label}.`);
+  }
+
+  async function markSubActionComplete(step: CollectionStep, subActionId: string, context: string) {
+    const action = step.subActions?.find((item) => item.id === subActionId);
+    const completionContext = context.trim();
+    if (!action || step.stage === "KEYWORD_GENERAL" || !completionContext) {
+      setCaptureStatus({ message: "Add a reason before marking this action complete", state: "failed", progress: 100 });
+      return;
+    }
+    const progressKey = stepProgressKey(step, subActionId);
+    const nextCollectedSteps = {
+      ...collectedSteps,
+      [progressKey]: `manual-complete:${new Date().toISOString()}`
+    };
+    const nextManualCompletionContexts = {
+      ...manualCompletionContexts,
+      [progressKey]: completionContext
+    };
+    try {
+      await persistCollectionStateAsync({
+        stepAssetPaths: nextCollectedSteps,
+        completedStepIds: Object.keys(nextCollectedSteps),
+        progressPercent: collectionProgress(allSteps, nextCollectedSteps),
+        currentStepId: step.id,
+        manualCompletionContexts: nextManualCompletionContexts
+      });
+    } catch {
+      setCaptureStatus({ message: `${action.label} could not be marked complete`, state: "failed", progress: 100 });
+      return;
+    }
+    setCollectedSteps(nextCollectedSteps);
+    setManualCompletionContexts(nextManualCompletionContexts);
+    setCaptureStatus({ message: `${action.label} marked complete`, state: "done", progress: 100 });
+    appendLog(setActivityLog, `${action.label} was manually marked complete: ${completionContext}`);
+
+    const stageSteps = allSteps.filter((item) => item.stage === step.stage);
+    if (stageSteps.length > 0 && stageSteps.every((item) => isCollectionStepComplete(item, nextCollectedSteps))) {
+      await completeCurrentStage(nextCollectedSteps, { manualCompletionContexts: nextManualCompletionContexts });
+      return;
+    }
+    const pendingAction = step.subActions?.find((item) => !nextCollectedSteps[stepProgressKey(step, item.id)]);
+    if (pendingAction) {
+      setActiveSubActionId(pendingAction.id);
+    } else {
+      const nextStepIndex = Math.min(activeStepIndex + 1, steps.length - 1);
+      const nextStep = steps[nextStepIndex];
+      const nextAction = nextStep
+        ? nextStep.subActions?.find((item) => !nextCollectedSteps[stepProgressKey(nextStep, item.id)]) ?? nextStep.subActions?.[0]
+        : undefined;
+      setActiveStepIndex(nextStepIndex);
+      setActiveSubActionId(nextAction?.id);
+      const nextTargetUrl = nextAction?.targetUrl ?? nextStep?.targetUrl;
+      if (nextStep && nextStep.id !== step.id && nextTargetUrl) {
+        navigateTo(collectionTargetUrl(nextTargetUrl, nextStep.stage));
+      }
+    }
   }
 
   const attachFileEvidence = useMutation({
@@ -2804,7 +2899,7 @@ function GuidedBrowserCollector({
       progress: 45
     });
     const extractionTimeoutMs = dataOnlyEvidence ? 32_000 : 20_000;
-    const snapshot = await withTimeout(
+    let snapshot = await withTimeout(
           extractRenderedPageSnapshot(webview, extractionSelector, {
             includeHtml: true,
             viewMode,
@@ -2859,6 +2954,24 @@ function GuidedBrowserCollector({
           storeDecorationImages: []
         };
       });
+    if (evidenceRequiresProductRows(evidenceKind) && snapshot.products.length === 0) {
+      setCaptureStatus({ message: "Retrying hydrated marketplace product rows", state: "working", progress: 62 });
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
+      await waitForRenderedProductRows(webview, targetSelector, actionLabel, 12_000);
+      snapshot = await withTimeout(
+        extractRenderedPageSnapshot(webview, extractionSelector, {
+          includeHtml: true,
+          viewMode,
+          requestedStoreRating: typeof subAction?.metadata?.requestedRating === "number"
+            ? subAction.metadata.requestedRating
+            : typeof step.metadata?.requestedRating === "number"
+              ? step.metadata.requestedRating
+              : undefined
+        }),
+        32_000,
+        `${actionLabel} still has not exposed hydrated product rows.`
+      );
+    }
     assertEvidenceHasProductRows(evidenceKind, snapshot.products.length, actionLabel);
     const structuredProductDetail = scopeProductDetailSnapshot(snapshot.productDetail, subAction?.id);
     return {
@@ -2956,6 +3069,17 @@ function GuidedBrowserCollector({
     <Panel
       title="Platform Browser"
       icon={Globe2}
+      titlePrefix={!expanded ? (
+        <button
+          className="secondary-button mio-round-icon-button h-9 w-9 shrink-0 px-0"
+          type="button"
+          onClick={() => setCollectionSidebarCollapsed((value) => !value)}
+          aria-label={translate(language, collectionSidebarCollapsed ? "Expand collection drawer" : "Collapse collection drawer")}
+          title={translate(language, collectionSidebarCollapsed ? "Expand collection drawer" : "Collapse collection drawer")}
+        >
+          {collectionSidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+        </button>
+      ) : undefined}
       className={expanded ? "mio-browser-panel-expanded flex h-screen flex-col rounded-none border-0 p-0" : ""}
       action={
         <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Exit fullscreen" : "Expand browser"} title={expanded ? "Exit fullscreen" : "Expand browser"}>
@@ -3083,6 +3207,7 @@ function GuidedBrowserCollector({
           captured={isCurrentCollectorTargetSaved(activeStep, activeSubAction?.id, collectedSteps)}
           subActionCounts={activeSubActionCounts}
           subActionStates={activeSubActionStates}
+          manualCompletionContexts={manualCompletionContexts}
           outcomeMessage={captureStatus.message}
           saving={saveEvidence.isPending || Boolean(preparingEvidenceKey)}
           resetting={resetEvidence.isPending}
@@ -3114,6 +3239,7 @@ function GuidedBrowserCollector({
             void captureAndSaveEvidence(activeStep, selectedSubAction);
           }}
           onReset={(subActionId) => void resetCollectedEvidence(activeStep, subActionId)}
+          onMarkComplete={(subActionId, context) => void markSubActionComplete(activeStep, subActionId, context)}
           onSelectSubAction={selectSubAction}
           onAttachFile={activeStep.id === "tiktok-brand-search" || activeStep.metadata?.storeEvidenceType === "tiktok" ? () => attachFileEvidence.mutate(activeStep) : undefined}
           onOpenAndroid={activeStep.id === "tiktok-brand-search" || activeStep.metadata?.storeEvidenceType === "tiktok" ? () => void openTikTokAndroidFromShopeeStep() : undefined}
@@ -3156,13 +3282,17 @@ function GuidedBrowserCollector({
   );
 
   const workspaceContent = (
-    <section className={expanded ? "mio-browser-fullscreen fixed inset-0 z-50 overflow-hidden bg-ink-950" : `mio-guided-workspace grid gap-5 ${activitySidebarOpen ? "grid-cols-[360px_minmax(0,1fr)_300px]" : "grid-cols-[360px_minmax(0,1fr)]"}`}>
-      {!expanded && (
+    <section className={expanded
+      ? "mio-browser-fullscreen fixed inset-0 z-[200] overflow-hidden bg-ink-950"
+      : [
+          "mio-guided-workspace grid gap-5",
+          collectionSidebarCollapsed ? "mio-guided-workspace-sidebar-collapsed" : "",
+          activitySidebarOpen
+            ? collectionSidebarCollapsed ? "grid-cols-[minmax(0,1fr)_300px]" : "grid-cols-[360px_minmax(0,1fr)_300px]"
+            : collectionSidebarCollapsed ? "grid-cols-[minmax(0,1fr)]" : "grid-cols-[360px_minmax(0,1fr)]"
+        ].filter(Boolean).join(" ")}>
+      {!expanded && !collectionSidebarCollapsed && (
         <aside className="mio-collection-sidebar space-y-5">
-          <button className="secondary-button" type="button" onClick={onNewAnalysis}>
-            <ClipboardCheck size={16} />
-            {translate(language, exitLabel)}
-          </button>
           <Panel
             title={translate(language, "Analysis Session")}
             icon={ClipboardCheck}
@@ -3234,8 +3364,14 @@ function GuidedBrowserCollector({
                   className="primary-button h-9 px-2 text-xs"
                   type="button"
                   onClick={runStagePrimaryAction}
-                  disabled={saveCollectionState.isPending || (activeStage === "KEYWORD_GENERAL" && !keyProductListReady)}
-                  title={activeStage === "KEYWORD_GENERAL" && !keyProductListReady ? "Collect Product Relevance and Top Sales first" : undefined}
+                  disabled={saveCollectionState.isPending ||
+                    (activeStage === "KEYWORD_GENERAL" && !keyProductListReady) ||
+                    (activeStage === "PRODUCT_DETAILS" && !stageAllStepsComplete)}
+                  title={activeStage === "KEYWORD_GENERAL" && !keyProductListReady
+                    ? "Collect Product Relevance and Top Sales first"
+                    : activeStage === "PRODUCT_DETAILS" && !stageAllStepsComplete
+                      ? "Collect or mark every Part 2 sub-action complete before continuing"
+                      : undefined}
                 >
                   {saveCollectionState.isPending ? <span className="mio-spinner" /> : <CheckCircle2 size={14} />}
                   {translate(language, activeStage === "KEYWORD_GENERAL" ? "Key Product List" : stageCompletionButtonLabel(activeStage))}
@@ -3930,6 +4066,7 @@ function FloatingStepController({
   captured,
   subActionCounts,
   subActionStates,
+  manualCompletionContexts,
   outcomeMessage,
   saving,
   resetting,
@@ -3937,6 +4074,7 @@ function FloatingStepController({
   onOpenTarget,
   onCollect,
   onReset,
+  onMarkComplete,
   onSelectSubAction,
   onAttachFile,
   onOpenAndroid,
@@ -3953,6 +4091,7 @@ function FloatingStepController({
   captured: boolean;
   subActionCounts?: Record<string, number>;
   subActionStates?: Record<string, "pending" | "collected" | "not-found">;
+  manualCompletionContexts: Record<string, string>;
   outcomeMessage?: string;
   saving: boolean;
   resetting: boolean;
@@ -3960,6 +4099,7 @@ function FloatingStepController({
   onOpenTarget: (subActionId?: string) => void;
   onCollect: (subActionId?: string) => void;
   onReset: (subActionId?: string) => void;
+  onMarkComplete: (subActionId: string, context: string) => void;
   onSelectSubAction: (id: string) => void;
   onAttachFile?: () => void;
   onOpenAndroid?: () => void;
@@ -3968,6 +4108,8 @@ function FloatingStepController({
 }) {
   const language = useUiStore((state) => state.language);
   const [compact, setCompact] = useState(true);
+  const [completionActionId, setCompletionActionId] = useState<string | null>(null);
+  const [completionDraft, setCompletionDraft] = useState("");
   const [outcomeNotice, setOutcomeNotice] = useState<{ label: string; state: "collected" | "not-found" } | null>(null);
   const outcomeRef = useRef<{ signature?: string }>({});
   const activeSubAction = step.subActions?.find((action) => action.id === activeSubActionId) ?? step.subActions?.[0];
@@ -4165,6 +4307,9 @@ function FloatingStepController({
               const actionCount = subActionCounts?.[action.id] ?? 0;
               const actionState = subActionStates?.[action.id] ?? "pending";
               const actionMaxed = action.id === "slides" && actionCount >= 9;
+              const completionKey = stepProgressKey(step, action.id);
+              const savedCompletionContext = manualCompletionContexts[completionKey];
+              const editingCompletion = completionActionId === action.id;
               return (
                 <div
                   key={action.id}
@@ -4241,6 +4386,64 @@ function FloatingStepController({
                       </button>
                     )}
                   </div>
+                  {savedCompletionContext ? (
+                    <div className="mt-2 rounded-md border border-signal-green/20 bg-signal-green/10 px-2 py-1.5 text-[10px] leading-4 text-signal-green">
+                      <span className="font-semibold">{translate(language, "Marked complete:")}</span> {savedCompletionContext}
+                    </div>
+                  ) : actionState === "pending" && !editingCompletion ? (
+                    <button
+                      className="secondary-button mt-2 h-7 w-full justify-center px-2 text-[10px]"
+                      type="button"
+                      onClick={() => {
+                        onSelectSubAction(action.id);
+                        setCompletionActionId(action.id);
+                        setCompletionDraft("");
+                      }}
+                    >
+                      <CheckCircle2 size={12} />
+                      {translate(language, "Mark as complete")}
+                    </button>
+                  ) : actionState === "pending" && editingCompletion ? (
+                    <div className="mt-2 rounded-md border border-white/10 bg-black/10 p-2">
+                      <label className="mb-1 block text-[10px] font-semibold text-white" htmlFor={`completion-context-${step.id}-${action.id}`}>
+                        {translate(language, "Why is this action complete?")}
+                      </label>
+                      <textarea
+                        id={`completion-context-${step.id}-${action.id}`}
+                        className="mio-input min-h-16 w-full resize-y px-2 py-1.5 text-[10px] leading-4"
+                        value={completionDraft}
+                        maxLength={2_000}
+                        autoFocus
+                        placeholder={translate(language, "Add the evidence, limitation, or decision context.")}
+                        onChange={(event) => setCompletionDraft(event.target.value)}
+                      />
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <button
+                          className="secondary-button h-7 justify-center px-2 text-[10px]"
+                          type="button"
+                          onClick={() => {
+                            setCompletionActionId(null);
+                            setCompletionDraft("");
+                          }}
+                        >
+                          {translate(language, "Cancel")}
+                        </button>
+                        <button
+                          className="primary-button h-7 justify-center px-2 text-[10px]"
+                          type="button"
+                          disabled={!completionDraft.trim() || saving}
+                          onClick={() => {
+                            onMarkComplete(action.id, completionDraft);
+                            setCompletionActionId(null);
+                            setCompletionDraft("");
+                          }}
+                        >
+                          <CheckCircle2 size={12} />
+                          {translate(language, "Confirm complete")}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
@@ -4785,7 +4988,6 @@ function ProjectsView() {
           project={collectingProject}
           productCategory={collectingProject.productCategory ?? ""}
           onNewAnalysis={closeProjectCollection}
-          exitLabel="Back to Projects"
         />
       );
     }
@@ -4798,7 +5000,6 @@ function ProjectsView() {
         onBrowserUrlChange={setCollectionBrowserUrl}
         onNewAnalysis={closeProjectCollection}
         onCollectionCompleted={finishProjectCollection}
-        exitLabel="Back to Projects"
       />
     );
   }
@@ -5043,9 +5244,26 @@ function ProjectInspectionPanel({
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [openReportSectionIds, setOpenReportSectionIds] = useState<Set<string>>(() => new Set());
   const settings = useQuery({ queryKey: ["settings"], queryFn: apiClient.settings, staleTime: 60_000 });
-  const aiConfigured = Boolean(settings.data?.openAiKeyConfigured || settings.data?.geminiKeyConfigured);
+  const configuredAiProviders = useMemo(() => {
+    const value = settings.data;
+    if (!value) return [];
+    return [
+      value.openAiKeyConfigured ? { provider: "openai" as const, label: "OpenAI", model: value.openAiModel } : undefined,
+      value.geminiKeyConfigured ? { provider: "gemini" as const, label: "Gemini", model: value.geminiModel } : undefined,
+      value.claudeKeyConfigured ? { provider: "claude" as const, label: "Claude", model: value.claudeModel } : undefined
+    ].filter((item): item is { provider: AIProvider; label: string; model: string } => Boolean(item));
+  }, [settings.data]);
+  const [analysisProvider, setAnalysisProvider] = useState<AIProvider>("openai");
+  const selectedAiProvider = configuredAiProviders.find((item) => item.provider === analysisProvider) ?? configuredAiProviders[0];
+  const aiConfigured = configuredAiProviders.length > 0;
   const requestIntelligenceAnalysis = useMutation({
-    mutationFn: () => apiClient.analyzeProject(detail.project.id),
+    mutationFn: () => {
+      if (!selectedAiProvider) throw new Error("Configure an AI provider before generating analysis.");
+      return apiClient.analyzeProject(detail.project.id, {
+        provider: selectedAiProvider.provider,
+        model: selectedAiProvider.model
+      });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["project-detail", detail.project.id] });
     }
@@ -5054,6 +5272,11 @@ function ProjectInspectionPanel({
     setOutlineCollapsed(false);
     setOpenReportSectionIds(new Set());
   }, [detail.project.id]);
+  useEffect(() => {
+    if (configuredAiProviders.length > 0 && !configuredAiProviders.some((item) => item.provider === analysisProvider)) {
+      setAnalysisProvider(configuredAiProviders[0].provider);
+    }
+  }, [analysisProvider, configuredAiProviders]);
   function setReportSectionOpen(id: string, open: boolean) {
     setOpenReportSectionIds((current) => {
       if (current.has(id) === open) return current;
@@ -5169,6 +5392,9 @@ function ProjectInspectionPanel({
             intelligenceAnalyzing={requestIntelligenceAnalysis.isPending}
             intelligenceError={requestIntelligenceAnalysis.error instanceof Error ? requestIntelligenceAnalysis.error.message : undefined}
             aiConfigured={aiConfigured}
+            aiProviders={configuredAiProviders}
+            selectedAiProvider={selectedAiProvider?.provider}
+            onAiProviderChange={setAnalysisProvider}
             onGenerateIntelligence={() => requestIntelligenceAnalysis.mutate()}
             onContinueCollection={onContinueCollection}
           />
@@ -5202,6 +5428,9 @@ function ProjectReportOutline({
   intelligenceAnalyzing,
   intelligenceError,
   aiConfigured,
+  aiProviders,
+  selectedAiProvider,
+  onAiProviderChange,
   onGenerateIntelligence,
   onContinueCollection
 }: {
@@ -5209,6 +5438,9 @@ function ProjectReportOutline({
   intelligenceAnalyzing: boolean;
   intelligenceError?: string;
   aiConfigured: boolean;
+  aiProviders: Array<{ provider: AIProvider; label: string; model: string }>;
+  selectedAiProvider?: AIProvider;
+  onAiProviderChange: (provider: AIProvider) => void;
   onGenerateIntelligence: () => void;
   onContinueCollection: () => void;
 }) {
@@ -5306,6 +5538,9 @@ function ProjectReportOutline({
           loading={intelligenceAnalyzing}
           error={intelligenceError}
           aiConfigured={aiConfigured}
+          aiProviders={aiProviders}
+          selectedAiProvider={selectedAiProvider}
+          onAiProviderChange={onAiProviderChange}
           onGenerate={onGenerateIntelligence}
         />
       </ReportOutlineSection>
@@ -5436,12 +5671,18 @@ function ProjectCompetitionMatrix({
   loading,
   error,
   aiConfigured,
+  aiProviders,
+  selectedAiProvider,
+  onAiProviderChange,
   onGenerate
 }: {
   analysis: ProjectCompetitionAnalysis | null;
   loading: boolean;
   error?: string;
   aiConfigured: boolean;
+  aiProviders: Array<{ provider: AIProvider; label: string; model: string }>;
+  selectedAiProvider?: AIProvider;
+  onAiProviderChange: (provider: AIProvider) => void;
   onGenerate: () => void;
 }) {
   const language = useUiStore((state) => state.language);
@@ -5457,14 +5698,28 @@ function ProjectCompetitionMatrix({
               : translate(language, "Generate this section from the saved project evidence and configured AI provider.")}
           </div>
         </div>
-        <button className="primary-button h-9 w-auto px-4" type="button" disabled={!aiConfigured || loading} onClick={onGenerate}>
-          <Sparkles size={15} />
-          {translate(language, analysis ? "Regenerate" : "Generate")}
-        </button>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="grid gap-1 text-[11px] text-ink-500">
+            <span>{translate(language, "AI provider")}</span>
+            <select className="input h-9 min-w-[150px] py-1 text-xs" value={selectedAiProvider ?? ""} onChange={(event) => onAiProviderChange(event.target.value as AIProvider)} disabled={loading || aiProviders.length === 0}>
+              {aiProviders.map((item) => <option key={item.provider} value={item.provider}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1 text-[11px] text-ink-500">
+            <span>{translate(language, "Configured model")}</span>
+            <select className="input h-9 min-w-[190px] py-1 text-xs" value={aiProviders.find((item) => item.provider === selectedAiProvider)?.model ?? ""} disabled>
+              {aiProviders.filter((item) => item.provider === selectedAiProvider).map((item) => <option key={item.model} value={item.model}>{item.model}</option>)}
+            </select>
+          </label>
+          <button className="primary-button h-9 w-auto px-4" type="button" disabled={!aiConfigured || loading} onClick={onGenerate}>
+            <Sparkles size={15} />
+            {translate(language, analysis ? "Regenerate" : "Generate")}
+          </button>
+        </div>
       </div>
       {!aiConfigured && (
         <div className="mio-inline-error mt-3">
-          {translate(language, "Configure an OpenAI or Gemini API key in Settings before generating this AI-only section.")}
+          {translate(language, "Configure an OpenAI, Gemini, or Claude API key in Settings before generating this AI-only section.")}
         </div>
       )}
       {error && <div className="mio-inline-error mt-3">{error}</div>}
@@ -7225,6 +7480,13 @@ export function LegacyBulkReportWizard({ projects, themeMode }: { projects: Proj
   );
 }
 
+type ReportDocxPreviewPayload = {
+  reportId: string;
+  projectName?: string;
+  docxPath: string;
+  dataBase64: string;
+};
+
 function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   const queryClient = useQueryClient();
   const language = useUiStore((state) => state.language);
@@ -7242,7 +7504,7 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
   const [draggedGroupId, setDraggedGroupId] = useState<ReportSectionGroupId | null>(null);
   const [reportFileName, setReportFileName] = useState("");
   const [filenameTemplate, setFilenameTemplate] = useState("{projectName}_{storeType}_{priceRange}_{date}_{time}");
-  const [previewReport, setPreviewReport] = useState<ReportHtmlPayload | null>(null);
+  const [previewDocxReport, setPreviewDocxReport] = useState<ReportDocxPreviewPayload | null>(null);
   const [reportProgress, setReportProgress] = useState(0);
   const [reportMode, setReportMode] = useState<"single" | "bulk">("single");
   const [reportLanguage, setReportLanguage] = useState<AppLanguage>(() => {
@@ -7250,7 +7512,35 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
     return saved === "id-ID" || saved === "zh-CN" || saved === "en-US" ? saved : language;
   });
   const selectedProject = dashboard.data?.projects.find((project) => project.id === projectId);
-  const aiConfigured = Boolean(settings.data?.openAiKeyConfigured || settings.data?.geminiKeyConfigured);
+  const aiConfigured = Boolean(settings.data?.openAiKeyConfigured || settings.data?.geminiKeyConfigured || settings.data?.claudeKeyConfigured);
+  const previewDocx = useMutation({
+    mutationFn: async ({
+      reportId,
+      projectName,
+      docxPath
+    }: {
+      reportId: string;
+      projectName?: string;
+      docxPath?: string | null;
+    }): Promise<ReportDocxPreviewPayload> => {
+      const path = docxPath || (await apiClient.exportReportDocx(reportId)).docxPath;
+      const readPreviewFile = window.marketplaceOS?.platform?.readPreviewFile;
+      if (!readPreviewFile) {
+        throw new Error("The in-app DOCX preview is unavailable in this runtime.");
+      }
+      const result = await readPreviewFile(path);
+      if (result.extension !== ".docx") {
+        throw new Error("The generated report is not a DOCX file.");
+      }
+      return {
+        reportId,
+        projectName,
+        docxPath: path,
+        dataBase64: result.dataBase64
+      };
+    },
+    onSuccess: (result) => setPreviewDocxReport(result)
+  });
   const generateReport = useMutation({
     mutationFn: apiClient.generateReport,
     onMutate: () => {
@@ -7260,8 +7550,11 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
       setReportProgress(100);
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["reports"] });
-      const preview = await apiClient.reportHtml(result.reportId).catch(() => null);
-      if (preview) setPreviewReport(preview);
+      previewDocx.mutate({
+        reportId: result.reportId,
+        projectName: selectedProject?.name,
+        docxPath: result.docxPath
+      });
     },
     onError: () => {
       setReportProgress(0);
@@ -7273,10 +7566,6 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
       void queryClient.invalidateQueries({ queryKey: ["reports"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     }
-  });
-  const loadReportPreview = useMutation({
-    mutationFn: apiClient.reportHtml,
-    onSuccess: (result) => setPreviewReport(result)
   });
   const saveReportPreferences = useMutation({
     mutationFn: apiClient.saveSettings,
@@ -7334,6 +7623,7 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
     const {
       openAiKeyConfigured: _openAiKeyConfigured,
       geminiKeyConfigured: _geminiKeyConfigured,
+      claudeKeyConfigured: _claudeKeyConfigured,
       ...persistedSettings
     } = settings.data;
     saveReportPreferences.mutate({
@@ -7538,18 +7828,14 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
               <FileDown size={16} />
               {generateReport.isPending ? translate(language, "Generating Report") : translate(language, "Generate Report")}
             </button>
-            {!generateReport.isPending && reportProgress > 0 && (
-              <div className="rounded-md border border-white/8 bg-white/5 p-3">
-                <div className="mb-2 flex items-center justify-between text-xs">
-                  <span className="text-ink-400">{translate(language, generateReport.isPending ? "Rendering report and export files" : "Report generation complete")}</span>
-                  <span className="font-semibold text-signal-blue">{reportProgress}%</span>
-                </div>
-                <ProgressBar value={reportProgress} />
+            {generateReport.error && (
+              <div className="rounded-md border border-signal-red/25 bg-signal-red/10 p-3 text-sm text-signal-red" role="alert">
+                {translate(language, "Report generation failed")}: {generateReport.error.message}
               </div>
             )}
             {generateReport.data && (
               <div className="rounded-md border border-signal-green/25 bg-signal-green/10 p-3 text-sm text-signal-green">
-                {translate(language, "Report generated at")} {generateReport.data.pdfPath}
+                {translate(language, "Report generated at")} {generateReport.data.docxPath ?? generateReport.data.pdfPath ?? generateReport.data.htmlPath}
               </div>
             )}
           </form>
@@ -7559,8 +7845,8 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
             {(reports.data ?? []).map((report) => {
               const reportFormats = report.formats?.length ? report.formats : ["PDF", "HTML"] as BulkReportFormat[];
               const primaryPath =
-                (reportFormats.includes("PDF") ? report.pdfPath : null) ||
                 (reportFormats.includes("DOCX") ? report.docxPath : null) ||
+                (reportFormats.includes("PDF") ? report.pdfPath : null) ||
                 report.htmlPath ||
                 report.pdfPath;
               return (
@@ -7579,9 +7865,26 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
                   </div>
                 )}
                 <div className="mio-report-history-actions flex items-center gap-2">
-                  <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" disabled={report.status === "DRAFT" || !report.htmlPath || loadReportPreview.isPending} onClick={() => loadReportPreview.mutate(report.id)} aria-label={translate(language, "Preview")} title={translate(language, "Preview")}>
+                  <button
+                    className="secondary-button mio-round-icon-button h-9 w-9 px-0"
+                    type="button"
+                    disabled={report.status === "DRAFT" || previewDocx.isPending}
+                    onClick={() => previewDocx.mutate({
+                      reportId: report.id,
+                      projectName: report.projectName,
+                      docxPath: report.docxPath
+                    })}
+                    aria-label={translate(language, "Preview report")}
+                    title={translate(language, "Preview report")}
+                  >
                     <Eye size={14} />
                   </button>
+                  {reportFormats.includes("HTML") && report.htmlPath && (
+                    <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(report.htmlPath!)}>
+                      <ExternalLink size={13} />
+                      {translate(language, "Open HTML")}
+                    </button>
+                  )}
                   <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" disabled={report.status === "DRAFT" || !primaryPath} onClick={() => primaryPath && void apiClient.revealPath(primaryPath)} aria-label={translate(language, "Locate")} title={translate(language, "Locate")}>
                     <FolderOpen size={14} />
                   </button>
@@ -7596,6 +7899,11 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
             );})}
             {(reports.data ?? []).length === 0 && <EmptyState label={translate(language, "No generated reports yet.")} />}
           </div>
+          {previewDocx.error && (
+            <div className="mt-3 rounded-md border border-signal-rose/25 bg-signal-rose/10 p-3 text-xs text-signal-rose">
+              {previewDocx.error.message}
+            </div>
+          )}
         </Panel>
       </div>
       <Panel title="2. Choose Report Content" icon={ListChecks} className="mio-report-inline-content-hidden">
@@ -7655,110 +7963,195 @@ function ReportsView({ themeMode }: { themeMode: ThemeMode }) {
       </Panel>
       </div>
       )}
-      {previewReport && <ReportPreviewModal report={previewReport} onClose={() => setPreviewReport(null)} />}
+      {previewDocxReport && <ReportDocxPreviewModal report={previewDocxReport} onClose={() => setPreviewDocxReport(null)} />}
     </section>
   );
 }
 
-type ReportPreviewHeading = {
+type ReportDocxPreviewHeading = {
   id: string;
   label: string;
   level: number;
 };
 
-function prepareContinuousReportPreview(html: string): { html: string; headings: ReportPreviewHeading[] } {
-  const documentNode = new DOMParser().parseFromString(html, "text/html");
-  const headings = Array.from(documentNode.querySelectorAll("h1, h2, h3, summary"))
-    .map((heading, index) => {
-      const label = heading.textContent?.replace(/\s+/gu, " ").trim().slice(0, 100) ?? "";
-      if (!label) {
-        return undefined;
-      }
-      const id = heading.id || `mio-report-heading-${index + 1}`;
-      heading.id = id;
-      return {
-        id,
-        label,
-        level: heading.tagName === "H1" ? 1 : heading.tagName === "H2" || heading.tagName === "SUMMARY" ? 2 : 3
-      } satisfies ReportPreviewHeading;
-    })
-    .filter((heading): heading is ReportPreviewHeading => Boolean(heading))
-    .filter((heading, index, entries) => index === 0 || heading.label.toLocaleLowerCase() !== entries[index - 1]?.label.toLocaleLowerCase());
-  const previewStyle = documentNode.createElement("style");
-  previewStyle.textContent = `
-    html { scroll-behavior: smooth; }
-    body { max-width: 980px !important; min-height: 100vh; margin: 0 auto !important; padding: 24px !important; box-shadow: none !important; }
-    .report-shell { overflow: hidden; border: 1px solid rgba(127, 127, 127, 0.18); border-radius: 12px; background: var(--report-panel, #fff); }
-    .inspector-header { margin: 0 !important; border: 0 !important; border-radius: 0 !important; padding: 28px 30px !important; box-shadow: none !important; }
-    .page, .report-section, details.page, section.page {
-      min-height: 0 !important;
-      margin: 0 !important;
-      border-radius: 0 !important;
-      box-shadow: none !important;
-      break-before: auto !important;
-      break-after: auto !important;
-      page-break-before: auto !important;
-      page-break-after: auto !important;
-    }
-    details.report-section {
-      margin: 0 !important;
-      border: 0 !important;
-      border-top: 1px solid rgba(127, 127, 127, 0.18) !important;
-      border-radius: 0 !important;
-      padding: 22px 30px !important;
-      background: transparent !important;
-      box-shadow: none !important;
-    }
-    details.store-report { box-shadow: none !important; }
-    [id^="mio-report-heading-"] { scroll-margin-top: 28px; }
-    @media print { body { max-width: none !important; } }
-  `;
-  documentNode.head.append(previewStyle);
-  return { html: `<!doctype html>${documentNode.documentElement.outerHTML}`, headings };
+type ReportDocxPreviewNavNode = ReportDocxPreviewHeading & {
+  children: ReportDocxPreviewNavNode[];
+};
+
+function buildReportDocxPreviewNav(headings: ReportDocxPreviewHeading[]): ReportDocxPreviewNavNode[] {
+  const roots: ReportDocxPreviewNavNode[] = [];
+  const stack: ReportDocxPreviewNavNode[] = [];
+  for (const heading of headings) {
+    const node: ReportDocxPreviewNavNode = { ...heading, children: [] };
+    while (stack.length > 0 && stack[stack.length - 1]!.level >= heading.level) stack.pop();
+    const parent = stack[stack.length - 1];
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+    stack.push(node);
+  }
+  return roots;
 }
 
-function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; onClose: () => void }) {
+function ReportDocxPreviewNavItems({
+  items,
+  depth = 0,
+  activeHeadingId,
+  onSelect
+}: {
+  items: ReportDocxPreviewNavNode[];
+  depth?: number;
+  activeHeadingId: string;
+  onSelect: (id: string) => void;
+}) {
+  return items.map((item) => item.children.length > 0 ? (
+    <details key={item.id} className="mio-report-preview-outline-group">
+      <summary
+        className="mio-report-preview-outline-summary"
+        aria-current={activeHeadingId === item.id ? "location" : undefined}
+        style={{ paddingInlineStart: `${10 + depth * 12}px` }}
+        onClick={() => onSelect(item.id)}
+      >
+        <ChevronRight className="mio-report-preview-outline-chevron" size={13} aria-hidden="true" />
+        <span>{item.label}</span>
+      </summary>
+      <div className="mio-report-preview-outline-children">
+        <ReportDocxPreviewNavItems
+          items={item.children}
+          depth={depth + 1}
+          activeHeadingId={activeHeadingId}
+          onSelect={onSelect}
+        />
+      </div>
+    </details>
+  ) : (
+    <button
+      key={item.id}
+      type="button"
+      className="mio-report-preview-outline-item"
+      aria-current={activeHeadingId === item.id ? "location" : undefined}
+      style={{ paddingInlineStart: `${28 + depth * 12}px` }}
+      onClick={() => onSelect(item.id)}
+    >
+      {item.label}
+    </button>
+  ));
+}
+
+function ReportDocxPreviewModal({ report, onClose }: { report: ReportDocxPreviewPayload; onClose: () => void }) {
   const language = useUiStore((state) => state.language);
-  const [copied, setCopied] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const preview = useMemo(() => prepareContinuousReportPreview(report.html), [report.html]);
-  const reportOpenTargets = useMemo(() => {
-    const formats = report.formats?.length ? report.formats : ["HTML"] as BulkReportFormat[];
-    return formats.flatMap((format) => {
-      const path = format === "PDF" ? report.pdfPath : format === "DOCX" ? report.docxPath : report.htmlPath;
-      return path ? [{ format, path }] : [];
-    });
-  }, [report.docxPath, report.formats, report.htmlPath, report.pdfPath]);
+  const documentRef = useRef<HTMLDivElement>(null);
+  const previewShellRef = useRef<HTMLDivElement>(null);
+  const [headings, setHeadings] = useState<ReportDocxPreviewHeading[]>([]);
+  const [renderState, setRenderState] = useState<{ status: "loading" | "ready" | "failed"; message?: string }>({ status: "loading" });
+  const [zoom, setZoom] = useState(1);
+  const [fitZoom, setFitZoom] = useState(1);
+  const [outlineCollapsed, setOutlineCollapsed] = useState(false);
+  const [activeHeadingId, setActiveHeadingId] = useState("");
+  const navigationItems = useMemo(() => buildReportDocxPreviewNav(headings), [headings]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const container = documentRef.current;
+    if (!container) return;
+    container.replaceChildren();
+    setHeadings([]);
+    setRenderState({ status: "loading" });
+
+    void (async () => {
+      try {
+        const { renderAsync } = await import("docx-preview");
+        if (cancelled) return;
+        await renderAsync(base64ToUint8Array(report.dataBase64), container, container, {
+          breakPages: true,
+          ignoreLastRenderedPageBreak: false,
+          ignoreWidth: false,
+          ignoreHeight: false,
+          inWrapper: true,
+          renderHeaders: true,
+          renderFooters: true,
+          renderFootnotes: true,
+          renderEndnotes: true,
+          renderComments: false,
+          renderChanges: false,
+          renderAltChunks: false,
+          useBase64URL: true,
+          debug: false
+        });
+        if (cancelled) return;
+        const outline = Array.from(container.querySelectorAll<HTMLElement>("h1, h2, h3, h4, p"))
+          .flatMap((element, index) => {
+            const className = typeof element.className === "string" ? element.className : "";
+            const headingClass = /(?:heading|title)[-_ ]?([1-6])?/iu.exec(className);
+            const headingTag = /^H([1-4])$/u.exec(element.tagName);
+            if (!headingClass && !headingTag) return [];
+            const label = element.textContent?.replace(/\s+/gu, " ").trim().slice(0, 120) ?? "";
+            if (!label) return [];
+            const id = `mio-docx-report-heading-${index + 1}`;
+            element.dataset.docxPreviewHeadingId = id;
+            return [{
+              id,
+              label,
+              level: Number(headingTag?.[1] || headingClass?.[1] || 2)
+            } satisfies ReportDocxPreviewHeading];
+          })
+          .filter((heading, index, entries) => index === 0 || heading.label.toLocaleLowerCase() !== entries[index - 1]?.label.toLocaleLowerCase());
+        setHeadings(outline);
+        setRenderState({ status: "ready" });
+      } catch (error) {
+        if (!cancelled) {
+          setRenderState({
+            status: "failed",
+            message: error instanceof Error ? error.message : "The DOCX report could not be rendered."
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      container.replaceChildren();
+    };
+  }, [report.dataBase64]);
+
+  useEffect(() => {
+    const shell = previewShellRef.current;
+    const document = documentRef.current;
+    if (!shell || !document || renderState.status !== "ready") return;
+    let frame = 0;
+    const updateFitZoom = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const page = document.querySelector<HTMLElement>("section.docx");
+        if (!page) return;
+        const styles = window.getComputedStyle(shell);
+        const horizontalPadding = Number.parseFloat(styles.paddingLeft) + Number.parseFloat(styles.paddingRight);
+        const availableWidth = Math.max(320, shell.clientWidth - horizontalPadding);
+        setFitZoom(Math.min(1, Math.max(0.45, availableWidth / Math.max(1, page.offsetWidth))));
+      });
+    };
+    const observer = new ResizeObserver(updateFitZoom);
+    observer.observe(shell);
+    observer.observe(document);
+    updateFitZoom();
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [outlineCollapsed, renderState.status, report.dataBase64]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
+      if (event.key === "Escape") onClose();
     }
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  async function copyReport() {
-    if ("ClipboardItem" in window && navigator.clipboard.write) {
-      const htmlClipboard = new ClipboardItem({
-        "text/html": new Blob([report.html], { type: "text/html" }),
-        "text/plain": new Blob([report.text], { type: "text/plain" })
-      });
-      await navigator.clipboard.write([htmlClipboard]).catch(async () => {
-        await navigator.clipboard.writeText(report.text || report.html);
-      });
-    } else {
-      await navigator.clipboard.writeText(report.text || report.html);
-    }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
-  }
-
   function goToHeading(id: string) {
-    iframeRef.current?.contentDocument?.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveHeadingId(id);
+    documentRef.current
+      ?.querySelector<HTMLElement>(`[data-docx-preview-heading-id="${id}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   const modal = (
@@ -7769,47 +8162,61 @@ function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; on
       aria-label={translate(language, "Report preview")}
     >
       <div className="flex min-h-full items-start justify-center">
-        <div className="mio-panel mio-report-preview-modal flex h-[calc(100dvh-32px)] w-[min(1180px,calc(100vw-32px))] min-w-0 flex-col overflow-hidden rounded-[18px] border border-white/12 bg-ink-900/95 shadow-glow">
+        <div className="mio-panel mio-report-preview-modal flex h-[calc(100dvh-32px)] w-[min(1400px,calc(100vw-32px))] min-w-0 flex-col overflow-hidden rounded-[18px] border border-white/12 bg-ink-900/95 shadow-glow">
           <div className="mio-report-preview-header sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-white/12 bg-ink-900/95 p-4 backdrop-blur-xl">
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">{translate(language, "Report Preview")}</div>
-              <div className="mt-1 truncate text-xs text-ink-500">{report.htmlPath}</div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                {translate(language, "Report Preview")}
+                <span className="mio-docx-preview-format-badge">DOCX</span>
+              </div>
+              <div className="mt-1 truncate text-xs text-ink-500">{report.projectName || report.docxPath}</div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void copyReport()}>
-                <Copy size={14} />
-                {translate(language, copied ? "Copied" : "Copy Report")}
+              <div className="mio-docx-preview-zoom-controls" aria-label={translate(language, "Preview zoom controls")}>
+                <button type="button" onClick={() => setZoom((current) => Math.max(0.6, Number((current - 0.1).toFixed(1))))} aria-label={translate(language, "Zoom out")}><ZoomOut size={14} /></button>
+                <button type="button" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+                <button type="button" onClick={() => setZoom((current) => Math.min(1.5, Number((current + 0.1).toFixed(1))))} aria-label={translate(language, "Zoom in")}><ZoomIn size={14} /></button>
+              </div>
+              <button className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(report.docxPath)}>
+                <FileText size={14} />
+                {translate(language, "Open DOCX")}
               </button>
-              {reportOpenTargets.map((target) => (
-                <button key={target.format} className="secondary-button h-9 w-auto px-3 text-xs" type="button" onClick={() => void apiClient.openPath(target.path)}>
-                  <FileText size={14} />
-                  {translate(language, "Open")} {target.format}
-                </button>
-              ))}
               <button className="secondary-button mio-round-icon-button h-9 w-9 px-0" type="button" onClick={onClose} aria-label={translate(language, "Close report preview")}>
                 <X size={16} />
               </button>
             </div>
           </div>
-          <div className="mio-report-preview-workspace min-h-0 flex-1">
+          <div className={`mio-report-preview-workspace min-h-0 flex-1${outlineCollapsed ? " is-outline-collapsed" : ""}`}>
             <aside className="mio-report-preview-outline" aria-label={translate(language, "Report headings")}>
-              <div className="mio-report-preview-outline-title">{translate(language, "Contents")}</div>
+              <div className="mio-report-preview-outline-header">
+                <div className="mio-report-preview-outline-title">{translate(language, "Contents")}</div>
+                <button
+                  className="mio-report-preview-outline-toggle"
+                  type="button"
+                  onClick={() => setOutlineCollapsed((current) => !current)}
+                  aria-expanded={!outlineCollapsed}
+                  aria-label={translate(language, outlineCollapsed ? "Expand report navigation" : "Collapse report navigation")}
+                  title={translate(language, outlineCollapsed ? "Expand report navigation" : "Collapse report navigation")}
+                >
+                  {outlineCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+                </button>
+              </div>
               <nav>
-                {preview.headings.map((heading) => (
-                  <button
-                    key={heading.id}
-                    type="button"
-                    className="mio-report-preview-outline-item"
-                    style={{ paddingInlineStart: `${10 + (heading.level - 1) * 12}px` }}
-                    onClick={() => goToHeading(heading.id)}
-                  >
-                    {heading.label}
-                  </button>
-                ))}
+                <ReportDocxPreviewNavItems items={navigationItems} activeHeadingId={activeHeadingId} onSelect={goToHeading} />
+                {renderState.status === "loading" && <div className="px-2 py-3 text-xs text-ink-500">{translate(language, "Rendering DOCX preview...")}</div>}
+                {renderState.status === "ready" && headings.length === 0 && <div className="px-2 py-3 text-xs text-ink-500">{translate(language, "DOCX pages")}</div>}
               </nav>
             </aside>
-            <div className="mio-report-preview-document-shell">
-              <iframe ref={iframeRef} title={translate(language, "Report preview")} srcDoc={preview.html} className="mio-report-preview-frame h-full min-h-0 w-full border-0 bg-white" />
+            <div ref={previewShellRef} className="mio-docx-report-preview-shell">
+              {renderState.status === "loading" && (
+                <div className="mio-docx-report-preview-status"><LoadingSkeleton lines={5} /></div>
+              )}
+              {renderState.status === "failed" && (
+                <div className="mio-docx-report-preview-status"><div className="mio-inline-error">{renderState.message}</div></div>
+              )}
+              <div className="mio-docx-report-preview-scale" style={{ zoom: zoom * fitZoom }}>
+                <div ref={documentRef} className="mio-docx-report-preview-host" aria-label={translate(language, "DOCX document preview")} />
+              </div>
             </div>
           </div>
         </div>
@@ -7818,6 +8225,15 @@ function ReportPreviewModal({ report, onClose }: { report: ReportHtmlPayload; on
   );
 
   return createPortal(modal, appPortalRoot());
+}
+
+function base64ToUint8Array(value: string): Uint8Array {
+  const binary = window.atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function PlatformButton({
@@ -7998,7 +8414,8 @@ function defaultCollectionState(): CollectionState {
     qualifiedProductsApproved: false,
     storeCollectionCandidates: [],
     storeListInitialized: false,
-    storeListApproved: false
+    storeListApproved: false,
+    manualCompletionContexts: {}
   };
 }
 
@@ -8213,9 +8630,13 @@ function collectionSubActionStates(
 ): Record<string, "pending" | "collected" | "not-found"> {
   const states: Record<string, "pending" | "collected" | "not-found"> = {};
   for (const action of step.subActions ?? []) {
-    const saved = Boolean(stepAssetPaths[stepProgressKey(step, action.id)]);
-    if (!saved) {
+    const savedPath = stepAssetPaths[stepProgressKey(step, action.id)];
+    if (!savedPath) {
       states[action.id] = "pending";
+      continue;
+    }
+    if (savedPath.startsWith("manual-complete:")) {
+      states[action.id] = "collected";
       continue;
     }
     if (action.mode === "screenshot") {
@@ -9621,6 +10042,16 @@ async function extractRenderedPageSnapshot(
       const absoluteUrl = (href) => {
         try { return new URL(href, location.href).toString(); } catch { return href || ""; }
       };
+      const productUrlIdentity = (href) => {
+        try {
+          const url = new URL(href, location.href);
+          const itemId = url.searchParams.get("itemid") || url.searchParams.get("item_id");
+          const shopId = url.searchParams.get("shopid") || url.searchParams.get("shop_id");
+          return itemId ? url.origin + url.pathname + "?shopid=" + (shopId || "") + "&itemid=" + itemId : url.origin + url.pathname;
+        } catch {
+          return String(href || "").split("#")[0];
+        }
+      };
       const compact = (value) => String(value || "").replace(/\\s+/g, " ").trim();
       const unique = (values) => {
         const seen = new Set();
@@ -9659,7 +10090,7 @@ async function extractRenderedPageSnapshot(
         let stablePasses = 0;
         const passes = 10;
         for (let index = 0; index < passes; index += 1) {
-          const currentCount = productScopeRoot.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
+          const currentCount = productScopeRoot.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="itemid="], a[href*="item_id="], [data-sqe="item"], [data-testid*="product-card"], [class*="product-card"]').length;
           const elementCanScroll = productScopeRoot.scrollHeight > productScopeRoot.clientHeight + 24;
           if (elementCanScroll) {
             productScopeRoot.scrollTop = Math.min(productScopeRoot.scrollHeight, productScopeRoot.scrollTop + Math.max(360, productScopeRoot.clientHeight * 0.72));
@@ -9891,7 +10322,7 @@ async function extractRenderedPageSnapshot(
         for (let depth = 0; depth < 7 && node?.parentElement; depth += 1) {
           node = node.parentElement;
           const text = node.innerText || "";
-          const productLinks = node.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="i."]').length;
+          const productLinks = node.querySelectorAll('a[href*="-i."], a[href*="/product/"], a[href*="itemid="], a[href*="item_id="]').length;
           const hasProductImage = Boolean(node.querySelector('picture._displayContents_ img, picture img, img'));
           const hasPrice = /Rp\\s*[\\d.]+/i.test(text);
           if (hasProductImage && hasPrice && productLinks <= 3) {
@@ -9914,18 +10345,18 @@ async function extractRenderedPageSnapshot(
         ].filter(Boolean);
         const anchorCandidates = scanRoots.flatMap((scanRoot) => [
           ...Array.from(scanRoot.querySelectorAll('a[href]')),
-          ...Array.from(scanRoot.querySelectorAll("div.p-2, [data-sqe='item'], [class*='shop-search-result-view'], [class*='product-card'], [class*='item-card']"))
+          ...Array.from(scanRoot.querySelectorAll("div.p-2, [data-sqe='item'], [data-testid*='product-card'], [class*='shop-search-result-view'], [class*='product-card'], [class*='item-card']"))
             .flatMap((card) => [
-              card.closest?.('a[href*="-i."], a[href*="/product/"], a[href*="i."]'),
-              card.querySelector?.('a[href*="-i."], a[href*="/product/"], a[href*="i."]')
+              card.closest?.('a[href*="-i."], a[href*="/product/"], a[href*="itemid="], a[href*="item_id="]'),
+              card.querySelector?.('a[href*="-i."], a[href*="/product/"], a[href*="itemid="], a[href*="item_id="]')
             ])
         ]).filter(Boolean);
         const anchors = Array.from(new Set(anchorCandidates))
-          .filter((anchor) => /(?:-i\\.|\\/product\\/|i\\.)/i.test(anchor.getAttribute("href") || ""))
+          .filter((anchor) => /(?:-i\\.|\\/product\\/|[?&](?:itemid|item_id)=)/i.test(anchor.getAttribute("href") || ""))
           .filter((anchor) => !/cart|checkout|help|seller/i.test(anchor.getAttribute("href") || ""));
         for (const anchor of anchors) {
           const url = absoluteUrl(anchor.getAttribute("href"));
-          const key = url.split("?")[0];
+          const key = productUrlIdentity(url);
           if (!url || seen.has(key)) continue;
           const card = findCard(anchor);
           const dataRoot = card.querySelector("div.p-2") || card;
@@ -10547,13 +10978,24 @@ async function extractRenderedPageSnapshot(
       const profileDescription = capturedViewMode === "mobile"
         ? compact(explicitDescription || lineDescription || descriptionMatch?.[1] || "").slice(0, 2400) || undefined
         : undefined;
+      const normalizeCategoryCandidate = (value) => {
+        const normalized = compact(value);
+        const countMatch = normalized.match(/\\(\\s*(\\d{1,7})\\s*\\)\\s*$/u);
+        const rawName = (countMatch ? normalized.slice(0, countMatch.index) : normalized)
+          .replace(/^[^\\p{L}\\p{N}]+/u, "")
+          .replace(/\\s+/gu, " ")
+          .trim();
+        if (rawName.length < 2 || rawName.length > 100) return "";
+        return countMatch ? rawName + " (" + countMatch[1] + ")" : rawName;
+      };
       const categoryCandidates = [
         ...Array.from(document.querySelectorAll(
-        "a[href*='tab=category'], [class*='category'] a, [class*='category'] [role='button'], [class*='category'] li"
+        "a[href*='tab=category'], a[href*='categoryId'], a[href*='category_id'], [data-testid*='category'], [class*='category'] a, [class*='category'] [role='button'], [class*='category'] li"
         )).map((element) => textFrom(element)),
-        ...Array.from(storePageText.matchAll(/([A-Za-z][A-Za-z0-9 &+/'-]{1,80})\\s*\\((\\d{1,5})\\)/gu))
+        ...Array.from(storePageText.matchAll(/([^\\n]{2,100}?)\\s*\\((\\d{1,7})\\)/gu))
           .map((match) => compact(match[1]) + " (" + match[2] + ")")
       ]
+        .map(normalizeCategoryCandidate)
         .filter((value) => value.length >= 2 && value.length <= 120)
         .filter((value) => !/^(category|categories|kategori|products?|produk|shop|toko|home|beranda)$/iu.test(value))
         .filter((value) => !/(rating|penilaian|within minutes|dalam hitungan menit)/iu.test(value))
@@ -10880,7 +11322,7 @@ async function waitForRenderedProductRows(
         const selector = ${JSON.stringify(selector ?? "")};
         const target = selector ? document.querySelector(selector) : document;
         const scope = target || document;
-        const productSelector = 'a[href*="-i."], a[href*="/product/"], a[href*="i."]';
+        const productSelector = 'a[href*="-i."], a[href*="/product/"], a[href*="itemid="], a[href*="item_id="], [data-sqe="item"], [data-testid*="product-card"], [class*="product-card"]';
         const scopedCount = scope.querySelectorAll(productSelector).length;
         const documentCount = document.querySelectorAll(productSelector).length;
         return {

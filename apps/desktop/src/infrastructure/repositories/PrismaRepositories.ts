@@ -37,6 +37,7 @@ import {
 import { LocalSecretStore } from "../security/LocalSecretStore.js";
 import { getPlatformService } from "../platform/PlatformService.js";
 import { mergeStoreRatingBuckets } from "../../shared/storeRatingPersistence.js";
+import { normalizeStoreCategoryLabels } from "../../shared/storeCategories.js";
 
 function defaultSettings(): SettingsPayload {
   const directories = getPlatformService().info.directories;
@@ -50,8 +51,12 @@ function defaultSettings(): SettingsPayload {
     concurrency: 1,
     reportFilenameTemplate: "{projectName}_{storeType}_{priceRange}_{date}_{time}",
     reportSectionOrder: DEFAULT_REPORT_SECTIONS.map((section) => section.id),
+    openAiModel: "gpt-5-mini",
+    geminiModel: "gemini-3.6-flash",
+    claudeModel: "claude-sonnet-5",
     openAiKeyConfigured: false,
-    geminiKeyConfigured: false
+    geminiKeyConfigured: false,
+    claudeKeyConfigured: false
   };
 }
 
@@ -191,7 +196,7 @@ export class PrismaProjectRepository implements ProjectRepository {
         chatResponse: store.chatResponse,
         joinedDate: store.joinedDate,
         description: extractProductString(store.rawJson, "description"),
-        categories: parseJsonArray(store.categoriesJson),
+        categories: normalizeStoreCategoryLabels(parseJsonArray(store.categoriesJson)),
         ratingSamples: extractStoreRatingSamples(store.rawJson),
         voucherCount: store.voucherCount,
         voucherTypes: parseJsonArray(store.voucherTypesJson),
@@ -388,7 +393,7 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
         ratingCount: store.ratingCount,
         chatResponse: store.chatResponse,
         joinedDate: store.joinedDate,
-        categoriesJson: JSON.stringify(store.categories),
+        categoriesJson: JSON.stringify(normalizeStoreCategoryLabels(store.categories)),
         voucherCount: store.voucherCount,
         voucherTypesJson: JSON.stringify(store.voucherTypes),
         visualThemeJson: JSON.stringify(store.visualTheme),
@@ -405,7 +410,7 @@ export class PrismaIntelligenceRepository implements IntelligenceRepository {
         ratingCount: store.ratingCount ?? existing?.ratingCount,
         chatResponse: store.chatResponse ?? existing?.chatResponse,
         joinedDate: store.joinedDate ?? existing?.joinedDate,
-        categoriesJson: JSON.stringify(mergeUniqueStrings(parseJsonArray(existing?.categoriesJson), store.categories)),
+        categoriesJson: JSON.stringify(normalizeStoreCategoryLabels([...parseJsonArray(existing?.categoriesJson), ...store.categories])),
         voucherCount: store.voucherCount ?? existing?.voucherCount,
         voucherTypesJson: JSON.stringify(mergeUniqueStrings(parseJsonArray(existing?.voucherTypesJson), store.voucherTypes)),
         visualThemeJson: JSON.stringify(mergeVisualThemes(parseVisualTheme(existing?.visualThemeJson), store.visualTheme)),
@@ -555,7 +560,8 @@ export class PrismaSettingsRepository implements SettingsRepository {
       exportFolder: await accessibleFolder(value.exportFolder, defaults.exportFolder),
       screenshotFolder: await accessibleFolder(value.screenshotFolder, defaults.screenshotFolder),
       openAiKeyConfigured: Boolean(await this.secrets.get("openai")),
-      geminiKeyConfigured: Boolean(await this.secrets.get("gemini"))
+      geminiKeyConfigured: Boolean(await this.secrets.get("gemini")),
+      claudeKeyConfigured: Boolean(await this.secrets.get("claude"))
     };
   }
 
@@ -569,7 +575,10 @@ export class PrismaSettingsRepository implements SettingsRepository {
       language: settings.language,
       concurrency: settings.concurrency,
       reportFilenameTemplate: settings.reportFilenameTemplate,
-      reportSectionOrder: settings.reportSectionOrder
+      reportSectionOrder: settings.reportSectionOrder,
+      openAiModel: settings.openAiModel,
+      geminiModel: settings.geminiModel,
+      claudeModel: settings.claudeModel
     });
     await this.db.appSetting.upsert({
       where: { key: "settings" },
@@ -579,13 +588,13 @@ export class PrismaSettingsRepository implements SettingsRepository {
     return this.get();
   }
 
-  async saveSecret(name: "openai" | "gemini", value: string): Promise<void> {
+  async saveSecret(name: "openai" | "gemini" | "claude", value: string): Promise<void> {
     if (value.trim().length > 0) {
       await this.secrets.save(name, value.trim());
     }
   }
 
-  async getSecret(name: "openai" | "gemini"): Promise<string | null> {
+  async getSecret(name: "openai" | "gemini" | "claude"): Promise<string | null> {
     return this.secrets.get(name);
   }
 }
@@ -636,7 +645,17 @@ export class PrismaReportDataLoader {
       this.db.asset.findMany({ where: { projectId }, orderBy: { createdAt: "asc" } }),
       this.db.analysis.findMany({ where: { projectId }, orderBy: { createdAt: "asc" } })
     ]);
-    return { project, products, stores, reviews, assets, analyses };
+    return {
+      project,
+      products,
+      stores: stores.map((store) => ({
+        ...store,
+        categoriesJson: JSON.stringify(normalizeStoreCategoryLabels(parseJsonArray(store.categoriesJson)))
+      })),
+      reviews,
+      assets,
+      analyses
+    };
   }
 }
 
@@ -688,6 +707,7 @@ function defaultCollectionState(searchFilters?: NewProjectInput["searchFilters"]
     completedStepIds: [],
     stepAssetPaths: {},
     stageCompleted: {},
+    manualCompletionContexts: {},
     searchFilters
   };
 }
@@ -727,6 +747,7 @@ function parseCollectionState(value: string): CollectionState {
     storeCollectionCandidates: parseStoreCollectionCandidates(parsed.storeCollectionCandidates),
     storeListInitialized: parsed.storeListInitialized === true,
     storeListApproved: parsed.storeListApproved === true,
+    manualCompletionContexts: parseUnknownStringRecord(parsed.manualCompletionContexts),
     savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : undefined
   };
 }

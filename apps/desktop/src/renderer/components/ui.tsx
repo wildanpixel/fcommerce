@@ -62,12 +62,14 @@ export function LoadingProgressModal({
 export function Panel({
   title,
   icon: Icon,
+  titlePrefix,
   action,
   className,
   children
 }: {
   title: string;
   icon: LucideIcon;
+  titlePrefix?: ReactNode;
   action?: ReactNode;
   className?: string;
   children: ReactNode;
@@ -76,9 +78,12 @@ export function Panel({
   return (
     <Card className={["mio-panel p-5", className ?? ""].join(" ")}>
       <div className="mio-panel-header mb-5 flex items-center justify-between gap-3">
-        <div className="mio-panel-title flex items-center gap-2 text-sm font-semibold text-white">
-          <Icon size={17} strokeWidth={1.65} />
-          {translate(language, title)}
+        <div className="flex min-w-0 items-center gap-2">
+          {titlePrefix}
+          <div className="mio-panel-title flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
+            <Icon className="shrink-0" size={17} strokeWidth={1.65} />
+            <span className="truncate">{translate(language, title)}</span>
+          </div>
         </div>
         {action}
       </div>

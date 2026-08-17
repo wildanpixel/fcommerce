@@ -23,6 +23,7 @@ export type JobStatus =
 
 export type ProjectStatus = "DRAFT" | "ACTIVE" | "COMPLETED" | "ARCHIVED";
 export type BrowserPreference = "chromium" | "chrome" | "edge" | "brave";
+export type AIProvider = "openai" | "gemini" | "claude";
 export type CollectionStage = "KEYWORD_GENERAL" | "PRODUCT_DETAILS" | "EVALUATION_KEY_STORE";
 
 export const SHOPEE_SHOP_TYPE_FILTERS = [
@@ -76,6 +77,7 @@ export type CollectionState = {
   storeCollectionCandidates?: StoreCollectionCandidate[];
   storeListInitialized?: boolean;
   storeListApproved?: boolean;
+  manualCompletionContexts?: Record<string, string>;
   savedAt?: string;
 };
 
@@ -261,8 +263,12 @@ export type SettingsPayload = {
   concurrency: number;
   reportFilenameTemplate: string;
   reportSectionOrder: ReportSectionId[];
+  openAiModel: string;
+  geminiModel: string;
+  claudeModel: string;
   openAiKeyConfigured: boolean;
   geminiKeyConfigured: boolean;
+  claudeKeyConfigured: boolean;
 };
 
 export type EvidenceTranslationPayload = {
@@ -274,15 +280,21 @@ export type EvidenceTranslationResult = {
   language: EvidenceTranslationPayload["language"];
   translations: string[];
   translated: boolean;
-  provider: "openai" | "gemini" | "source" | "unavailable";
+  provider: AIProvider | "source" | "unavailable";
 };
 
 export type SaveSettingsPayload = Omit<
   SettingsPayload,
-  "openAiKeyConfigured" | "geminiKeyConfigured"
+  "openAiKeyConfigured" | "geminiKeyConfigured" | "claudeKeyConfigured"
 > & {
   openAiApiKey?: string;
   geminiApiKey?: string;
+  claudeApiKey?: string;
+};
+
+export type AnalyzeProjectPayload = {
+  provider: AIProvider;
+  model: string;
 };
 
 export type PlatformPayload = {

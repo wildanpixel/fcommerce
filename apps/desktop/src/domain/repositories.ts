@@ -63,8 +63,8 @@ export interface ReportRepository {
 export interface SettingsRepository {
   get(): Promise<SettingsPayload>;
   save(settings: SettingsPayload): Promise<SettingsPayload>;
-  saveSecret(name: "openai" | "gemini", value: string): Promise<void>;
-  getSecret(name: "openai" | "gemini"): Promise<string | null>;
+  saveSecret(name: "openai" | "gemini" | "claude", value: string): Promise<void>;
+  getSecret(name: "openai" | "gemini" | "claude"): Promise<string | null>;
 }
 
 export interface LogRepository {

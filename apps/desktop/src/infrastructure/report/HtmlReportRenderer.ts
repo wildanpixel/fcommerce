@@ -8,6 +8,7 @@ import type {
 import type { ReportGenerationPayload } from "../../shared/contracts.js";
 import type { AiAnalysisJson } from "../../domain/models.js";
 import { localizeReportHtml, normalizeReportLanguage } from "../../shared/reportLocalization.js";
+import { resolveQualifiedProductReferences, sameQualifiedProduct } from "../../renderer/qualifiedProducts.js";
 
 export class ConsultingHtmlReportRenderer implements HtmlReportRenderer {
   async render(data: ReportData, payload: ReportGenerationPayload): Promise<string> {
@@ -85,24 +86,26 @@ export class PrismaReportDataAdapter implements ReportDataLoader {
 function documentStart(title: string, theme: "light" | "dark"): string {
   const bodyClass = theme === "dark" ? "report-dark" : "report-light";
   return `<!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(title)}</title>
   <style>
-    @page { size: A4; margin: 8mm 7mm; }
+    @page { size: A4; margin: 12.7mm; }
     * { box-sizing: border-box; }
-    :root { color-scheme: light dark; }
+    :root { color-scheme: light dark; font-family: Arial, Helvetica, sans-serif; }
     body.report-light {
-      --report-bg: #f4f7fb;
+      --report-bg: #eef3f8;
       --report-panel: #ffffff;
       --report-panel-soft: #f8fafc;
-      --report-text: #101828;
+      --report-text: #111827;
       --report-muted: #667085;
       --report-border: #d7dee8;
       --report-accent: #2563eb;
       --report-row: #fbfcff;
       --report-image-bg: #ffffff;
+      --report-nav: #f8fafc;
     }
     body.report-dark {
       --report-bg: #11161f;
@@ -114,15 +117,49 @@ function documentStart(title: string, theme: "light" | "dark"): string {
       --report-accent: #62a8ff;
       --report-row: #343a45;
       --report-image-bg: #ffffff;
+      --report-nav: #171c25;
     }
-    body { margin: 0; padding: 24px; font-family: Inter, Arial, sans-serif; color: var(--report-text); background: var(--report-bg); font-size: 11px; }
-    .report-shell { width: min(100%, 1180px); margin: 0 auto; }
+    html { scroll-behavior: smooth; }
+    body { --report-nav-width: 264px; display: grid; grid-template-columns: var(--report-nav-width) minmax(0, 1fr); min-height: 100vh; margin: 0; color: var(--report-text); background: var(--report-bg); font-family: Arial, Helvetica, sans-serif; font-size: 11px; transition: grid-template-columns .18s ease; }
+    body.nav-collapsed { --report-nav-width: 68px; }
+    button { font: inherit; }
+    .report-nav { position: sticky; top: 0; z-index: 20; display: flex; height: 100vh; min-width: 0; flex-direction: column; gap: 12px; overflow: hidden; border-right: 1px solid var(--report-border); background: color-mix(in srgb, var(--report-nav) 94%, transparent); padding: 18px 14px; backdrop-filter: blur(18px); }
+    .report-nav-header { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+    .report-nav-mark { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; border-radius: 11px; background: var(--report-accent); color: #fff; font-weight: 800; }
+    .report-nav-title { min-width: 0; overflow: hidden; white-space: nowrap; }
+    .report-nav-title b, .report-nav-title span { display: block; overflow: hidden; text-overflow: ellipsis; }
+    .report-nav-title span { margin-top: 2px; color: var(--report-muted); font-size: 9px; }
+    .report-nav-toggle, .report-tool, .report-nav-link, .report-nav-group-toggle { border: 1px solid var(--report-border); border-radius: 9px; background: var(--report-panel); color: var(--report-text); cursor: pointer; }
+    .report-nav-toggle { display: inline-grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; }
+    .report-nav-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .report-tool { min-width: 0; padding: 8px 6px; font-size: 9px; white-space: nowrap; }
+    .report-nav-list { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 6px; overflow-y: auto; }
+    .report-nav-group { display: grid; gap: 5px; }
+    .report-nav-group-toggle { display: grid; grid-template-columns: 24px minmax(0, 1fr) 14px; align-items: center; gap: 7px; width: 100%; padding: 8px; text-align: left; font-weight: 700; }
+    .report-nav-group-caret { color: var(--report-muted); }
+    .report-nav-children { display: grid; gap: 4px; padding-left: 12px; }
+    .report-nav-group.is-collapsed .report-nav-children { display: none; }
+    .report-nav-group.is-collapsed .report-nav-group-caret { transform: rotate(-90deg); }
+    .report-nav-children .report-nav-link { background: var(--report-panel-soft); }
+    .report-nav-link { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 7px; width: 100%; padding: 8px; text-align: left; }
+    .report-nav-link:hover, .report-nav-link:focus-visible, .report-nav-group-toggle:hover, .report-nav-group-toggle:focus-visible, .report-tool:hover, .report-nav-toggle:hover { border-color: var(--report-accent); }
+    .report-nav-index { color: var(--report-accent); font-size: 9px; font-weight: 800; }
+    .report-nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    body.nav-collapsed .report-nav { padding-inline: 14px; }
+    body.nav-collapsed .report-nav-title, body.nav-collapsed .report-nav-label, body.nav-collapsed .report-nav-group-caret, body.nav-collapsed .report-tool span { display: none; }
+    body.nav-collapsed .report-nav-mark { display: none; }
+    body.nav-collapsed .report-nav-header { justify-content: center; }
+    body.nav-collapsed .report-nav-actions { grid-template-columns: 1fr; }
+    body.nav-collapsed .report-nav-link { grid-template-columns: 1fr; place-items: center; }
+    body.nav-collapsed .report-nav-group-toggle { grid-template-columns: 1fr; place-items: center; }
+    body.nav-collapsed .report-nav-children { padding-left: 0; }
+    .report-shell { display: grid; width: min(100%, 1260px); grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; align-content: start; margin: 0 auto; padding: 24px; }
     h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.16; letter-spacing: 0; }
     h2 { margin: 0 0 10px; font-size: 18px; break-after: avoid; letter-spacing: 0; }
     h3 { margin: 0 0 8px; font-size: 13px; break-after: avoid; letter-spacing: 0; }
     p { margin: 0 0 8px; line-height: 1.4; }
     .page { page-break-after: auto; break-after: auto; }
-    .inspector-header { border: 1px solid var(--report-border); border-radius: 14px; padding: 16px 18px; margin: 0 0 14px; background: var(--report-panel); box-shadow: 0 12px 28px rgba(15, 23, 42, .07); }
+    .inspector-header { grid-column: 1 / -1; border: 1px solid var(--report-border); border-radius: 18px; padding: 20px 22px; background: var(--report-panel); box-shadow: 0 12px 28px rgba(15, 23, 42, .07); }
     .muted { color: var(--report-muted); }
     .kicker { color: var(--report-accent); font-weight: 700; letter-spacing: .02em; text-transform: uppercase; font-size: 10px; }
     .grid { display: grid; gap: 12px; }
@@ -130,17 +167,17 @@ function documentStart(title: string, theme: "light" | "dark"): string {
     .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .metric { border: 1px solid var(--report-border); border-radius: 8px; padding: 10px; background: var(--report-panel-soft); }
     .metric b { display: block; font-size: 18px; margin-top: 3px; }
-    table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 8px 0 14px; }
+    table { display: table; width: 100%; border-collapse: collapse; table-layout: fixed; margin: 8px 0 14px; overflow-x: auto; }
     th { background: var(--report-accent); color: white; text-align: left; padding: 7px; font-size: 10px; }
     td { border: 1px solid var(--report-border); vertical-align: top; padding: 7px; font-size: 10px; line-height: 1.32; word-break: break-word; }
     .asset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 8px 0 14px; }
     .asset-grid.portrait-grid { grid-template-columns: repeat(auto-fit, minmax(170px, 220px)); align-items: start; }
     .asset { border: 1px solid var(--report-border); border-radius: 8px; overflow: hidden; background: var(--report-panel-soft); break-inside: avoid; }
-    .asset img { display: block; width: 100%; height: 150px; object-fit: contain; background: var(--report-image-bg); }
+    .asset img { display: block; width: 100%; height: 150px; object-fit: contain; background: var(--report-image-bg); cursor: zoom-in; }
     .asset.asset-portrait img { aspect-ratio: 9 / 16; height: auto; max-height: 500px; object-fit: cover; object-position: top center; }
     .asset video { display: block; width: 100%; aspect-ratio: 9 / 16; max-height: 280px; object-fit: contain; background: #111827; }
     .asset span { display: block; padding: 5px 7px; font-size: 9px; color: var(--report-muted); }
-    .product-thumb { width: 50px; height: 50px; object-fit: cover; border-radius: 6px; border: 1px solid var(--report-border); background: var(--report-image-bg); }
+    .product-thumb { width: 50px; height: 50px; object-fit: cover; border-radius: 6px; border: 1px solid var(--report-border); background: var(--report-image-bg); cursor: zoom-in; }
     .product-list { display: grid; gap: 7px; margin: 8px 0 14px; }
     .product-row { display: grid; grid-template-columns: 58px minmax(0, 1fr) 90px 54px 78px; gap: 8px; align-items: center; border: 1px solid var(--report-border); border-radius: 8px; padding: 7px; background: var(--report-row); break-inside: avoid; }
     .product-row b { display: block; margin-bottom: 3px; line-height: 1.3; }
@@ -157,28 +194,44 @@ function documentStart(title: string, theme: "light" | "dark"): string {
     .review-card { border: 1px solid var(--report-border); border-radius: 8px; padding: 9px; background: var(--report-row); break-inside: avoid; }
     .review-card b { display: block; margin-bottom: 5px; color: var(--report-text); }
     .review-card p { white-space: pre-line; margin: 0; }
-    details.report-section { border: 1px solid var(--report-border); border-radius: 10px; padding: 12px; margin: 0 0 14px; break-after: auto; page-break-after: auto; break-inside: auto; background: var(--report-panel); box-shadow: 0 10px 24px rgba(15, 23, 42, .06); }
+    details.report-section { grid-column: span 6; min-width: 0; border: 1px solid var(--report-border); border-radius: 16px; padding: 16px; break-after: auto; page-break-after: auto; break-inside: auto; background: var(--report-panel); box-shadow: 0 10px 24px rgba(15, 23, 42, .06); }
+    details.report-section:nth-of-type(n + 3), details.report-section:has(table), details.report-section:has(.asset-grid) { grid-column: 1 / -1; }
     details.report-section > summary { cursor: pointer; font-weight: 800; color: var(--report-text); list-style: none; }
     details.report-section > summary::-webkit-details-marker { display: none; }
     details.report-section > summary::before { content: "▾"; display: inline-block; margin-right: 8px; color: var(--report-accent); }
     details.report-section:not([open]) > summary::before { content: "▸"; }
     .report-body { margin-top: 10px; }
-    @media screen and (min-width: 1500px) {
-      .report-shell { width: min(100%, 1220px); }
+    .image-modal { width: min(94vw, 1180px); max-width: none; height: min(92vh, 900px); border: 1px solid var(--report-border); border-radius: 18px; padding: 0; color: var(--report-text); background: var(--report-panel); box-shadow: 0 28px 80px rgba(0, 0, 0, .38); }
+    .image-modal::backdrop { background: rgba(3, 7, 18, .82); backdrop-filter: blur(8px); }
+    .image-modal-frame { display: grid; height: 100%; grid-template-rows: auto minmax(0, 1fr) auto; }
+    .image-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--report-border); padding: 12px 14px; }
+    .image-modal-close { border: 1px solid var(--report-border); border-radius: 9px; padding: 7px 10px; background: var(--report-panel-soft); color: var(--report-text); cursor: pointer; }
+    .image-modal img { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #0b0f17; }
+    .image-modal-caption { margin: 0; padding: 10px 14px; color: var(--report-muted); font-size: 10px; }
+    @media screen and (max-width: 900px) {
+      body { grid-template-columns: 1fr; }
+      .report-nav { position: fixed; inset: 0 auto 0 0; width: min(82vw, 300px); box-shadow: 18px 0 48px rgba(0, 0, 0, .22); transition: transform .18s ease; }
+      body.nav-collapsed .report-nav { transform: translateX(calc(-100% + 58px)); }
+      body.nav-collapsed .report-nav-title, body.nav-collapsed .report-nav-label { display: block; }
+      .report-shell { padding: 16px 16px 16px 74px; }
+      details.report-section { grid-column: 1 / -1; }
     }
     @media print {
-      body { padding: 0; font-size: 9px; background: #ffffff; }
-      .report-shell { width: 100%; max-width: none; margin: 0; }
-      h1 { font-size: 18px; margin-bottom: 5px; }
-      h2 { font-size: 14px; margin-bottom: 7px; }
-      h3 { font-size: 11px; margin-bottom: 5px; }
-      p { margin-bottom: 5px; line-height: 1.32; }
-      .inspector-header { padding: 10px 12px; margin-bottom: 8px; box-shadow: none; }
-      .kicker, .small, .asset span, .product-row span, .link-button, .badge, .score { font-size: 7.5px; }
+      html, body { color-scheme: light; background: #fff !important; }
+      body { --report-bg: #ffffff; --report-panel: #ffffff; --report-panel-soft: #f8fafc; --report-text: #111827; --report-muted: #667085; --report-border: #d7dee8; --report-accent: #2563eb; --report-row: #fbfcff; display: block; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .report-nav, .image-modal { display: none !important; }
+      .report-shell { display: block; width: 100%; max-width: none; margin: 0; padding: 0; }
+      h1 { font-size: 18pt; margin-bottom: 5px; }
+      h2 { font-size: 14pt; margin-bottom: 7px; }
+      h3 { font-size: 11pt; margin-bottom: 5px; }
+      p { margin-bottom: 5px; line-height: 1.28; }
+      .inspector-header { display: block; border: 0; border-radius: 0; padding: 0; margin-bottom: 12pt; box-shadow: none; }
+      .kicker, .small, .asset span, .product-row span, .link-button, .badge, .score { font-size: 7.5pt; }
       table { margin: 6px 0 10px; }
-      th, td { padding: 5px; font-size: 8px; line-height: 1.25; }
+      th { background: #2563eb !important; color: #fff !important; }
+      th, td { padding: 5px; font-size: 8pt; line-height: 1.25; }
       .metric { padding: 7px; }
-      .metric b { font-size: 14px; }
+      .metric b { font-size: 14pt; }
       .asset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 6px 0 10px; }
       .asset-grid.portrait-grid { grid-template-columns: repeat(auto-fit, minmax(128px, 165px)); }
       .asset img { height: 112px; }
@@ -190,25 +243,138 @@ function documentStart(title: string, theme: "light" | "dark"): string {
       .analysis { padding: 8px; margin-bottom: 8px; }
       .review-card { padding: 7px; }
       .report-body { margin-top: 7px; }
-      details.report-section { border: 0; padding: 0; margin-bottom: 10px; box-shadow: none; page-break-after: auto; break-after: auto; }
+      details.report-section { display: block; border: 0; border-radius: 0; padding: 0; margin-bottom: 12pt; box-shadow: none; page-break-after: auto; break-after: auto; }
+      details.report-section > summary { display: none; }
+      details.report-section > .report-body { display: block !important; margin-top: 0; }
       .asset, .metric, .analysis, .review-card { break-inside: avoid; page-break-inside: avoid; }
-      details.report-section > summary { cursor: default; }
       details.report-section > summary::before { content: ""; margin: 0; }
     }
   </style>
 </head>
 <body class="${bodyClass}">
-<main class="report-shell">`;
+<aside class="report-nav" aria-label="Report navigation">
+  <div class="report-nav-header">
+    <div class="report-nav-mark" aria-hidden="true">W</div>
+    <div class="report-nav-title"><b>Research Product Market</b><span>${escapeHtml(title)}</span></div>
+    <button class="report-nav-toggle" id="report-nav-toggle" type="button" aria-expanded="true" aria-label="Collapse navigation and expand report content" title="Collapse navigation and expand report content">☰</button>
+  </div>
+  <div class="report-nav-actions">
+    <button class="report-tool" id="report-expand-all" type="button" title="Expand all sections"><span>Expand</span> ＋</button>
+    <button class="report-tool" id="report-collapse-all" type="button" title="Collapse all sections"><span>Collapse</span> −</button>
+    <button class="report-tool" id="report-theme-toggle" type="button" title="Switch report theme"><span>Theme</span> ◐</button>
+  </div>
+  <nav class="report-nav-list" id="report-nav-list"></nav>
+</aside>
+<main class="report-shell" id="report-content">`;
 }
 
 function documentEnd(): string {
   return `</main>
+  <dialog class="image-modal" id="report-image-modal" aria-label="Image inspection">
+    <div class="image-modal-frame">
+      <div class="image-modal-header"><strong>Image inspection</strong><button class="image-modal-close" id="report-image-close" type="button">Close</button></div>
+      <img id="report-image-preview" alt="" />
+      <p class="image-modal-caption" id="report-image-caption"></p>
+    </div>
+  </dialog>
   <script>
-    document.querySelectorAll("details.report-section").forEach((section) => {
-      section.addEventListener("toggle", () => {
-        document.body.dataset.lastToggled = section.open ? "open" : "closed";
+    (function () {
+      var body = document.body;
+      var sections = Array.from(document.querySelectorAll("details.report-section"));
+      var navList = document.getElementById("report-nav-list");
+      var navToggle = document.getElementById("report-nav-toggle");
+      var modal = document.getElementById("report-image-modal");
+      var preview = document.getElementById("report-image-preview");
+      var caption = document.getElementById("report-image-caption");
+      var printState = [];
+
+      var navGroups = {};
+      sections.forEach(function (section, index) {
+        var summary = section.querySelector(":scope > summary");
+        var label = section.dataset.reportNavLabel || (summary ? summary.textContent.trim() : "Section " + (index + 1));
+        var parentLabel = section.dataset.reportNavParent;
+        section.id = section.id || "report-section-" + (index + 1);
+        var navTarget = navList;
+        if (parentLabel) {
+          var group = navGroups[parentLabel];
+          if (!group) {
+            let groupRoot = document.createElement("div");
+            groupRoot.className = "report-nav-group";
+            let groupToggle = document.createElement("button");
+            groupToggle.type = "button";
+            groupToggle.className = "report-nav-group-toggle";
+            groupToggle.setAttribute("aria-expanded", "true");
+            groupToggle.innerHTML = '<span class="report-nav-index">▦</span><span class="report-nav-label"></span><span class="report-nav-group-caret">▾</span>';
+            groupToggle.querySelector(".report-nav-label").textContent = parentLabel;
+            let children = document.createElement("div");
+            children.className = "report-nav-children";
+            groupToggle.addEventListener("click", function () {
+              var collapsed = groupRoot.classList.toggle("is-collapsed");
+              groupToggle.setAttribute("aria-expanded", String(!collapsed));
+            });
+            groupRoot.appendChild(groupToggle);
+            groupRoot.appendChild(children);
+            navList.appendChild(groupRoot);
+            group = { root: groupRoot, children: children };
+            navGroups[parentLabel] = group;
+          }
+          navTarget = group.children;
+        }
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "report-nav-link";
+        button.innerHTML = '<span class="report-nav-index">' + String(index + 1).padStart(2, "0") + '</span><span class="report-nav-label"></span>';
+        button.querySelector(".report-nav-label").textContent = label;
+        button.addEventListener("click", function () {
+          section.open = true;
+          section.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+        navTarget.appendChild(button);
       });
-    });
+
+      navToggle.addEventListener("click", function () {
+        var collapsed = body.classList.toggle("nav-collapsed");
+        navToggle.setAttribute("aria-expanded", String(!collapsed));
+        navToggle.setAttribute("aria-label", collapsed ? "Expand navigation and reduce report content" : "Collapse navigation and expand report content");
+        navToggle.title = collapsed ? "Expand navigation and reduce report content" : "Collapse navigation and expand report content";
+      });
+      document.getElementById("report-expand-all").addEventListener("click", function () {
+        sections.forEach(function (section) { section.open = true; });
+      });
+      document.getElementById("report-collapse-all").addEventListener("click", function () {
+        sections.forEach(function (section) { section.open = false; });
+      });
+      document.getElementById("report-theme-toggle").addEventListener("click", function () {
+        var dark = body.classList.toggle("report-dark");
+        body.classList.toggle("report-light", !dark);
+      });
+
+      function inspectImage(image) {
+        preview.src = image.currentSrc || image.src;
+        preview.alt = image.alt || "Report image";
+        caption.textContent = image.alt || image.closest(".asset")?.querySelector("span")?.textContent || "Report image";
+        if (typeof modal.showModal === "function") modal.showModal();
+        else modal.setAttribute("open", "");
+      }
+      document.querySelectorAll("main img").forEach(function (image) {
+        image.tabIndex = 0;
+        image.setAttribute("role", "button");
+        image.setAttribute("aria-label", "Inspect " + (image.alt || "report image"));
+        image.addEventListener("click", function () { inspectImage(image); });
+        image.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); inspectImage(image); }
+        });
+      });
+      document.getElementById("report-image-close").addEventListener("click", function () { modal.close(); });
+      modal.addEventListener("click", function (event) { if (event.target === modal) modal.close(); });
+      window.addEventListener("beforeprint", function () {
+        printState = sections.map(function (section) { return section.open; });
+        sections.forEach(function (section) { section.open = true; });
+      });
+      window.addEventListener("afterprint", function () {
+        sections.forEach(function (section, index) { section.open = printState[index] !== false; });
+      });
+    }());
   </script></body></html>`;
 }
 
@@ -227,7 +393,7 @@ function reportHeader(data: ReportData): string {
 }
 
 function summaryMetrics(data: ReportData): string {
-  return `<details class="page report-section" open>
+  return `<details class="page report-section">
     <summary>Summary Metrics</summary>
     <div class="report-body">
     <p class="kicker">Summary Metrics</p>
@@ -246,7 +412,7 @@ function keywordGeneral(data: ReportData): string {
   const keywordUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=relevancy`;
   const topSalesUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=sales`;
   const filters = projectSearchFilters(data);
-  return `<details class="page report-section" open>
+  return `<details class="page report-section">
     <summary>Keyword General</summary>
     <div class="report-body">
       <h2>Keyword General</h2>
@@ -283,7 +449,7 @@ function _cover(data: ReportData): string {
 
 function _keywordRelevance(data: ReportData): string {
   const keywordUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=relevancy`;
-  return `<details class="page report-section" open>
+  return `<details class="page report-section">
     <summary>Keyword General - Relevance</summary>
     <div class="report-body">
     <p class="kicker">Keyword General Relevance</p>
@@ -298,7 +464,7 @@ function _keywordRelevance(data: ReportData): string {
 
 function _topSales(data: ReportData): string {
   const topSalesUrl = `https://shopee.co.id/search?keyword=${encodeURIComponent(data.project.keyword)}&page=0&sortBy=sales`;
-  return `<details class="page report-section" open>
+  return `<details class="page report-section">
     <summary>Keyword General - Top Sales</summary>
     <div class="report-body">
     <p class="kicker">Top Sales</p>
@@ -312,8 +478,8 @@ function _topSales(data: ReportData): string {
 }
 
 function keyProductTable(data: ReportData): string {
-  const products = keyProductsForReport(data.products);
-  return `<details class="page report-section" open>
+  const products = keyProductsForReport(data);
+  return `<details class="page report-section">
     <summary>Key Product</summary>
     <div class="report-body">
     <p class="kicker">Key Product</p>
@@ -368,7 +534,7 @@ function productDossiers(data: ReportData, enabled: Set<string>): string {
   const showReviews = legacy || enabled.has("productDetailReviews");
   const showUserMedia = legacy || enabled.has("productDetailUserMedia");
   const showShopHome = legacy || enabled.has("productDetailShopHomePage");
-  return keyProductsForReport(data.products)
+  return keyProductsForReport(data)
     .map((product, index) => {
       const productAssets = data.assets.filter(
         (asset) => asset.ownerType === "PRODUCT" && asset.ownerId === product.id
@@ -401,8 +567,8 @@ function productDossiers(data: ReportData, enabled: Set<string>): string {
         ...productAssets.filter((asset) => asset.kind === "STORE_HOME"),
         ...storeAssets.filter((asset) => asset.kind === "STORE_HOME")
       ];
-      return `<details class="page report-section" open>
-        <summary>Product ${index + 1}</summary>
+      return `<details class="page report-section" data-report-nav-parent="Product Detail" data-report-nav-label="${escapeAttribute(product.title)}">
+        <summary>${escapeHtml(product.title)}</summary>
         <div class="report-body">
         <p class="kicker">Product ${index + 1}</p>
         <h2>${escapeHtml(product.title)}</h2>
@@ -433,17 +599,12 @@ function keyStoreReport(data: ReportData, enabled: Set<string>): string {
   const showVisualStyle = legacy || enabled.has("keyStoreVisualStyle");
   const showTikTok = enabled.has("tiktokEvidence");
   if (data.stores.length === 0) {
-    return `<details class="page report-section" open>
+    return `<details class="page report-section">
       <summary>Key Store Page List</summary>
       <div class="report-body"><p class="muted">No collected store evidence is available yet.</p></div>
     </details>`;
   }
-  return `<details class="page report-section" open>
-    <summary>Key Store Page List</summary>
-    <div class="report-body">
-      <p class="kicker">Key Store Page List</p>
-      <h2>Collected Store Pages</h2>
-      ${data.stores.map((store) => storeReport(data, store, {
+  return data.stores.map((store) => storeReport(data, store, {
         showHome,
         showData,
         showCategories,
@@ -451,9 +612,7 @@ function keyStoreReport(data: ReportData, enabled: Set<string>): string {
         showBestSellers,
         showVisualStyle,
         showTikTok
-      })).join("")}
-    </div>
-  </details>`;
+      })).join("");
 }
 
 function storeReport(
@@ -475,7 +634,7 @@ function storeReport(
   const storeBestSellers = reportStoreProducts(data, store, "Store Best Sellers");
   const categories = safeJson<string[]>(store.categoriesJson, []);
   const ratingSamples = reportStoreRatingSamples(store);
-  return `<details class="store-report" open>
+  return `<details class="page report-section store-report" data-report-nav-parent="Key Store Page List" data-report-nav-label="${escapeAttribute(store.name)}">
     <summary>${escapeHtml(store.name)}</summary>
     <div class="report-body">
       <h2>${escapeHtml(store.name)}</h2>
@@ -542,7 +701,7 @@ function storeCategoryTable(categories: string[]): string {
 }
 
 function _reviewEvidence(data: ReportData): string {
-  return `<details class="page report-section" open>
+  return `<details class="page report-section">
     <summary>Reviews</summary>
     <div class="report-body">
     <p class="kicker">Reviews</p>
@@ -566,7 +725,7 @@ function _reviewEvidence(data: ReportData): string {
 }
 
 function _storeOverview(data: ReportData): string {
-  return `<details class="page report-section" open>
+  return `<details class="page report-section">
     <summary>Key Store Overview</summary>
     <div class="report-body">
     <p class="kicker">Key Stores</p>
@@ -602,7 +761,7 @@ function _storeDossiers(data: ReportData): string {
   return data.stores
     .map((store) => {
       const assets = data.assets.filter((asset) => asset.ownerType === "STORE" && asset.ownerId === store.id);
-      return `<details class="page report-section" open>
+      return `<details class="page report-section">
         <summary>Key Store - ${escapeHtml(store.name)}</summary>
         <div class="report-body">
         <p class="kicker">Store Homepage</p>
@@ -628,7 +787,7 @@ function _storeDossiers(data: ReportData): string {
 }
 
 function _visualStyle(data: ReportData): string {
-  return `<details class="page report-section" open>
+  return `<details class="page report-section">
     <summary>Visual Shop Banner</summary>
     <div class="report-body">
     <p class="kicker">Visual Shop Banner</p>
@@ -884,7 +1043,8 @@ function productMatchesStore(product: ReportData["products"][number], store: Rep
   return Boolean(product.storeName && product.storeName.toLowerCase() === store.name.toLowerCase());
 }
 
-function keyProductsForReport(products: ReportData["products"]): ReportData["products"] {
+function keyProductsForReport(data: ReportData): ReportData["products"] {
+  const products = data.products;
   const merged = new Map<string, ReportData["products"][number]>();
   for (const product of products.filter((item) => !item.source?.startsWith("Store Products") && !item.source?.startsWith("Store Best Sellers"))) {
     const key = productIdentity(product);
@@ -896,6 +1056,23 @@ function keyProductsForReport(products: ReportData["products"]): ReportData["pro
     merged.set(key, mergeReportProductSignals(existing, product));
   }
   const candidates = [...merged.values()].filter((product) => product.title && product.productUrl);
+  const state = safeJson<{
+    qualifiedProductIds?: string[];
+    qualifiedProductReferences?: Array<{ productId?: string; productUrl?: string; fallbackIdentity: string; manuallyAdded?: boolean }>;
+    qualifiedProductsInitialized?: boolean;
+  }>(data.project.collectionStateJson, {});
+  if (state.qualifiedProductReferences?.length) {
+    return resolveQualifiedProductReferences(candidates, state.qualifiedProductReferences);
+  }
+  if (state.qualifiedProductsInitialized) {
+    return (state.qualifiedProductIds ?? []).flatMap((id) => {
+      const direct = candidates.find((product) => product.id === id);
+      if (direct) return [direct];
+      const saved = products.find((product) => product.id === id);
+      const canonical = saved ? candidates.find((product) => sameQualifiedProduct(product, saved)) : undefined;
+      return canonical ? [canonical] : [];
+    });
+  }
   return candidates
     .sort((left, right) => businessSelectionScore(right, candidates) - businessSelectionScore(left, candidates))
     .slice(0, 10);
@@ -1184,7 +1361,7 @@ function sameReportUrl(left: string, right: string): boolean {
 }
 
 function crossPlatformEvidence(data: ReportData): string {
-  return `<details class="page report-section" open>
+  return `<details class="page report-section">
     <summary>TikTok Evidence</summary>
     <div class="report-body">
     <p class="kicker">Cross Platform Evidence</p>
@@ -1200,7 +1377,7 @@ function aiRecommendations(data: ReportData): string {
   const latestAnalysis = analyses.length > 0 ? analyses[analyses.length - 1] : null;
   const matrix = latestAnalysis ? intelligenceCompetitionMatrix(latestAnalysis, data) : [];
   const insights = latestAnalysis ? intelligenceCategoryInsights(latestAnalysis) : [];
-  return `<details class="page report-section" open>
+  return `<details class="page report-section">
     <summary>Intelligence and Recommendations</summary>
     <div class="report-body">
     <p class="kicker">Specialist Assessment</p>
@@ -1237,7 +1414,7 @@ function intelligenceCompetitionMatrix(analysis: AiAnalysisJson, data: ReportDat
   if (Array.isArray(analysis.keywordCompetitionMatrix) && analysis.keywordCompetitionMatrix.length > 0) {
     return analysis.keywordCompetitionMatrix.slice(0, 10);
   }
-  const products = keyProductsForReport(data.products);
+  const products = keyProductsForReport(data);
   return products.map((product) => ({
     productName: product.title,
     priceRange: formatCurrency(product.priceAverage),

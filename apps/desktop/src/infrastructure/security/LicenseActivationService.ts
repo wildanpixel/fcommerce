@@ -26,6 +26,7 @@ type LicenseClaims = {
   issuedAt: string;
   expiresAt: string;
   product: string;
+  productVersion?: string;
 };
 
 type StoredActivation = {

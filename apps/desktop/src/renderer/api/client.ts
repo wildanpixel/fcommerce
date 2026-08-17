@@ -6,6 +6,7 @@ import type {
   AndroidStartPayload,
   AndroidToolStatus,
   AndroidVisibleTextResult,
+  AnalyzeProjectPayload,
   BulkReportGenerationPayload,
   BulkReportGenerationResult,
   CollectionState,
@@ -119,10 +120,10 @@ export const apiClient = {
       method: "PUT",
       body: JSON.stringify(payload)
     }),
-  analyzeProject: (projectId: string) =>
+  analyzeProject: (projectId: string, payload: AnalyzeProjectPayload) =>
     request<{ ok: true; analysisId: string; provider: string }>(`/projects/${projectId}/analyze`, {
       method: "POST",
-      body: JSON.stringify({})
+      body: JSON.stringify(payload)
     }),
   deleteProject: (projectId: string) =>
     request<{ ok: true }>(`/projects/${projectId}`, {

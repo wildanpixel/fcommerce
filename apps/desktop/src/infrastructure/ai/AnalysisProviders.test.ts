@@ -80,6 +80,7 @@ describe("LocalHeuristicAnalysisService", () => {
 describe("CompositeAIAnalysisService evidence translation", () => {
   it("keeps source evidence when no AI provider is configured", async () => {
     const settings = {
+      get: async () => ({ openAiModel: "gpt-5-mini", geminiModel: "gemini-3.6-flash", claudeModel: "claude-sonnet-5" }),
       getSecret: async () => undefined
     } as unknown as SettingsRepository;
     const service = new CompositeAIAnalysisService(settings);
@@ -93,6 +94,7 @@ describe("CompositeAIAnalysisService evidence translation", () => {
 
   it("keeps translated evidence aligned with the requested order", async () => {
     const settings = {
+      get: async () => ({ openAiModel: "gpt-5-mini", geminiModel: "gemini-3.6-flash", claudeModel: "claude-sonnet-5" }),
       getSecret: async (provider: string) => provider === "openai" ? "test-key" : undefined
     } as unknown as SettingsRepository;
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
@@ -105,5 +107,55 @@ describe("CompositeAIAnalysisService evidence translation", () => {
       translated: true,
       provider: "openai"
     });
+  });
+});
+
+describe("CompositeAIAnalysisService provider selection", () => {
+  it("calls the selected configured Claude model and returns an LLM result", async () => {
+    const input: AnalysisInput = {
+      projectId: "project-claude",
+      subjectType: "PROJECT",
+      keyword: "body lotion",
+      language: "en-US",
+      screenshotPaths: [],
+      products: [{
+        marketplace: "SHOPEE_ID",
+        rank: 1,
+        source: "Top Sales",
+        title: "Qualified body lotion",
+        url: "https://shopee.co.id/qualified-body-lotion-i.1.2",
+        price: { average: 99_000, currency: "IDR" },
+        rating: 4.9,
+        monthlySold: 1_000,
+        mallStatus: true,
+        officialStatus: true,
+        starSeller: false,
+        variants: [],
+        specifications: {},
+        images: [],
+        videos: [],
+        raw: {}
+      }],
+      stores: [],
+      reviews: []
+    };
+    const providerResult = new LocalHeuristicAnalysisService().analyze(input);
+    const settings = {
+      get: async () => ({ openAiModel: "gpt-5-mini", geminiModel: "gemini-3.6-flash", claudeModel: "claude-sonnet-5" }),
+      getSecret: async (provider: string) => provider === "claude" ? "claude-test-key" : undefined
+    } as unknown as SettingsRepository;
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({
+      content: [{ type: "text", text: JSON.stringify(providerResult) }]
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new CompositeAIAnalysisService(settings).analyze(input, {
+      provider: "claude",
+      model: "claude-sonnet-5"
+    });
+
+    expect(result.provider).toBe("claude:claude-sonnet-5");
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { model: string };
+    expect(requestBody.model).toBe("claude-sonnet-5");
   });
 });

@@ -240,7 +240,7 @@ export function ReportContentSettingsPage({
                   </div>
                   {intelligenceLocked ? (
                     <div className="mio-report-intelligence-note">
-                      {translate(language, "Configure OpenAI or Gemini to enable specialist intelligence recommendations.")}
+                      {translate(language, "Configure OpenAI, Gemini, or Claude to enable specialist intelligence recommendations.")}
                     </div>
                   ) : null}
                 </section>

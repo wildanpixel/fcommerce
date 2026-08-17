@@ -39,6 +39,9 @@ async function createWindow(): Promise<void> {
     height: 880,
     minWidth: 1120,
     minHeight: 720,
+    ...(process.platform === "win32" && !app.isPackaged
+      ? { icon: join(currentDir, "..", "..", "buildResources", "icon.png") }
+      : {}),
     backgroundColor: "#171717",
     title: "Research Product Market",
     autoHideMenuBar: process.platform !== "darwin",

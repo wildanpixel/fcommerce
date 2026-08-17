@@ -28,6 +28,7 @@ import type {
   AndroidInstallPayload,
   AndroidStartPayload,
   AndroidVisibleTextResult,
+  AnalyzeProjectPayload,
   BulkReportGenerationPayload,
   BulkReportGenerationResult,
   CollectionState,
@@ -46,7 +47,9 @@ import type {
   EvidenceTranslationResult,
   SaveSettingsPayload
 } from "../shared/contracts.js";
-import type { ProductDetail, ReviewEvidence, StoreProfile } from "../domain/models.js";
+import type { AiAnalysisJson, ProductDetail, ReviewEvidence, StoreProfile } from "../domain/models.js";
+import { normalizeStoreCategoryLabels } from "../shared/storeCategories.js";
+import { resolveQualifiedProductReferences, sameQualifiedProduct } from "../renderer/qualifiedProducts.js";
 import { ProjectService } from "../application/services/ProjectService.js";
 import { JobQueue } from "../application/services/JobQueue.js";
 import { IntelligenceWorkflow } from "../application/services/IntelligenceWorkflow.js";
@@ -155,8 +158,17 @@ const settingsSchema = z.object({
   concurrency: z.number().int().min(1).max(5),
   reportFilenameTemplate: z.string().min(1),
   reportSectionOrder: z.array(z.enum([...REPORT_SECTION_ORDER, ...LEGACY_REPORT_SECTION_IDS])),
+  openAiModel: z.string().trim().min(1).max(120),
+  geminiModel: z.string().trim().min(1).max(120),
+  claudeModel: z.string().trim().min(1).max(120),
   openAiApiKey: z.string().optional(),
-  geminiApiKey: z.string().optional()
+  geminiApiKey: z.string().optional(),
+  claudeApiKey: z.string().optional()
+});
+
+const analyzeProjectSchema = z.object({
+  provider: z.enum(["openai", "gemini", "claude"]),
+  model: z.string().trim().min(1).max(120)
 });
 
 const reportSectionIdSchema = z.enum([...REPORT_SECTION_ORDER, ...LEGACY_REPORT_SECTION_IDS]);
@@ -303,6 +315,7 @@ const collectionStateSchema = z.object({
   storeCollectionCandidates: z.array(storeCollectionCandidateSchema).max(50).optional(),
   storeListInitialized: z.boolean().optional(),
   storeListApproved: z.boolean().optional(),
+  manualCompletionContexts: z.record(z.string().trim().min(1).max(2_000)).optional(),
   savedAt: z.string().optional()
 });
 
@@ -503,6 +516,7 @@ export function createApp(): Express {
       storeCollectionCandidates: input.storeCollectionCandidates,
       storeListInitialized: input.storeListInitialized,
       storeListApproved: input.storeListApproved,
+      manualCompletionContexts: input.manualCompletionContexts,
       savedAt: input.savedAt ?? new Date().toISOString()
     };
     response.json(await dependencies.projectRepository.updateCollectionState(params.id, state));
@@ -510,13 +524,14 @@ export function createApp(): Express {
 
   app.post("/api/projects/:id/analyze", asyncRoute(async (request, response) => {
     const input = z.object({ id: z.string().uuid() }).parse(request.params);
+    const selection = analyzeProjectSchema.parse(request.body) satisfies AnalyzeProjectPayload;
     const project = await dependencies.projectRepository.get(input.id);
     if (!project) {
       response.status(404).json({ error: "Project not found" });
       return;
     }
     const data = await dependencies.reportDataLoader.load(input.id);
-    const analysis = await dependencies.ai.analyze(toAnalysisInput(data));
+    const analysis = await dependencies.ai.analyze(toAnalysisInput(data), selection);
     const analysisId = await dependencies.intelligenceRepository.saveAnalysis(input.id, analysis);
     await dependencies.logRepository.write({
       projectId: input.id,
@@ -891,6 +906,9 @@ export function createApp(): Express {
     if (input.geminiApiKey) {
       await dependencies.settings.saveSecret("gemini", input.geminiApiKey);
     }
+    if (input.claudeApiKey) {
+      await dependencies.settings.saveSecret("claude", input.claudeApiKey);
+    }
     const saved = await dependencies.settings.save({
       marketplace: input.marketplace,
       theme: input.theme,
@@ -901,8 +919,12 @@ export function createApp(): Express {
       concurrency: input.concurrency,
       reportFilenameTemplate: input.reportFilenameTemplate,
       reportSectionOrder: input.reportSectionOrder,
+      openAiModel: input.openAiModel,
+      geminiModel: input.geminiModel,
+      claudeModel: input.claudeModel,
       openAiKeyConfigured: Boolean(input.openAiApiKey),
-      geminiKeyConfigured: Boolean(input.geminiApiKey)
+      geminiKeyConfigured: Boolean(input.geminiApiKey),
+      claudeKeyConfigured: Boolean(input.claudeApiKey)
     });
     dependencies.queue.setConcurrency(saved.concurrency);
     response.json(saved);
@@ -922,7 +944,8 @@ export function createApp(): Express {
     const input = reportSchema.parse(request.body) satisfies ReportGenerationPayload;
     const preparedInput = await prepareReportPayload(dependencies, input);
     const generated = await dependencies.reports.generate(preparedInput);
-    if (preparedInput.formats?.includes("DOCX")) {
+    const formats = new Set(preparedInput.formats ?? ["PDF", "HTML"]);
+    if (formats.has("DOCX") || formats.has("PDF")) {
       const data = await translateReportData(
         await dependencies.reportDataLoader.load(preparedInput.projectId),
         preparedInput.language,
@@ -930,6 +953,15 @@ export function createApp(): Express {
       );
       const docxPath = generated.htmlPath.replace(/\.html$/iu, ".docx");
       await writeFile(docxPath, await dependencies.docxReports.render(data, preparedInput));
+      if (formats.has("PDF")) {
+        await rm(generated.pdfPath, { force: true });
+        try {
+          await dependencies.pdfReports.exportDocx(docxPath, generated.pdfPath);
+        } catch (error) {
+          await dependencies.reportRepository.markFailed(generated.reportId);
+          throw error;
+        }
+      }
       response.status(201).json({ ...generated, docxPath });
       return;
     }
@@ -961,6 +993,22 @@ export function createApp(): Express {
       const generated = await dependencies.reports.generate(preparedInput);
       archiveDirectory ??= dirname(generated.htmlPath);
       const fileStem = `${slug(data.project.name)}-${projectId.slice(0, 8)}`;
+      const docxPath = generated.htmlPath.replace(/\.html$/iu, ".docx");
+      const docx = formats.has("DOCX") || formats.has("PDF")
+        ? await dependencies.docxReports.render(data, preparedInput)
+        : undefined;
+      if (docx) {
+        await writeFile(docxPath, docx);
+      }
+      if (formats.has("PDF")) {
+        await rm(generated.pdfPath, { force: true });
+        try {
+          await dependencies.pdfReports.exportDocx(docxPath, generated.pdfPath);
+        } catch (error) {
+          await dependencies.reportRepository.markFailed(generated.reportId);
+          throw error;
+        }
+      }
 
       if (formats.has("HTML")) {
         archive.file(`${fileStem}.html`, await readFile(generated.htmlPath));
@@ -971,8 +1019,7 @@ export function createApp(): Express {
         fileCount += 1;
       }
       if (formats.has("DOCX")) {
-        const docx = await dependencies.docxReports.render(data, preparedInput);
-        archive.file(`${fileStem}.docx`, docx);
+        archive.file(`${fileStem}.docx`, docx!);
         fileCount += 1;
       }
     }
@@ -1022,20 +1069,38 @@ export function createApp(): Express {
       response.status(404).json({ error: "Report HTML not found" });
       return;
     }
+    const docxPath = report.htmlPath.replace(/\.html$/iu, ".docx");
+    const existingDocx = await stat(docxPath).catch(() => undefined);
+    if (existingDocx?.isFile() && existingDocx.size > 0) {
+      response.json({ ok: true, reportId: report.id, docxPath });
+      return;
+    }
     const data = await translateReportData(
       await dependencies.reportDataLoader.load(report.projectId),
       report.language,
       dependencies.ai
     );
-    const docxPath = report.htmlPath.replace(/\.html$/iu, ".docx");
-    await writeFile(docxPath, await dependencies.docxReports.render(data, {
+    const docx = await dependencies.docxReports.render(data, {
       projectId: report.projectId,
       templateId: report.templateId,
       sections: report.sections ?? DEFAULT_REPORT_SECTIONS,
       formats: report.formats,
       language: report.language
-    }));
-    response.json({ ok: true, reportId: report.id, docxPath });
+    });
+    let previewPath = docxPath;
+    try {
+      await writeFile(previewPath, docx);
+    } catch (error) {
+      const lockedDocx = await stat(docxPath).catch(() => undefined);
+      if (lockedDocx?.isFile() && lockedDocx.size > 0) {
+        response.json({ ok: true, reportId: report.id, docxPath });
+        return;
+      }
+      if ((error as NodeJS.ErrnoException).code !== "EBUSY") throw error;
+      previewPath = docxPath.replace(/\.docx$/iu, `.preview-${Date.now()}.docx`);
+      await writeFile(previewPath, docx);
+    }
+    response.json({ ok: true, reportId: report.id, docxPath: previewPath });
   }));
 
   app.delete("/api/reports/:id", asyncRoute(async (request, response) => {
@@ -1098,6 +1163,7 @@ function createDependencies() {
   );
   const ai = new CompositeAIAnalysisService(settingsRepository);
   const reportDataLoader = new PrismaReportDataLoader(prisma);
+  const pdfReports = new PuppeteerPdfExporter();
   const workflow = new IntelligenceWorkflow(
     marketplaces,
     projectRepository,
@@ -1127,12 +1193,13 @@ function createDependencies() {
       reportRepository,
       new PrismaReportDataAdapter(reportDataLoader),
       new ConsultingHtmlReportRenderer(),
-      new PuppeteerPdfExporter(),
+      pdfReports,
       workspace,
       ai
     ),
     ai,
     docxReports: new ConsultingDocxReportExporter(),
+    pdfReports,
     reportDataLoader,
     reportRepository
   };
@@ -1143,7 +1210,7 @@ async function prepareReportPayload(
   input: ReportGenerationPayload
 ): Promise<ReportGenerationPayload> {
   const settings = await dependencies.settings.get();
-  const aiConfigured = settings.openAiKeyConfigured || settings.geminiKeyConfigured;
+  const aiConfigured = settings.openAiKeyConfigured || settings.geminiKeyConfigured || settings.claudeKeyConfigured;
   const sections = input.sections.map((section) =>
     section.id === "intelligence" && !aiConfigured
       ? { ...section, enabled: false }
@@ -1155,15 +1222,46 @@ async function prepareReportPayload(
   }
 
   const data = await dependencies.reportDataLoader.load(input.projectId);
-  const analysis = await dependencies.ai.analyze({
-    ...toAnalysisInput(data),
-    language: input.language ?? data.project.language
-  });
-  await dependencies.intelligenceRepository.saveAnalysis(input.projectId, analysis);
+  if (hasSavedProjectAnalysis(data)) {
+    return preparedInput;
+  }
+
+  try {
+    const analysis = await dependencies.ai.analyze({
+      ...toAnalysisInput(data),
+      language: input.language ?? data.project.language
+    });
+    await dependencies.intelligenceRepository.saveAnalysis(input.projectId, analysis);
+  } catch (error) {
+    await dependencies.logRepository.write({
+      projectId: input.projectId,
+      level: "WARN",
+      message: "Report generated without a new AI Matrix result.",
+      context: {
+        error: error instanceof Error ? error.message : String(error)
+      }
+    });
+  }
   return preparedInput;
 }
 
+export function hasSavedProjectAnalysis(data: Pick<ReportData, "analyses">): boolean {
+  return data.analyses.some((analysis) => {
+    if (analysis.subjectType !== "PROJECT") return false;
+    const result = safeParseJson<Partial<AiAnalysisJson> | null>(analysis.resultJson, null);
+    return Boolean(
+      result &&
+      result.subjectType === "PROJECT" &&
+      typeof result.provider === "string" &&
+      Array.isArray(result.keywordCompetitionMatrix) &&
+      Array.isArray(result.synthesizedCategoryInsights)
+    );
+  });
+}
+
 function toAnalysisInput(data: ReportData): AnalysisInput {
+  const selectedProducts = analysisProductsForProject(data);
+  const selectedProductIds = new Set(selectedProducts.map((product) => product.id));
   return {
     projectId: data.project.id,
     subjectType: "PROJECT",
@@ -1171,8 +1269,9 @@ function toAnalysisInput(data: ReportData): AnalysisInput {
     language: data.project.language,
     screenshotPaths: data.assets
       .filter((asset) => asset.path.toLowerCase().endsWith(".png"))
+      .filter((asset) => !asset.ownerId || asset.ownerType !== "PRODUCT" || selectedProductIds.has(asset.ownerId))
       .map((asset) => asset.path),
-    products: data.products.map((product, index) => ({
+    products: selectedProducts.map((product, index) => ({
       marketplace: "SHOPEE_ID",
       rank: product.rank ?? index + 1,
       source: product.source ?? undefined,
@@ -1199,7 +1298,7 @@ function toAnalysisInput(data: ReportData): AnalysisInput {
       videos: safeParseJson<{ videos?: string[] }>(product.rawJson, {}).videos ?? [],
       raw: safeParseJson<Record<string, unknown>>(product.rawJson, {})
     })),
-    stores: data.stores.map((store) => ({
+    stores: data.stores.slice(0, 20).map((store) => ({
       marketplace: "SHOPEE_ID",
       name: store.name,
       url: store.url,
@@ -1230,6 +1329,38 @@ function toAnalysisInput(data: ReportData): AnalysisInput {
       raw: {}
     }))
   };
+}
+
+function analysisProductsForProject(data: ReportData): ReportData["products"] {
+  const candidates = data.products.filter((product) =>
+    !product.source?.startsWith("Store Products") &&
+    !product.source?.startsWith("Store Best Sellers") &&
+    Boolean(product.title && product.productUrl)
+  );
+  const state = safeParseJson<{
+    qualifiedProductIds?: string[];
+    qualifiedProductReferences?: Array<{ productId?: string; productUrl?: string; fallbackIdentity: string; manuallyAdded?: boolean }>;
+    qualifiedProductsInitialized?: boolean;
+  }>(data.project.collectionStateJson, {});
+  if (state.qualifiedProductReferences?.length) {
+    return resolveQualifiedProductReferences(candidates, state.qualifiedProductReferences).slice(0, 10);
+  }
+  if (state.qualifiedProductsInitialized) {
+    return (state.qualifiedProductIds ?? []).flatMap((id) => {
+      const direct = candidates.find((product) => product.id === id);
+      if (direct) return [direct];
+      const saved = data.products.find((product) => product.id === id);
+      const canonical = saved ? candidates.find((product) => sameQualifiedProduct(product, saved)) : undefined;
+      return canonical ? [canonical] : [];
+    }).slice(0, 10);
+  }
+  return [...candidates]
+    .sort((left, right) => {
+      const sourcePriority = (product: ReportData["products"][number]) => product.source === "Top Sales" ? 0 : product.source === "Relevance" ? 1 : 2;
+      return sourcePriority(left) - sourcePriority(right) || (left.rank ?? 999) - (right.rank ?? 999);
+    })
+    .filter((product, index, products) => products.findIndex((candidate) => sameQualifiedProduct(candidate, product)) === index)
+    .slice(0, 10);
 }
 
 function safeParseJson<T>(value: string, fallback: T): T {
@@ -2196,9 +2327,11 @@ function extractStoreProfile(input: ManualEvidencePayload, projectId: string): S
     chatResponse: structured?.chatResponse ?? findLine(text, ["chat", "response", "respon"]),
     joinedDate: normalizeJoinedAge(structured?.joinedDate ?? findLine(text, ["joined", "bergabung"])),
     description: structured?.description,
-    categories: structured?.categories.length
-      ? structured.categories
-      : extractSectionKeywords(text, ["kategori", "category"], 8),
+    categories: normalizeStoreCategoryLabels(
+      structured?.categories.length
+        ? structured.categories
+        : extractSectionKeywords(text, ["kategori", "category"], 8)
+    ),
     voucherCount: voucherLine ? Math.max(1, countOccurrences(text, /voucher/giu)) : undefined,
     voucherTypes: voucherLine ? mergeUnique(extractSectionKeywords(text, ["voucher", "diskon", "cashback"], 8)) : [],
     featuredProducts: [],
@@ -2347,7 +2480,7 @@ function readStructuredStoreProfile(metadata?: Record<string, unknown>): Structu
     chatResponse: readString(raw.chatResponse),
     joinedDate: normalizeJoinedAge(readString(raw.joinedDate)),
     description: readString(raw.description),
-    categories: extractStringArray(raw.categories),
+    categories: normalizeStoreCategoryLabels(extractStringArray(raw.categories)),
     ratingSamples,
     bannerUrls: extractStringArray(raw.bannerUrls)
   };

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AnalysisInput, AIAnalysisService } from "../../application/services/AIAnalysisService.js";
 import type { SettingsRepository } from "../../domain/repositories.js";
 import type { AiAnalysisJson } from "../../domain/models.js";
+import type { AIProvider, AnalyzeProjectPayload } from "../../shared/contracts.js";
 
 const recommendationSchema = z.object({
   priority: z.enum(["HIGH", "MEDIUM", "LOW"]),
@@ -76,7 +77,7 @@ const translationResponseSchema = z.object({
 export type EvidenceTranslationResult = {
   translations: string[];
   translated: boolean;
-  provider: "openai" | "gemini" | "source" | "unavailable";
+  provider: AIProvider | "source" | "unavailable";
 };
 
 export class CompositeAIAnalysisService implements AIAnalysisService {
@@ -85,33 +86,38 @@ export class CompositeAIAnalysisService implements AIAnalysisService {
     private readonly local = new LocalHeuristicAnalysisService()
   ) {}
 
-  async analyze(input: AnalysisInput): Promise<AiAnalysisJson> {
-    const [openAiKey, geminiKey] = await Promise.all([
+  async analyze(input: AnalysisInput, selection?: AnalyzeProjectPayload): Promise<AiAnalysisJson> {
+    const [settings, openAiKey, geminiKey, claudeKey] = await Promise.all([
+      this.settings.get(),
       this.settings.getSecret("openai"),
-      this.settings.getSecret("gemini")
+      this.settings.getSecret("gemini"),
+      this.settings.getSecret("claude")
     ]);
+    const configured = [
+      openAiKey ? { provider: "openai" as const, key: openAiKey, model: settings.openAiModel } : undefined,
+      geminiKey ? { provider: "gemini" as const, key: geminiKey, model: settings.geminiModel } : undefined,
+      claudeKey ? { provider: "claude" as const, key: claudeKey, model: settings.claudeModel } : undefined
+    ].filter((item): item is { provider: AIProvider; key: string; model: string } => Boolean(item));
 
-    if (openAiKey) {
-      try {
-        return await requestOpenAI(openAiKey, input);
-      } catch {
-        if (!geminiKey) {
-          return this.local.analyze(input, ["OpenAI request failed; local analysis was used."]);
-        }
-      }
+    if (configured.length === 0) {
+      return this.local.analyze(input, ["No AI API key is configured; local deterministic analysis was used."]);
     }
 
-    if (geminiKey) {
-      try {
-        return await requestGemini(geminiKey, input);
-      } catch {
-        return this.local.analyze(input, ["Gemini request failed; local analysis was used."]);
-      }
+    const requested = selection
+      ? configured.find((item) => item.provider === selection.provider)
+      : configured[0];
+    if (!requested) {
+      throw new Error(`${selection?.provider ?? "Selected"} AI provider is not configured.`);
     }
-
-    return this.local.analyze(input, [
-      "No AI API key is configured; local deterministic analysis was used."
-    ]);
+    const model = selection?.model.trim() || requested.model;
+    try {
+      if (requested.provider === "openai") return await requestOpenAI(requested.key, model, input);
+      if (requested.provider === "gemini") return await requestGemini(requested.key, model, input);
+      return await requestClaude(requested.key, model, input);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${requested.provider} model ${model} did not generate a valid AI Matrix result. ${message}`);
+    }
   }
 
   async translateTexts(texts: string[], language: "id-ID" | "en-US" | "zh-CN"): Promise<EvidenceTranslationResult> {
@@ -120,15 +126,17 @@ export class CompositeAIAnalysisService implements AIAnalysisService {
       return { translations: sourceTexts, translated: false, provider: "source" };
     }
 
-    const [openAiKey, geminiKey] = await Promise.all([
+    const [settings, openAiKey, geminiKey, claudeKey] = await Promise.all([
+      this.settings.get(),
       this.settings.getSecret("openai"),
-      this.settings.getSecret("gemini")
+      this.settings.getSecret("gemini"),
+      this.settings.getSecret("claude")
     ]);
 
     if (openAiKey) {
       try {
         return {
-          translations: await requestOpenAITranslation(openAiKey, sourceTexts, language),
+          translations: await requestOpenAITranslation(openAiKey, settings.openAiModel, sourceTexts, language),
           translated: true,
           provider: "openai"
         };
@@ -140,9 +148,21 @@ export class CompositeAIAnalysisService implements AIAnalysisService {
     if (geminiKey) {
       try {
         return {
-          translations: await requestGeminiTranslation(geminiKey, sourceTexts, language),
+          translations: await requestGeminiTranslation(geminiKey, settings.geminiModel, sourceTexts, language),
           translated: true,
           provider: "gemini"
+        };
+      } catch {
+        // Source evidence remains readable when provider translation is unavailable.
+      }
+    }
+
+    if (claudeKey) {
+      try {
+        return {
+          translations: await requestClaudeTranslation(claudeKey, settings.claudeModel, sourceTexts, language),
+          translated: true,
+          provider: "claude"
         };
       } catch {
         // Source evidence remains readable when provider translation is unavailable.
@@ -152,7 +172,7 @@ export class CompositeAIAnalysisService implements AIAnalysisService {
     return {
       translations: sourceTexts,
       translated: false,
-      provider: openAiKey || geminiKey ? "unavailable" : "source"
+      provider: openAiKey || geminiKey || claudeKey ? "unavailable" : "source"
     };
   }
 }
@@ -202,7 +222,7 @@ export class LocalHeuristicAnalysisService {
         score: input.screenshotPaths.length >= input.products.length ? 76 : 58,
         observations: [
           "Visual quality is inferred from captured product and store evidence.",
-          "AI vision scoring improves when OpenAI or Gemini keys are configured."
+          "AI vision scoring improves when OpenAI, Gemini, or Claude keys are configured."
         ]
       },
       voucherStrategy: {
@@ -284,7 +304,7 @@ export class LocalHeuristicAnalysisService {
           : "No screenshots were available, so visual conclusions use structured evidence only.",
         signals: [
           "Product clarity, brand consistency, hierarchy, and promotion visibility are the primary visual criteria.",
-          "Provider vision analysis can deepen these findings when an OpenAI or Gemini key is configured."
+          "Provider vision analysis can deepen these findings when an OpenAI, Gemini, or Claude key is configured."
         ]
       },
       painPoints: [
@@ -471,9 +491,9 @@ function formatCompetitionCount(value: number | undefined): string {
   return isNumber(value) ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(value) : "-";
 }
 
-async function requestOpenAI(apiKey: string, input: AnalysisInput): Promise<AiAnalysisJson> {
+async function requestOpenAI(apiKey: string, model: string, input: AnalysisInput): Promise<AiAnalysisJson> {
   const body = {
-    model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+    model,
     input: [
       {
         role: "user",
@@ -497,18 +517,20 @@ async function requestOpenAI(apiKey: string, input: AnalysisInput): Promise<AiAn
   }
   const json = (await response.json()) as OpenAIResponse;
   const text = extractOpenAIText(json);
-  return validateAnalysis(text, "openai", input);
+  return validateAnalysis(text, `openai:${model}`, input);
 }
 
-async function requestGemini(apiKey: string, input: AnalysisInput): Promise<AiAnalysisJson> {
-  const model = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+async function requestGemini(apiKey: string, model: string, input: AnalysisInput): Promise<AiAnalysisJson> {
   const parts = [{ text: buildPrompt(input, "Gemini") }, ...(await imageParts(input.screenshotPaths, "gemini"))];
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ role: "user", parts }] })
+      body: JSON.stringify({
+        contents: [{ role: "user", parts }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
     }
   );
   if (!response.ok) {
@@ -516,11 +538,34 @@ async function requestGemini(apiKey: string, input: AnalysisInput): Promise<AiAn
   }
   const json = (await response.json()) as GeminiResponse;
   const text = json.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n") ?? "";
-  return validateAnalysis(text, "gemini", input);
+  return validateAnalysis(text, `gemini:${model}`, input);
+}
+
+async function requestClaude(apiKey: string, model: string, input: AnalysisInput): Promise<AiAnalysisJson> {
+  const content = [
+    { type: "text", text: buildPrompt(input, "Claude") },
+    ...(await imageParts(input.screenshotPaths, "claude"))
+  ];
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ model, max_tokens: 12_000, messages: [{ role: "user", content }] })
+  });
+  if (!response.ok) {
+    throw new Error(`Claude analysis failed with status ${response.status}: ${await response.text().then((value) => value.slice(0, 500)).catch(() => "")}`);
+  }
+  const json = (await response.json()) as ClaudeResponse;
+  const text = json.content?.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n") ?? "";
+  return validateAnalysis(text, `claude:${model}`, input);
 }
 
 async function requestOpenAITranslation(
   apiKey: string,
+  model: string,
   texts: string[],
   language: "id-ID" | "en-US" | "zh-CN"
 ): Promise<string[]> {
@@ -531,7 +576,7 @@ async function requestOpenAITranslation(
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+      model,
       input: translationPrompt(texts, language)
     })
   });
@@ -544,10 +589,10 @@ async function requestOpenAITranslation(
 
 async function requestGeminiTranslation(
   apiKey: string,
+  model: string,
   texts: string[],
   language: "id-ID" | "en-US" | "zh-CN"
 ): Promise<string[]> {
-  const model = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
@@ -561,6 +606,33 @@ async function requestGeminiTranslation(
   }
   const json = (await response.json()) as GeminiResponse;
   const text = json.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n") ?? "";
+  return validateTranslations(text, texts);
+}
+
+async function requestClaudeTranslation(
+  apiKey: string,
+  model: string,
+  texts: string[],
+  language: "id-ID" | "en-US" | "zh-CN"
+): Promise<string[]> {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 8_000,
+      messages: [{ role: "user", content: translationPrompt(texts, language) }]
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Claude translation failed with status ${response.status}`);
+  }
+  const json = (await response.json()) as ClaudeResponse;
+  const text = json.content?.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n") ?? "";
   return validateTranslations(text, texts);
 }
 
@@ -591,6 +663,8 @@ function buildPrompt(input: AnalysisInput, provider: string): string {
     "Write every narrative, observation, and recommendation in the requested language.",
     "When citing marketplace comments or descriptions, translate their meaning while preserving product names, store names, SKUs, URLs, prices, dates, and measurements exactly.",
     "Give evidence-grounded commercial recommendations with a clear action, rationale, and priority. Avoid generic advice, filler, AI self-reference, and unsupported claims.",
+    "This request must produce the final analysis now. Do not describe how you would analyze it, ask questions, defer the task, or return an empty matrix.",
+    "Use only the supplied Facts object. Treat missing values as unavailable and never manufacture product names, prices, ratings, sales, reviews, stores, or claims.",
     "Build keywordCompetitionMatrix from the strongest available competitive products only. Return one row per available product, up to 10 rows, without inventing products or evidence.",
     "For each matrix row, make uspKeyClaim and shortDescription concise, commercially useful, and grounded in the supplied title, description, specifications, badges, sales, rating, and promotion evidence.",
     "Return exactly five synthesizedCategoryInsights covering: pricing architecture and tiering; competitive positioning and key claims; customer trust and rating signals; demand concentration and product momentum; category opportunities and recommended actions.",
@@ -599,11 +673,16 @@ function buildPrompt(input: AnalysisInput, provider: string): string {
     JSON.stringify(schemaExample()),
     "Use the screenshots as visual evidence when provided.",
     "Do not return markdown.",
+    "Populate every required schema property. The response is invalid if it contains prose outside the JSON object or omits a required property.",
     "Facts:",
     JSON.stringify(
       {
         products: input.products.map((product) => ({
           title: product.title,
+          url: product.url,
+          source: product.source,
+          rank: product.rank,
+          selectionReason: product.selectionReason,
           price: product.price,
           rating: product.rating,
           monthlySold: product.monthlySold,
@@ -684,7 +763,7 @@ function schemaExample(): AiAnalysisJson {
   };
 }
 
-async function imageParts(paths: string[], provider: "openai" | "gemini") {
+async function imageParts(paths: string[], provider: AIProvider) {
   const limited = paths.filter((path) => path.toLowerCase().endsWith(".png")).slice(0, 4);
   const parts: Array<Record<string, unknown>> = [];
   for (const path of limited) {
@@ -694,10 +773,19 @@ async function imageParts(paths: string[], provider: "openai" | "gemini") {
         type: "input_image",
         image_url: `data:image/png;base64,${data}`
       });
-    } else {
+    } else if (provider === "gemini") {
       parts.push({
         inlineData: {
           mimeType: "image/png",
+          data
+        }
+      });
+    } else {
+      parts.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
           data
         }
       });
@@ -765,5 +853,12 @@ type GeminiResponse = {
         text?: string;
       }>;
     };
+  }>;
+};
+
+type ClaudeResponse = {
+  content?: Array<{
+    type?: string;
+    text?: string;
   }>;
 };

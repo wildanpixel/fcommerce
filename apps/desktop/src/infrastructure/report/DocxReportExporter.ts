@@ -21,6 +21,7 @@ import type { ReportData } from "../../application/services/ReportService.js";
 import type { ReportGenerationPayload } from "../../shared/contracts.js";
 import { DEFAULT_REPORT_SECTIONS, type ReportSectionConfig } from "../../shared/reportSections.js";
 import { normalizeReportLanguage, reportText } from "../../shared/reportLocalization.js";
+import { resolveQualifiedProductReferences, sameQualifiedProduct } from "../../renderer/qualifiedProducts.js";
 
 type DocxChild = Paragraph | Table;
 type DocxCellValue = string | Paragraph | undefined;
@@ -188,7 +189,7 @@ function intelligenceCompetitionMatrix(analysis: AiAnalysisJson, data: ReportDat
   if (Array.isArray(analysis.keywordCompetitionMatrix) && analysis.keywordCompetitionMatrix.length > 0) {
     return analysis.keywordCompetitionMatrix.slice(0, 10);
   }
-  const products = keyProductsForReport(data.products);
+  const products = keyProductsForReport(data);
   return products.map((product) => ({
     productName: product.title,
     priceRange: formatCurrency(product.priceAverage),
@@ -255,7 +256,7 @@ async function productDetailSections(data: ReportData, sections: Set<ReportSecti
   const showUserMedia = legacy || sections.has("productDetailUserMedia");
   const showShopHome = legacy || sections.has("productDetailShopHomePage");
   const children: DocxChild[] = [sectionHeading("Product Detail")];
-  for (const [index, product] of keyProductsForReport(data.products).entries()) {
+  for (const [index, product] of keyProductsForReport(data).entries()) {
     const raw = safeJson<{
       imageUrl?: string;
       images?: string[];
@@ -437,7 +438,7 @@ function metricsTable(data: ReportData): Table {
 }
 
 function keyProductTable(data: ReportData): Table {
-  const rows = keyProductsForReport(data.products).map((product, index) => [
+  const rows = keyProductsForReport(data).map((product, index) => [
     String(index + 1),
     productSourcePlacement(product),
     selectionReasonForDisplay(product, data.products),
@@ -804,7 +805,8 @@ function spacer(): Paragraph {
   return new Paragraph({ children: [new TextRun({ text: "" })], spacing: { after: 120 } });
 }
 
-function keyProductsForReport(products: ReportData["products"]): ReportData["products"] {
+function keyProductsForReport(data: ReportData): ReportData["products"] {
+  const products = data.products;
   const merged = new Map<string, ReportData["products"][number]>();
   for (const product of products.filter((item) => !item.source?.startsWith("Store Products") && !item.source?.startsWith("Store Best Sellers"))) {
     const key = productIdentity(product);
@@ -816,6 +818,23 @@ function keyProductsForReport(products: ReportData["products"]): ReportData["pro
     merged.set(key, mergeReportProductSignals(existing, product));
   }
   const candidates = [...merged.values()].filter((product) => product.title && product.productUrl);
+  const state = safeJson<{
+    qualifiedProductIds?: string[];
+    qualifiedProductReferences?: Array<{ productId?: string; productUrl?: string; fallbackIdentity: string; manuallyAdded?: boolean }>;
+    qualifiedProductsInitialized?: boolean;
+  }>(data.project.collectionStateJson, {});
+  if (state.qualifiedProductReferences?.length) {
+    return resolveQualifiedProductReferences(candidates, state.qualifiedProductReferences);
+  }
+  if (state.qualifiedProductsInitialized) {
+    return (state.qualifiedProductIds ?? []).flatMap((id) => {
+      const direct = candidates.find((product) => product.id === id);
+      if (direct) return [direct];
+      const saved = products.find((product) => product.id === id);
+      const canonical = saved ? candidates.find((product) => sameQualifiedProduct(product, saved)) : undefined;
+      return canonical ? [canonical] : [];
+    });
+  }
   return candidates
     .sort((left, right) => businessSelectionScore(right, candidates) - businessSelectionScore(left, candidates))
     .slice(0, 10);
